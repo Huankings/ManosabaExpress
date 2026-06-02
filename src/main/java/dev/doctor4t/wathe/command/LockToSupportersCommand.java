@@ -10,15 +10,16 @@ import java.util.UUID;
 
 public class LockToSupportersCommand {
     public static void register(CommandDispatcher<ServerCommandSource> dispatcher) {
-        dispatcher.register(CommandManager.literal("wathe:lockToSupporters")
-                .requires(source -> source.getPlayer() != null && source.getPlayer().getUuid().equals(UUID.fromString("1b44461a-f605-4b29-a7a9-04e649d1981c")))
-                .then(CommandManager.argument("enabled", BoolArgumentType.bool())
-                        .executes(context -> execute(context.getSource(), BoolArgumentType.getBool(context, "enabled"))))
-        );
-    }
+    dispatcher.register(CommandManager.literal("wathe:lockToSupporters")
+            // 将 UUID 检查改为普通的管理员权限检查
+            .requires(source -> source.hasPermissionLevel(2)) 
+            .then(CommandManager.argument("enabled", BoolArgumentType.bool())
+                    .executes(context -> execute(context.getSource(), BoolArgumentType.getBool(context, "enabled"))))
+    );
+}
 
     private static int execute(ServerCommandSource source, boolean value) {
-        GameWorldComponent.KEY.get(source.getWorld()).setLockedToSupporters(value);
+        GameWorldComponent.KEY.get(source.getWorld()).setLockedToSupporters(false);
         return 1;
     }
 

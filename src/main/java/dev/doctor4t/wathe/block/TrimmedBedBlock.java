@@ -1,8 +1,8 @@
 package dev.doctor4t.wathe.block;
 
+import dev.doctor4t.wathe.api.bed.BedEffectRegistry;
 import dev.doctor4t.wathe.block_entity.TrimmedBedBlockEntity;
 import dev.doctor4t.wathe.index.WatheBlockEntities;
-import dev.doctor4t.wathe.index.WatheItems;
 import net.minecraft.block.*;
 import net.minecraft.block.entity.BlockEntity;
 import net.minecraft.block.entity.BlockEntityTicker;
@@ -125,27 +125,16 @@ public class TrimmedBedBlock extends BedBlock {
         if (world.isClient) {
             return ActionResult.CONSUME;
         } else {
-            if (!player.isCreative() && player.getStackInHand(Hand.MAIN_HAND).isOf(WatheItems.SCORPION)) {
-                TrimmedBedBlockEntity blockEntity = null;
-
-                if (world.getBlockEntity(pos) instanceof TrimmedBedBlockEntity firstBlockEntity) {
-                    if (world.getBlockState(pos).get(PART) == BedPart.HEAD)
-                        blockEntity = firstBlockEntity;
-                    else {
-                        BlockPos headPos = pos.offset(world.getBlockState(pos).get(FACING));
-                        if (world.getBlockEntity(headPos) instanceof TrimmedBedBlockEntity foundBlockEntity)
-                            blockEntity = foundBlockEntity;
-                    }
-                }
-
-                if (blockEntity != null) {
-                    if (!blockEntity.hasScorpion()) {
-                        blockEntity.setHasScorpion(true, player.getUuid());
-                        player.getStackInHand(Hand.MAIN_HAND).decrement(1);
-
-                        return ActionResult.SUCCESS;
-                    }
-                }
+            /*
+             * 床附加效果现在统一走 BedEffectRegistry。
+             * 这样原版蝎子和扩展职业模组的“塞床物品”都能共用同一条主交互链路，
+             * 不再需要各自 Mixin 覆写 TrimmedBedBlock.onUse。
+             */
+            if (!player.isCreative()
+                    && player instanceof net.minecraft.server.network.ServerPlayerEntity serverPlayer
+                    && BedEffectRegistry.resolveHead(world, pos) instanceof TrimmedBedBlockEntity headEntity
+                    && BedEffectRegistry.tryApplyHeldEffect(serverPlayer, headEntity, pos)) {
+                return ActionResult.SUCCESS;
             }
 
             if (state.get(PART) != BedPart.HEAD) {

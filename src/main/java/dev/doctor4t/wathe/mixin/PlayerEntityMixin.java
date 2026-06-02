@@ -6,6 +6,7 @@ import com.llamalad7.mixinextras.injector.wrapmethod.WrapMethod;
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.mojang.datafixers.util.Either;
 import dev.doctor4t.wathe.api.Role;
+import dev.doctor4t.wathe.api.bed.BedEffectRegistry;
 import dev.doctor4t.wathe.api.event.AllowPlayerPunching;
 import dev.doctor4t.wathe.cca.GameWorldComponent;
 import dev.doctor4t.wathe.cca.PlayerMoodComponent;
@@ -16,8 +17,9 @@ import dev.doctor4t.wathe.index.WatheDataComponentTypes;
 import dev.doctor4t.wathe.index.WatheItems;
 import dev.doctor4t.wathe.index.WatheSounds;
 import dev.doctor4t.wathe.item.CocktailItem;
-import dev.doctor4t.wathe.util.PoisonUtils;
+import dev.doctor4t.wathe.record.GameRecordManager;
 import dev.doctor4t.wathe.util.Scheduler;
+import dev.doctor4t.wathe.util.TrayEffectUtils;
 import net.minecraft.component.type.FoodComponent;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.EntityType;
@@ -73,9 +75,9 @@ public abstract class PlayerEntityMixin extends LivingEntity {
             Role role = gameComponent.getRole((PlayerEntity) (Object) this);
             if (role != null && role.getMaxSprintTime() >= 0) {
                 if (this.isSprinting()) {
-                    sprintingTicks = Math.max(sprintingTicks - 1, 0);
+                    sprintingTicks = Math.max(sprintingTicks - 1, 0);//体力减少速度
                 } else {
-                    sprintingTicks = Math.min(sprintingTicks + 0.25f, role.getMaxSprintTime());
+                    sprintingTicks = Math.min(sprintingTicks + 0.8f, role.getMaxSprintTime());//体力回复速度
                 }
 
                 if (sprintingTicks <= 0) {
@@ -90,6 +92,9 @@ public abstract class PlayerEntityMixin extends LivingEntity {
         PlayerEntity self = (PlayerEntity) (Object) this;
 
         if (getMainHandStack().isOf(WatheItems.BAT) && target instanceof PlayerEntity playerTarget && this.getAttackCooldownProgress(0.5F) >= 1f) {
+            if (self instanceof ServerPlayerEntity serverPlayer && playerTarget instanceof ServerPlayerEntity serverTarget) {
+                GameRecordManager.recordItemHit(serverPlayer, serverPlayer.getMainHandStack(), GameConstants.DeathReasons.BAT, serverTarget, null);
+            }
             GameFunctions.killPlayer(playerTarget, true, self, GameConstants.DeathReasons.BAT);
             self.getEntityWorld().playSound(self,
                     playerTarget.getX(), playerTarget.getEyeY(), playerTarget.getZ(),
@@ -107,13 +112,59 @@ public abstract class PlayerEntityMixin extends LivingEntity {
     @Inject(method = "eatFood", at = @At(value = "INVOKE", target = "Lnet/minecraft/entity/player/HungerManager;eat(Lnet/minecraft/component/type/FoodComponent;)V", shift = At.Shift.AFTER))
     private void wathe$poisonedFoodEffect(@NotNull World world, ItemStack stack, FoodComponent foodComponent, CallbackInfoReturnable<ItemStack> cir) {
         if (world.isClient) return;
+        ItemStack replaySnapshot = stack.copy();
+        boolean hasTrayEffect = TrayEffectUtils.hasTrayEffect(replaySnapshot);
         String poisoner = stack.getOrDefault(WatheDataComponentTypes.POISONER, null);
-        if (poisoner != null) {
+        if ((Object) this instanceof ServerPlayerEntity serverPlayer) {
+            /**
+             * 鸡尾酒虽然走的是 eatFood 流程，但回放里需要显示成“饮用鸡尾酒”，
+             * 不能再额外记一条普通食物事件。
+             *
+             * 否则会出现两条记录：
+             * 1. 这里的“食用了 某鸡尾酒”
+             * 2. CocktailItem 里的“饮用了 [空气] / 某鸡尾酒”
+             *
+             * 因此普通食物回放要主动跳过鸡尾酒，只保留 CocktailItem 的专用饮用记录。
+             * 下面的毒药处理仍然继续执行，这样带毒鸡尾酒依旧会正常进入中毒逻辑。
+             */
+            if (hasTrayEffect) {
+                TrayEffectUtils.handleConsumeEffect(
+                        serverPlayer,
+                        replaySnapshot,
+                        stack.getItem() instanceof CocktailItem ? "drink_cocktail" : "eat_food"
+                );
+            } else if (!(stack.getItem() instanceof CocktailItem)) {
+                GameRecordManager.recordConsumeItem(
+                        serverPlayer,
+                        stack,
+                        "eat_food",
+                        poisoner != null,
+                        poisoner == null ? null : UUID.fromString(poisoner),
+                        null
+                );
+            }
+        }
+        if (!hasTrayEffect && poisoner != null) {
             int poisonTicks = PlayerPoisonComponent.KEY.get(this).poisonTicks;
+            NbtCompound poisonData = new NbtCompound();
+            poisonData.putString("item", net.minecraft.registry.Registries.ITEM.getId(stack.getItem()).toString());
+            if ((Object) this instanceof ServerPlayerEntity serverPlayer) {
+                poisonData.putString("item_name", net.minecraft.text.Text.Serialization.toJsonString(stack.getName(), serverPlayer.getRegistryManager()));
+            }
             if (poisonTicks == -1) {
-                PlayerPoisonComponent.KEY.get(this).setPoisonTicks(world.getRandom().nextBetween(PlayerPoisonComponent.clampTime.getLeft(), PlayerPoisonComponent.clampTime.getRight()), UUID.fromString(poisoner));
+                PlayerPoisonComponent.KEY.get(this).setDetailedPoisonTicks(
+                        world.getRandom().nextBetween(PlayerPoisonComponent.clampTime.getLeft(), PlayerPoisonComponent.clampTime.getRight()),
+                        UUID.fromString(poisoner),
+                        GameConstants.DeathReasons.POISON,
+                        poisonData
+                );
             } else {
-                PlayerPoisonComponent.KEY.get(this).setPoisonTicks(MathHelper.clamp(poisonTicks - world.getRandom().nextBetween(100, 300), 0, PlayerPoisonComponent.clampTime.getRight()), UUID.fromString(poisoner));
+                PlayerPoisonComponent.KEY.get(this).setDetailedPoisonTicks(
+                        MathHelper.clamp(poisonTicks - world.getRandom().nextBetween(100, 300), 0, PlayerPoisonComponent.clampTime.getRight()),
+                        UUID.fromString(poisoner),
+                        GameConstants.DeathReasons.POISON,
+                        poisonData
+                );
             }
         }
     }
@@ -133,7 +184,7 @@ public abstract class PlayerEntityMixin extends LivingEntity {
             if (this.poisonSleepTask != null) this.poisonSleepTask.cancel();
 
             this.poisonSleepTask = Scheduler.schedule(
-                    () -> PoisonUtils.bedPoison(serverPlayer),
+                    () -> BedEffectRegistry.triggerBedEffect(serverPlayer),
                     40
             );
         }

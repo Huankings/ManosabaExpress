@@ -4,6 +4,7 @@ import dev.doctor4t.wathe.Wathe;
 import dev.doctor4t.wathe.game.GameConstants;
 import dev.doctor4t.wathe.index.WatheProperties;
 import dev.doctor4t.wathe.index.WatheSounds;
+import dev.doctor4t.wathe.record.GameRecordManager;
 import net.minecraft.block.BlockState;
 import net.minecraft.nbt.NbtCompound;
 import net.minecraft.nbt.NbtElement;
@@ -32,6 +33,26 @@ public class WorldBlackoutComponent implements AutoSyncedComponent, ServerTickin
     private final World world;
     private final List<BlackoutDetails> blackouts = new ArrayList<>();
     private int ticks = 0;
+    /**
+     * 当前这一次停电的“全局时间线总时长”。
+     *
+     * <p>这里固定使用 {@link GameConstants#BLACKOUT_MAX_DURATION}，
+     * 因为用户要求：
+     * 1. {@link GameConstants#BLACKOUT_MIN_DURATION} 表示“开始恢复电力”的时刻；
+     * 2. {@link GameConstants#BLACKOUT_MAX_DURATION} 表示“完全恢复电力”的时刻。
+     *
+     * <p>也就是说，这两个事件应该按“从停电开始经过了多久”来判定，
+     * 而不是绑定到某一盏灯随机抽到的剩余时长。</p>
+     */
+    private int blackoutTotalTicks = 0;
+    /**
+     * 保证每轮停电只记录一次“开始恢复”事件。
+     */
+    private boolean recoveringEventSent = false;
+    /**
+     * 保证每轮停电只记录一次“完全恢复”事件。
+     */
+    private boolean restoredEventSent = false;
 
     public WorldBlackoutComponent(World world) {
         this.world = world;
@@ -40,6 +61,7 @@ public class WorldBlackoutComponent implements AutoSyncedComponent, ServerTickin
     public void reset() {
         for (BlackoutDetails detail : this.blackouts) detail.end(this.world);
         this.blackouts.clear();
+        clearBlackoutTimelineState();
     }
 
     @Override
@@ -53,7 +75,39 @@ public class WorldBlackoutComponent implements AutoSyncedComponent, ServerTickin
                 i--;
             }
         }
-        if (this.ticks > 0) this.ticks--;
+
+        if (this.world instanceof ServerWorld serverWorld) {
+            /*
+             * 回放时间线里的两条停电影响事件，应该对应：
+             * 1. BLACKOUT_MIN_DURATION：电力开始恢复；
+             * 2. BLACKOUT_MAX_DURATION：电力完全恢复。
+             *
+             * 这里不再看“剩余 5 tick / 1 tick”，而是看本轮停电从开始到现在已经过去了多久。
+             * 由于当前实现的全局倒计时是在 serverTick 末尾递减，
+             * 所以本 tick 对应的已过时间要按“包含当前 tick”来算。
+             */
+            int elapsedTicksInclusive = this.blackoutTotalTicks - this.ticks + 1;
+
+            if (!this.recoveringEventSent && this.blackoutTotalTicks > 0 && elapsedTicksInclusive >= GameConstants.BLACKOUT_MIN_DURATION) {
+                this.recoveringEventSent = true;
+                GameRecordManager.recordGlobalEvent(serverWorld, Wathe.id("blackout_recovering"), null, null);
+            }
+
+            if (!this.restoredEventSent && this.blackoutTotalTicks > 0 && elapsedTicksInclusive >= GameConstants.BLACKOUT_MAX_DURATION) {
+                this.restoredEventSent = true;
+                GameRecordManager.recordGlobalEvent(serverWorld, Wathe.id("blackout_restored"), null, null);
+            }
+        }
+
+        if (this.ticks > 0) {
+            this.ticks--;
+        } else if (this.blackouts.isEmpty()) {
+            /*
+             * 所有灯已经彻底恢复后，清理本轮停电的时间线状态，
+             * 给下一次触发停电留出干净的计数环境。
+             */
+            clearBlackoutTimelineState();
+        }
     }
 
     public boolean isBlackoutActive() {
@@ -65,6 +119,14 @@ public class WorldBlackoutComponent implements AutoSyncedComponent, ServerTickin
 
         Box area = areas.playArea;
         if (this.ticks > 0) return false;
+        clearBlackoutTimelineState();
+        /*
+         * 全局回放时间线固定走 MAX_DURATION：
+         * 20 秒开始恢复，35 秒完全恢复。
+         * 单个灯源本身仍可以继续保留原版的随机恢复节奏。
+         */
+        this.ticks = GameConstants.BLACKOUT_MAX_DURATION;
+        this.blackoutTotalTicks = GameConstants.BLACKOUT_MAX_DURATION;
         for (int x = (int) area.minX; x <= (int) area.maxX; x++) {
             for (int y = (int) area.minY; y <= (int) area.maxY; y++) {
                 for (int z = (int) area.minZ; z <= (int) area.maxZ; z++) {
@@ -72,7 +134,6 @@ public class WorldBlackoutComponent implements AutoSyncedComponent, ServerTickin
                     BlockState state = this.world.getBlockState(pos);
                     if (!state.contains(Properties.LIT) || !state.contains(WatheProperties.ACTIVE)) continue;
                     int duration = GameConstants.BLACKOUT_MIN_DURATION + this.world.random.nextInt(GameConstants.BLACKOUT_MAX_DURATION - GameConstants.BLACKOUT_MIN_DURATION);
-                    if (duration > this.ticks) this.ticks = duration;
                     BlackoutDetails detail = new BlackoutDetails(pos, duration, state.get(Properties.LIT));
                     detail.init(this.world);
                     this.blackouts.add(detail);
@@ -83,6 +144,19 @@ public class WorldBlackoutComponent implements AutoSyncedComponent, ServerTickin
             player.networkHandler.sendPacket(new PlaySoundS2CPacket(Registries.SOUND_EVENT.getEntry(WatheSounds.AMBIENT_BLACKOUT), SoundCategory.PLAYERS, player.getX(), player.getY(), player.getZ(), 100f, 1f, player.getRandom().nextLong()));
         }
         return true;
+    }
+
+    /**
+     * 清理本轮停电对应的全局时间线状态。
+     *
+     * <p>之所以抽成独立方法，是因为 reset / 新停电开始 / 完全恢复后
+     * 都需要把这些运行时标记归零。</p>
+     */
+    private void clearBlackoutTimelineState() {
+        this.ticks = 0;
+        this.blackoutTotalTicks = 0;
+        this.recoveringEventSent = false;
+        this.restoredEventSent = false;
     }
 
     @Override

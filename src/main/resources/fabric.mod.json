@@ -46,11 +46,13 @@
 			"wathe:time",
 			"wathe:autostart",
 			"wathe:roundend",
+			"wathe:task_points",
 			"wathe:role",
 			"wathe:mood",
 			"wathe:shop",
 			"wathe:poison",
 			"wathe:psycho",
+			"wathe:grenade_throw_mode",
 			"wathe:rolecounter",
 			"wathe:note"
 		],

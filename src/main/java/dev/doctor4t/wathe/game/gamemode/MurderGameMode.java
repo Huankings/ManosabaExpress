@@ -1,8 +1,15 @@
 package dev.doctor4t.wathe.game.gamemode;
 
+// 必须要有这些导入语句，编译器才能认识下面的代码
+import dev.doctor4t.wathe.api.Faction;
 import dev.doctor4t.wathe.api.GameMode;
 import dev.doctor4t.wathe.api.WatheRoles;
-import dev.doctor4t.wathe.cca.*;
+import dev.doctor4t.wathe.api.Role;
+import dev.doctor4t.wathe.cca.GameWorldComponent;
+import dev.doctor4t.wathe.cca.GameTimeComponent;
+import dev.doctor4t.wathe.cca.PlayerShopComponent;
+import dev.doctor4t.wathe.cca.GameRoundEndComponent;
+import dev.doctor4t.wathe.cca.ScoreboardRoleSelectorComponent;
 import dev.doctor4t.wathe.client.gui.RoleAnnouncementTexts;
 import dev.doctor4t.wathe.game.GameConstants;
 import dev.doctor4t.wathe.game.GameFunctions;
@@ -18,7 +25,8 @@ import java.util.UUID;
 
 public class MurderGameMode extends GameMode {
     public MurderGameMode(Identifier identifier) {
-        super(identifier, 10, 6);
+        // 修改点 1: 这里的 1 表示只要有 1 个人就能启动，方便测试
+        super(identifier, 10, 1);
     }
 
     private static int assignRolesAndGetKillerCount(@NotNull ServerWorld world, @NotNull List<ServerPlayerEntity> players, GameWorldComponent gameComponent) {
@@ -37,9 +45,22 @@ public class MurderGameMode extends GameMode {
     @Override
     public void initializeGame(ServerWorld serverWorld, GameWorldComponent gameWorldComponent, List<ServerPlayerEntity> players) {
         int killerCount = assignRolesAndGetKillerCount(serverWorld, players, gameWorldComponent);
+        /*
+         * 左轮的发放放在这里而不是义警抽取阶段：
+         * 1. 原版 wathe 没有扩展义警替换流程，因此普通义警依然会正常拿到左轮；
+         * 2. 统一在“最终职业已经确定”之后发放，和 HarpyModLoader 的扩展流程保持一致；
+         * 3. 以后如果再调整义警位的替换顺序，也不会出现先发枪再换职业的问题。
+         */
+        ScoreboardRoleSelectorComponent.giveRevolversToVanillaVigilantes(gameWorldComponent, players);
 
         for (ServerPlayerEntity player : players) {
-            ServerPlayNetworking.send(player, new AnnounceWelcomePayload(RoleAnnouncementTexts.ROLE_ANNOUNCEMENT_TEXTS.indexOf(gameWorldComponent.isRole(player, WatheRoles.KILLER) ? RoleAnnouncementTexts.KILLER : gameWorldComponent.isRole(player, WatheRoles.VIGILANTE) ? RoleAnnouncementTexts.VIGILANTE : RoleAnnouncementTexts.CIVILIAN), killerCount, players.size() - killerCount));
+            Role role = gameWorldComponent.getRole(player);
+            RoleAnnouncementTexts.RoleAnnouncementText announcement = GameRoundEndComponent.getAnnouncementByFaction(role == null ? null : role.getFaction());
+            ServerPlayNetworking.send(player, new AnnounceWelcomePayload(
+                    RoleAnnouncementTexts.ROLE_ANNOUNCEMENT_TEXTS.indexOf(announcement),
+                    killerCount,
+                    players.size() - killerCount
+            ));
         }
     }
 

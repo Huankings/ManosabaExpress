@@ -2,6 +2,7 @@ package dev.doctor4t.wathe.item;
 
 import dev.doctor4t.wathe.block.SmallDoorBlock;
 import dev.doctor4t.wathe.block_entity.SmallDoorBlockEntity;
+import dev.doctor4t.wathe.task.TaskPointSyncManager;
 import dev.doctor4t.wathe.util.AdventureUsable;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.enums.DoubleBlockHalf;
@@ -11,6 +12,7 @@ import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
 import net.minecraft.item.ItemUsageContext;
+import net.minecraft.server.world.ServerWorld;
 import net.minecraft.text.Text;
 import net.minecraft.util.ActionResult;
 import net.minecraft.util.math.BlockPos;
@@ -45,6 +47,25 @@ public class KeyItem extends Item implements AdventureUsable {
                     if (player.isCreative() && player.isSneaking()) {
                         String roomName = lines.getFirst().getString();
                         entity.setKeyName(roomName);
+                        /**
+                         * 立刻同步门方块实体，确保客户端能马上拿到新的 keyName。
+                         *
+                         * <p>这对任务点透视里的“手持钥匙高亮对应门”尤其重要：
+                         * 如果这里只改服务端字段而不发更新包，客户端在区块重载前仍然看不到新门名，
+                         * 透视就没法第一时间匹配到这扇门。
+                         */
+                        entity.sync();
+                        /**
+                         * 同时重扫一次任务点缓存。
+                         *
+                         * <p>因为“钥匙门透视”走的是任务点缓存里的门坐标，
+                         * 如果一扇门是刚刚被赋予 keyName 的，它在旧缓存里原本并不存在。
+                         * 这里立刻重扫并广播，可以让这扇门马上进入透视系统，
+                         * 不需要管理员额外手动执行一次 /wathe:taskPoints reload。
+                         */
+                        if (world instanceof ServerWorld serverWorld) {
+                            TaskPointSyncManager.reloadAndBroadcast(serverWorld);
+                        }
                         return ActionResult.SUCCESS;
                     }
                 }

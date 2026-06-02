@@ -2,8 +2,11 @@ package dev.doctor4t.wathe.mixin.client;
 
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
+import dev.doctor4t.wathe.cca.PlayerPoisonComponent;
 import dev.doctor4t.wathe.util.AdventureUsable;
+import dev.doctor4t.wathe.util.PoisonUtils;
 import net.minecraft.client.MinecraftClient;
+import net.minecraft.client.network.AbstractClientPlayerEntity;
 import net.minecraft.client.render.GameRenderer;
 import net.minecraft.entity.LivingEntity;
 import net.minecraft.entity.player.PlayerAbilities;
@@ -23,5 +26,18 @@ public class GameRendererMixin {
         if (this.client.getCameraEntity() instanceof LivingEntity entity && entity.getMainHandStack().getItem() instanceof AdventureUsable)
             return true;
         return original.call(instance);
+    }
+
+    @WrapOperation(
+            method = "updateFovMultiplier",
+            at = @At(
+                    value = "INVOKE",
+                    target = "Lnet/minecraft/client/network/AbstractClientPlayerEntity;getFovMultiplier()F"
+            )
+    )
+    private float wathe$applyPoisonFovFromGameRenderer(AbstractClientPlayerEntity player, Operation<Float> original) {
+        float originalFovMultiplier = original.call(player);
+        PlayerPoisonComponent poisonComponent = PlayerPoisonComponent.KEY.get(player);
+        return originalFovMultiplier * PoisonUtils.getFovMultiplier(1f, poisonComponent);
     }
 }

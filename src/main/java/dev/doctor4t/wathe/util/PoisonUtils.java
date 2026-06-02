@@ -1,25 +1,23 @@
 package dev.doctor4t.wathe.util;
 
 import dev.doctor4t.wathe.Wathe;
-import dev.doctor4t.wathe.block_entity.TrimmedBedBlockEntity;
+import dev.doctor4t.wathe.api.bed.BedEffectRegistry;
+import dev.doctor4t.wathe.game.GameConstants;
+import dev.doctor4t.wathe.record.GameRecordManager;
 import dev.doctor4t.wathe.cca.PlayerPoisonComponent;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
-import net.minecraft.block.BedBlock;
-import net.minecraft.block.BlockState;
-import net.minecraft.block.HorizontalFacingBlock;
-import net.minecraft.block.enums.BedPart;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.network.RegistryByteBuf;
 import net.minecraft.network.codec.PacketCodec;
 import net.minecraft.network.packet.CustomPayload;
+import net.minecraft.nbt.NbtCompound;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.text.Text;
-import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.Direction;
 import net.minecraft.util.math.MathHelper;
 import net.minecraft.world.World;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.UUID;
 
@@ -58,149 +56,62 @@ public class PoisonUtils {
         return result;
     }
 
+    /**
+     * 对旧调用方保留兼容入口。
+     *
+     * <p>床睡觉结算现在已经统一改走 BedEffectRegistry，
+     * 因此这里仅作为旧代码的转发壳保留。</p>
+     */
     public static void bedPoison(ServerPlayerEntity player) {
-        World world = player.getEntityWorld();
-        BlockPos bedPos = player.getBlockPos();
-
-        TrimmedBedBlockEntity blockEntity = findHeadInBoxWithObstacles(world, bedPos);
-        if (blockEntity == null) return;
-
-        if (!world.isClient) {
-            blockEntity.setHasScorpion(false, null);
-            int poisonTicks = PlayerPoisonComponent.KEY.get(player).poisonTicks;
-
-            UUID poisoner = blockEntity.getPoisoner();
-
-            if (poisonTicks == -1) {
-                PlayerPoisonComponent.KEY.get(player).setPoisonTicks(
-                        world.getRandom().nextBetween(PlayerPoisonComponent.clampTime.getLeft(), PlayerPoisonComponent.clampTime.getRight()),
-                        poisoner
-                );
-            } else {
-                PlayerPoisonComponent.KEY.get(player).setPoisonTicks(
-                        MathHelper.clamp(poisonTicks - world.getRandom().nextBetween(100, 300), 0, PlayerPoisonComponent.clampTime.getRight()),
-                        poisoner
-                );
-            }
-
-            ServerPlayNetworking.send(
-                    player, new PoisonOverlayPayload("game.player.stung")
-            );
-        }
+        BedEffectRegistry.triggerBedEffect(player);
     }
-
-    private static TrimmedBedBlockEntity findHeadInBoxWithObstacles(World world, BlockPos centerPos) {
-        int radius = 2;
-        for (int dx = -radius; dx <= radius; dx++) {
-            for (int dy = -radius; dy <= radius; dy++) {
-                for (int dz = -radius; dz <= radius; dz++) {
-                    BlockPos pos = centerPos.add(dx, dy, dz);
-                    TrimmedBedBlockEntity entity = resolveHead(world, pos);
-                    if (entity != null && entity.hasScorpion()) {
-                        if (isLineClear(world, centerPos, pos)) {
-                            return entity;
-                        }
-                    }
-                }
-            }
-        }
-        return null;
-    }
-
-    private static boolean isLineClear(World world, BlockPos start, BlockPos end) {
-        // Use simple 3D Bresenham line algorithm
-        int x0 = start.getX(), y0 = start.getY(), z0 = start.getZ();
-        int x1 = end.getX(), y1 = end.getY(), z1 = end.getZ();
-
-        int dx = Math.abs(x1 - x0), dy = Math.abs(y1 - y0), dz = Math.abs(z1 - z0);
-        int sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1, sz = z0 < z1 ? 1 : -1;
-        int err1, err2;
-
-        int ax = 2 * dx, ay = 2 * dy, az = 2 * dz;
-
-        if (dx >= dy && dx >= dz) {
-            err1 = ay - dx;
-            err2 = az - dx;
-            while (x0 != x1) {
-                x0 += sx;
-                if (err1 > 0) {
-                    y0 += sy;
-                    err1 -= 2 * dx;
-                }
-                if (err2 > 0) {
-                    z0 += sz;
-                    err2 -= 2 * dx;
-                }
-                err1 += ay;
-                err2 += az;
-
-                if (isBlocking(world, new BlockPos(x0, y0, z0))) return false;
-            }
-        } else if (dy >= dx && dy >= dz) {
-            err1 = ax - dy;
-            err2 = az - dy;
-            while (y0 != y1) {
-                y0 += sy;
-                if (err1 > 0) {
-                    x0 += sx;
-                    err1 -= 2 * dy;
-                }
-                if (err2 > 0) {
-                    z0 += sz;
-                    err2 -= 2 * dy;
-                }
-                err1 += ax;
-                err2 += az;
-
-                if (isBlocking(world, new BlockPos(x0, y0, z0))) return false;
-            }
-        } else {
-            err1 = ay - dz;
-            err2 = ax - dz;
-            while (z0 != z1) {
-                z0 += sz;
-                if (err1 > 0) {
-                    y0 += sy;
-                    err1 -= 2 * dz;
-                }
-                if (err2 > 0) {
-                    x0 += sx;
-                    err2 -= 2 * dz;
-                }
-                err1 += ay;
-                err2 += ax;
-
-                if (isBlocking(world, new BlockPos(x0, y0, z0))) return false;
-            }
-        }
-
-        return true;
-    }
-
-    private static boolean isBlocking(World world, BlockPos pos) {
-        BlockState state = world.getBlockState(pos);
-        return !(state.getBlock() instanceof BedBlock);
-    }
-
 
     /**
-     * Resolve a bed block (head or foot) into its head entity.
+     * 真正执行“蝎子床触发后的中毒结算”。
+     *
+     * <p>现在蝎子只是 BedEffectRegistry 里的一个内置处理器，
+     * 因此这里不再负责搜索哪张床有蝎子，而只负责蝎子命中后的后续效果。</p>
      */
-    private static TrimmedBedBlockEntity resolveHead(World world, BlockPos pos) {
-        if (!(world.getBlockEntity(pos) instanceof TrimmedBedBlockEntity entity)) return null;
-
-        BedPart part = world.getBlockState(pos).get(BedBlock.PART);
-        Direction facing = world.getBlockState(pos).get(HorizontalFacingBlock.FACING);
-
-        if (part == BedPart.HEAD) return entity;
-
-        if (part == BedPart.FOOT) {
-            BlockPos headPos = pos.offset(facing);
-            if (world.getBlockEntity(headPos) instanceof TrimmedBedBlockEntity headEntity &&
-                    world.getBlockState(headPos).get(BedBlock.PART) == BedPart.HEAD) return headEntity;
+    public static void applyScorpionBedEffect(ServerPlayerEntity player, @Nullable UUID poisoner) {
+        World world = player.getEntityWorld();
+        if (world.isClient) {
+            return;
         }
 
-        return null;
+        int poisonTicks = PlayerPoisonComponent.KEY.get(player).poisonTicks;
+
+        NbtCompound extra = new NbtCompound();
+        extra.putUuid("victim", player.getUuid());
+        if (poisoner != null) {
+            extra.putUuid("poisoner", poisoner);
+        }
+
+        GameRecordManager.recordGlobalEvent(
+                player.getServerWorld(),
+                Wathe.id("scorpion_sting"),
+                poisoner == null ? null : player.getServer().getPlayerManager().getPlayer(poisoner),
+                extra.copy()
+        );
+
+        if (poisonTicks == -1) {
+            PlayerPoisonComponent.KEY.get(player).setDetailedPoisonTicks(
+                    world.getRandom().nextBetween(PlayerPoisonComponent.clampTime.getLeft(), PlayerPoisonComponent.clampTime.getRight()),
+                    poisoner,
+                    GameConstants.DeathReasons.BED_POISON,
+                    extra
+            );
+        } else {
+            PlayerPoisonComponent.KEY.get(player).setDetailedPoisonTicks(
+                    MathHelper.clamp(poisonTicks - world.getRandom().nextBetween(100, 300), 0, PlayerPoisonComponent.clampTime.getRight()),
+                    poisoner,
+                    GameConstants.DeathReasons.BED_POISON,
+                    extra
+            );
+        }
+
+        ServerPlayNetworking.send(
+                player, new PoisonOverlayPayload("game.player.stung")
+        );
     }
 
 

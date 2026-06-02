@@ -23,22 +23,20 @@ public class ForceRoleCommand {
     }
 
     private static int forceKiller(@NotNull ServerCommandSource source, @NotNull Collection<ServerPlayerEntity> players) {
-        return Wathe.executeSupporterCommand(source,
-                () -> {
-                    ScoreboardRoleSelectorComponent component = ScoreboardRoleSelectorComponent.KEY.get(source.getServer().getScoreboard());
-                    component.forcedKillers.clear();
-                    for (ServerPlayerEntity player : players) component.forcedKillers.add(player.getUuid());
-                }
-        );
-    }
+    // 删掉 Wathe.executeSupporterCommand，直接执行逻辑
+    ScoreboardRoleSelectorComponent component = ScoreboardRoleSelectorComponent.KEY.get(source.getServer().getScoreboard());
+    component.forcedKillers.clear();
+    for (ServerPlayerEntity player : players) component.forcedKillers.add(player.getUuid());
+    source.sendFeedback(() -> net.minecraft.text.Text.literal("§a[Xtra]调试留下的痕迹"), false);
+    return 1; // 1 通常代表命令执行成功
+}
 
-    private static int forceVigilante(@NotNull ServerCommandSource source, @NotNull Collection<ServerPlayerEntity> players) {
-        return Wathe.executeSupporterCommand(source,
-                () -> {
-                    ScoreboardRoleSelectorComponent component = ScoreboardRoleSelectorComponent.KEY.get(source.getServer().getScoreboard());
-                    component.forcedVigilantes.clear();
-                    for (ServerPlayerEntity player : players) component.forcedVigilantes.add(player.getUuid());
-                }
-        );
-    }
+private static int forceVigilante(@NotNull ServerCommandSource source, @NotNull Collection<ServerPlayerEntity> players) {
+    // 同理，直接执行内部逻辑
+    ScoreboardRoleSelectorComponent component = ScoreboardRoleSelectorComponent.KEY.get(source.getServer().getScoreboard());
+    component.forcedVigilantes.clear();
+    for (ServerPlayerEntity player : players) component.forcedVigilantes.add(player.getUuid());
+    source.sendFeedback(() -> net.minecraft.text.Text.literal("§a[Xtra]调试留下的痕迹"), false);
+    return 1;
+}
 }

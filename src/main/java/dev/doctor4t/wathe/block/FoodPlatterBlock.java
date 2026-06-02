@@ -1,10 +1,14 @@
 package dev.doctor4t.wathe.block;
 
 import com.mojang.serialization.MapCodec;
+import dev.doctor4t.wathe.api.tray.TrayEffectHandler;
+import dev.doctor4t.wathe.api.tray.TrayEffectRegistry;
 import dev.doctor4t.wathe.block_entity.BeveragePlateBlockEntity;
 import dev.doctor4t.wathe.index.WatheBlockEntities;
 import dev.doctor4t.wathe.index.WatheDataComponentTypes;
 import dev.doctor4t.wathe.index.WatheItems;
+import dev.doctor4t.wathe.record.GameRecordManager;
+import dev.doctor4t.wathe.util.TrayEffectUtils;
 import net.minecraft.block.BlockRenderType;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.BlockWithEntity;
@@ -15,6 +19,8 @@ import net.minecraft.block.entity.BlockEntityType;
 import net.minecraft.component.DataComponentTypes;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.item.ItemStack;
+import net.minecraft.nbt.NbtCompound;
+import net.minecraft.registry.Registries;
 import net.minecraft.sound.SoundCategory;
 import net.minecraft.sound.SoundEvents;
 import net.minecraft.util.ActionResult;
@@ -28,6 +34,7 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.List;
+import java.util.UUID;
 
 public class FoodPlatterBlock extends BlockWithEntity {
     public static final MapCodec<FoodPlatterBlock> CODEC = createCodec(FoodPlatterBlock::new);
@@ -79,10 +86,21 @@ public class FoodPlatterBlock extends BlockWithEntity {
                 return ActionResult.SUCCESS;
             }
         }
-        if (player.getStackInHand(Hand.MAIN_HAND).isOf(WatheItems.POISON_VIAL) && blockEntity.getPoisoner() == null) {
+        if (player instanceof net.minecraft.server.network.ServerPlayerEntity serverPlayer
+                && TrayEffectRegistry.tryApplyHeldEffect(serverPlayer, blockEntity, pos)) {
+            return ActionResult.SUCCESS;
+        }
+        if (player.getStackInHand(Hand.MAIN_HAND).isOf(WatheItems.POISON_VIAL)
+                && blockEntity.getPoisoner() == null
+                && blockEntity.getTrayEffect() == null) {
             blockEntity.setPoisoner(player.getUuidAsString());
             player.getStackInHand(Hand.MAIN_HAND).decrement(1);
             player.playSoundToPlayer(SoundEvents.BLOCK_BREWING_STAND_BREW, SoundCategory.BLOCKS, 0.5f, 1f);
+            if (player instanceof net.minecraft.server.network.ServerPlayerEntity serverPlayer) {
+                NbtCompound extra = new NbtCompound();
+                GameRecordManager.putBlockPos(extra, "pos", pos);
+                GameRecordManager.recordItemUse(serverPlayer, Registries.ITEM.getId(WatheItems.POISON_VIAL), null, extra);
+            }
             return ActionResult.SUCCESS;
         }
         if (player.getStackInHand(Hand.MAIN_HAND).isEmpty()) {
@@ -107,12 +125,44 @@ public class FoodPlatterBlock extends BlockWithEntity {
                 randomItem.setCount(1);
                 randomItem.set(DataComponentTypes.MAX_STACK_SIZE, 1);
                 String poisoner = blockEntity.getPoisoner();
+                String trayEffect = blockEntity.getTrayEffect();
+                String trayEffectOwner = blockEntity.getTrayEffectOwner();
                 if (poisoner != null) {
                     randomItem.set(WatheDataComponentTypes.POISONER, poisoner);
                     blockEntity.setPoisoner(null);
                 }
+                if (trayEffect != null) {
+                    TrayEffectUtils.attachTrayEffect(randomItem, trayEffect, trayEffectOwner);
+                    blockEntity.clearTrayEffect();
+                }
                 player.playSoundToPlayer(SoundEvents.ENTITY_ITEM_PICKUP, SoundCategory.BLOCKS, 1f, 1f);
                 player.setStackInHand(Hand.MAIN_HAND, randomItem);
+                if (player instanceof net.minecraft.server.network.ServerPlayerEntity serverPlayer) {
+                    NbtCompound extra = new NbtCompound();
+                    extra.putString("item_name", net.minecraft.text.Text.Serialization.toJsonString(randomItem.getName(), serverPlayer.getRegistryManager()));
+                    extra.putBoolean("is_drink_plate", blockEntity.isDrink());
+                    if (trayEffect != null) {
+                        extra.putString("tray_effect", trayEffect);
+                        if (trayEffectOwner != null) {
+                            try {
+                                extra.putUuid("tray_effect_owner", UUID.fromString(trayEffectOwner));
+                            } catch (IllegalArgumentException ignored) {
+                            }
+                        }
+                        TrayEffectHandler effectHandler = net.minecraft.util.Identifier.tryParse(trayEffect) == null ? null : TrayEffectRegistry.getByEffectId(net.minecraft.util.Identifier.tryParse(trayEffect));
+                        if (effectHandler != null) {
+                            UUID owner = null;
+                            if (trayEffectOwner != null) {
+                                try {
+                                    owner = UUID.fromString(trayEffectOwner);
+                                } catch (IllegalArgumentException ignored) {
+                                }
+                            }
+                            effectHandler.onTakeFromTray(serverPlayer, randomItem, owner, extra);
+                        }
+                    }
+                    GameRecordManager.recordPlatterTake(serverPlayer, Registries.ITEM.getId(randomItem.getItem()), pos, poisoner, extra);
+                }
             }
         }
 

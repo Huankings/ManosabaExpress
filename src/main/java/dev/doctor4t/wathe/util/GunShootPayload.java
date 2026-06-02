@@ -9,12 +9,14 @@ import dev.doctor4t.wathe.index.WatheDataComponentTypes;
 import dev.doctor4t.wathe.index.WatheItems;
 import dev.doctor4t.wathe.index.WatheSounds;
 import dev.doctor4t.wathe.index.tag.WatheItemTags;
+import dev.doctor4t.wathe.record.GameRecordManager;
 import net.fabricmc.fabric.api.networking.v1.PlayerLookup;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.entity.ItemEntity;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
+import net.minecraft.registry.Registries;
 import net.minecraft.network.PacketByteBuf;
 import net.minecraft.network.codec.PacketCodec;
 import net.minecraft.network.codec.PacketCodecs;
@@ -62,6 +64,16 @@ public record GunShootPayload(int target) implements CustomPayload {
 
                 boolean backfire = false;
 
+                if (target instanceof ServerPlayerEntity serverTarget) {
+                    GameRecordManager.recordItemHit(
+                            player,
+                            mainHandStack,
+                            GameConstants.DeathReasons.GUN,
+                            serverTarget,
+                            null
+                    );
+                }
+
                 if (game.isInnocent(target) && !player.isCreative() && mainHandStack.isOf(revolver)) {
                     // backfire: if you kill an innocent you have a chance of shooting yourself instead
                     if (game.isInnocent(player) && player.getRandom().nextFloat() <= game.getBackfireChance()) {
@@ -92,8 +104,23 @@ public record GunShootPayload(int target) implements CustomPayload {
             for (ServerPlayerEntity tracking : PlayerLookup.tracking(player))
                 ServerPlayNetworking.send(tracking, new ShootMuzzleS2CPayload(player.getUuidAsString()));
             ServerPlayNetworking.send(player, new ShootMuzzleS2CPayload(player.getUuidAsString()));
-            if (!player.isCreative())
-                player.getItemCooldownManager().set(mainHandStack.getItem(), GameConstants.ITEM_COOLDOWNS.getOrDefault(mainHandStack.getItem(), 0));
+            if (!player.isCreative()) {
+                int cooldown = mainHandStack.isOf(WatheItems.REVOLVER)
+                        ? GameConstants.getRevolverCooldown(player)
+                        : GameConstants.ITEM_COOLDOWNS.getOrDefault(mainHandStack.getItem(), 0);
+                /*
+                 * 左轮现在改为“按玩家当前阵营单独结算冷却”。
+                 *
+                 * 这样同一把左轮：
+                 * 1. 义警开火后会进入 8 秒冷却；
+                 * 2. 平民开火后会进入 12 秒冷却；
+                 * 3. 杀手开火后会进入 15 秒冷却；
+                 * 4. 中立开火后会进入 20 秒冷却。
+                 *
+                 * 其他枪类（例如德林杰、扩展模组自定义枪）仍继续走各自原有的固定冷却表。
+                 */
+                player.getItemCooldownManager().set(mainHandStack.getItem(), cooldown);
+            }
         }
     }
 }

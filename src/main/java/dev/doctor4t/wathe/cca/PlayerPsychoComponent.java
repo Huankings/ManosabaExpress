@@ -4,6 +4,7 @@ import dev.doctor4t.wathe.Wathe;
 import dev.doctor4t.wathe.game.GameConstants;
 import dev.doctor4t.wathe.game.GameFunctions;
 import dev.doctor4t.wathe.index.WatheItems;
+import dev.doctor4t.wathe.record.GameRecordManager;
 import dev.doctor4t.wathe.util.ShopEntry;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.item.ItemStack;
@@ -73,10 +74,15 @@ public class PlayerPsychoComponent implements AutoSyncedComponent, ServerTicking
     }
 
     public void stopPsycho() {
+        boolean wasActive = this.psychoTicks > 0;
         GameWorldComponent gameWorldComponent = GameWorldComponent.KEY.get(this.player.getWorld());
         gameWorldComponent.setPsychosActive(gameWorldComponent.getPsychosActive() - 1);
         this.psychoTicks = 0;
         this.player.getInventory().remove(itemStack -> itemStack.isOf(WatheItems.BAT), Integer.MAX_VALUE, this.player.playerScreenHandler.getCraftingInput());
+
+        if (wasActive && this.player instanceof net.minecraft.server.network.ServerPlayerEntity serverPlayer) {
+            GameRecordManager.recordGlobalEvent(serverPlayer.getServerWorld(), Wathe.id("psycho_mode_end"), serverPlayer, null);
+        }
     }
 
     public int getArmour() {

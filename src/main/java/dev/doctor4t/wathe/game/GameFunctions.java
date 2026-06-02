@@ -16,6 +16,7 @@ import dev.doctor4t.wathe.index.WatheDataComponentTypes;
 import dev.doctor4t.wathe.index.WatheEntities;
 import dev.doctor4t.wathe.index.WatheItems;
 import dev.doctor4t.wathe.index.WatheSounds;
+import dev.doctor4t.wathe.record.GameRecordManager;
 import dev.doctor4t.wathe.util.AnnounceEndingPayload;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.block.Block;
@@ -30,6 +31,7 @@ import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
 import net.minecraft.nbt.NbtCompound;
+import net.minecraft.registry.Registries;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.sound.SoundCategory;
@@ -50,6 +52,63 @@ import org.jetbrains.annotations.Nullable;
 import java.util.*;
 
 public class GameFunctions {
+    /**
+     * 额外死亡回放数据的线程本地暂存区。
+     *
+     * <p>这里专门为了兼容旧扩展模组对 4 参 {@code killPlayer} 方法体内部的 mixin 注入。
+     * 如果把 4 参方法改成单纯转调 5 参重载，那些精确钉在旧方法字节码位置上的注入
+     * （例如 kinswathe 的 AddDeathReasonMixin）就会直接失效并导致客户端/服务端崩溃。</p>
+     *
+     * <p>因此当前实现保持：
+     * 1. 旧 4 参方法仍然保留完整流程，维持原有注入点；
+     * 2. 新 5 参方法只负责把额外回放字段暂存起来，再调用旧 4 参方法；
+     * 3. 真正记录 death 事件时，再从这里把额外字段并入。</p>
+     */
+    private static final ThreadLocal<NbtCompound> PENDING_EXTRA_DEATH_DATA = new ThreadLocal<>();
+
+    /**
+     * 把一个物品堆栈的“回放可见信息”写进 NBT。
+     *
+     * <p>这里统一写入：
+     * 1. item: 物品注册 ID，供回放层兜底翻译；
+     * 2. item_name: 当下显示名，供需要精确还原显示文本的场景使用。</p>
+     *
+     * <p>该方法对扩展职业模组开放，后续像自定义枪械、爆炸物、特殊刀具
+     * 需要把真实物品名带入 death / shield / hit 回放时，都可以直接复用。</p>
+     */
+    public static void putReplayItemData(NbtCompound data, ServerWorld world, ItemStack stack) {
+        if (stack.isEmpty()) {
+            return;
+        }
+        data.putString("item", Registries.ITEM.getId(stack.getItem()).toString());
+        data.putString("item_name", Text.Serialization.toJsonString(stack.getName(), world.getRegistryManager()));
+    }
+
+    /**
+     * 为单次伤害创建一份可直接并入回放事件的物品数据。
+     */
+    public static @Nullable NbtCompound createReplayItemData(ServerWorld world, ItemStack stack) {
+        if (stack.isEmpty()) {
+            return null;
+        }
+        NbtCompound data = new NbtCompound();
+        putReplayItemData(data, world, stack);
+        return data;
+    }
+
+    /**
+     * 读取当前这次 killPlayer 调用临时挂载的额外死亡回放数据。
+     *
+     * <p>这个访问口主要给扩展模组的“免伤 / 改写死亡 / 条件拦截”逻辑使用：
+     * 当它们需要在 {@link AllowPlayerDeath} 里判断本次死亡背后额外附带了哪些回放字段时，
+     * 可以安全读取这里，而不用自己重复维护一份线程本地状态。</p>
+     *
+     * <p>返回值始终是拷贝，调用方可放心读取和改写，不会污染原始待提交数据。</p>
+     */
+    public static @Nullable NbtCompound getPendingExtraDeathData() {
+        NbtCompound pending = PENDING_EXTRA_DEATH_DATA.get();
+        return pending == null ? null : pending.copy();
+    }
 
     public static void limitPlayerToBox(ServerPlayerEntity player, Box box) {
         Vec3d playerPos = player.getPos();
@@ -84,6 +143,13 @@ public class GameFunctions {
         }
     }
 
+    /**
+     * 开始一局游戏的准备流程。
+     *
+     * <p>当启用渐进式重置时，会先在大厅阶段完成地图恢复，
+     * 完成后才进入原版的 STARTING 淡入淡出流程。
+     * 当关闭渐进式重置时，则保持原版行为，直接进入 STARTING。</p>
+     */
     public static void startGame(ServerWorld world, GameMode gameMode, MapEffect mapEffect, int time) {
         GameWorldComponent game = GameWorldComponent.KEY.get(world);
         MapVariablesWorldComponent areas = MapVariablesWorldComponent.KEY.get(world);
@@ -93,7 +159,22 @@ public class GameFunctions {
         GameTimeComponent.KEY.get(world).setResetTime(time);
 
         if (playerCount >= gameMode.minPlayerCount) {
-            game.setGameStatus(GameWorldComponent.GameStatus.STARTING);
+            if (game.isGradualResetEnabled()) {
+                // 如果渐进式重置已经在运行，则忽略重复开局请求。
+                if (game.isGradualResetInProgress()) {
+                    return;
+                }
+
+                MapResetTask task = new MapResetTask(world, () -> {
+                    // 地图已经在 initializeGame 之前恢复完成，
+                    // 因此下一次初始化时要跳过原版的一次性排队重置。
+                    game.setSkipQueuedMapResetOnce(true);
+                    game.setGameStatus(GameWorldComponent.GameStatus.STARTING);
+                });
+                game.startGradualReset(task);
+            } else {
+                game.setGameStatus(GameWorldComponent.GameStatus.STARTING);
+            }
         } else {
             for (ServerPlayerEntity player : world.getPlayers()) {
                 player.sendMessage(Text.translatable("game.start_error.not_enough_players", gameMode.minPlayerCount), true);
@@ -103,20 +184,33 @@ public class GameFunctions {
 
     public static void stopGame(ServerWorld world) {
         GameWorldComponent component = GameWorldComponent.KEY.get(world);
+        component.cancelGradualReset();
         component.setGameStatus(GameWorldComponent.GameStatus.STOPPING);
     }
 
+    /**
+     * 在游戏进入 STARTING 后执行原版初始化流程。
+     * 渐进式重置只改变 STARTING 之前的地图恢复阶段；
+     * 一旦进入这里，后续角色分配和模式初始化仍然沿用原版 Wathe 流程。
+     */
     public static void initializeGame(ServerWorld serverWorld) {
         GameWorldComponent gameComponent = GameWorldComponent.KEY.get(serverWorld);
         List<ServerPlayerEntity> readyPlayerList = getReadyPlayerList(serverWorld);
 
         GameEvents.ON_GAME_START.invoker().onGameStart(gameComponent.getGameMode());
+        /*
+         * 回放记录在这里提前创建，但会一直等到全部初始化监听器跑完后，
+         * 才正式固化“初始职业快照”并开放后续转职记录。
+         * 这样可兼容 Harpy 以及各类扩展职业模组在开局阶段的二次赋职流程。
+         */
+        GameRecordManager.startMatch(serverWorld, gameComponent);
         baseInitialize(serverWorld, gameComponent, readyPlayerList);
         gameComponent.getGameMode().initializeGame(serverWorld, gameComponent, readyPlayerList);
 
         gameComponent.sync();
 
         GameEvents.ON_FINISH_INITIALIZE.invoker().onFinishInitialize(serverWorld, gameComponent);
+        GameRecordManager.completeInitialization(serverWorld, gameComponent);
     }
 
     private static void baseInitialize(ServerWorld serverWorld, GameWorldComponent gameComponent, List<ServerPlayerEntity> players) {
@@ -172,8 +266,11 @@ public class GameFunctions {
         gameComponent.clearRoleMap();
         GameTimeComponent.KEY.get(serverWorld).reset();
 
-        // reset map
-        gameComponent.queueMapReset();
+        // 只有在地图没有被渐进式任务提前恢复时，
+        // 才继续排队执行原版的一次性地图重置。
+        if (!gameComponent.consumeSkipQueuedMapResetOnce()) {
+            gameComponent.queueMapReset();
+        }
 
         // map effect initialize
         gameComponent.getMapEffect().initializeMapEffects(serverWorld, players);
@@ -190,6 +287,7 @@ public class GameFunctions {
 
     public static void finalizeGame(ServerWorld world) {
         GameWorldComponent gameComponent = GameWorldComponent.KEY.get(world);
+        gameComponent.cancelGradualReset();
         GameEvents.ON_GAME_STOP.invoker().onGameStop(gameComponent.getGameMode());
         gameComponent.getGameMode().finalizeGame(world, gameComponent);
 
@@ -238,6 +336,111 @@ public class GameFunctions {
         player.teleportTo(teleportTarget);
     }
 
+    /**
+     * 从一份 extraDeathData 里仅提取“回放物品字段”。
+     *
+     * <p>这样做的目的是避免把别的业务字段原样塞进 shield_blocked 事件，
+     * 只保留 item / item_name 这类和显示直接相关的内容。</p>
+     */
+    private static @Nullable NbtCompound copyReplayItemData(@Nullable NbtCompound source) {
+        if (source == null) {
+            return null;
+        }
+        NbtCompound result = new NbtCompound();
+        if (source.contains("item")) {
+            result.putString("item", source.getString("item"));
+        }
+        if (source.contains("item_name")) {
+            result.putString("item_name", source.getString("item_name"));
+        }
+        return result.isEmpty() ? null : result;
+    }
+
+    private static @Nullable NbtCompound createReplayItemIdOnly(Item item) {
+        NbtCompound data = new NbtCompound();
+        data.putString("item", Registries.ITEM.getId(item).toString());
+        return data;
+    }
+
+    public static @Nullable Identifier getReplayItemId(@Nullable NbtCompound data) {
+        if (data == null || !data.contains("item")) {
+            return null;
+        }
+        return Identifier.tryParse(data.getString("item"));
+    }
+
+    /**
+     * 为“护盾挡伤”事件统一组装回放数据。
+     *
+     * <p>这里会始终写入 {@code death_reason}，这样当本次伤害本来没有直接物品来源时，
+     * 回放层就可以退回到死因文本，例如“巫毒魔法”“心灵冲击”等，
+     * 避免最终显示成“未知物品”。</p>
+     *
+     * <p>如果这次伤害本身存在明确的物品来源，也会继续把 item / item_name 一并带上，
+     * 从而维持原有“优先显示真实命中物品”的效果。</p>
+     */
+    public static NbtCompound createBlockedDamageReplayData(@Nullable PlayerEntity killer, Identifier deathReason) {
+        NbtCompound data = new NbtCompound();
+        data.putString("death_reason", deathReason.toString());
+        NbtCompound resolvedItemData = resolveDamageReplayData(killer, deathReason, PENDING_EXTRA_DEATH_DATA.get());
+        if (resolvedItemData != null) {
+            data.copyFrom(resolvedItemData);
+        }
+        return data;
+    }
+
+    /**
+     * 统一解析一次伤害在回放里应该显示成什么物品。
+     *
+     * <p>解析优先级如下：
+     * 1. 扩展模组显式塞进来的 extraDeathData 里的 item / item_name；
+     * 2. 立即型近战 / 枪击优先读取攻击者当前主手，保证自定义刀具、枪械命名正确；
+     * 3. 如果仍然拿不到，则退回 Wathe 本体默认物品，至少不会丢成未知物品。</p>
+     *
+     * <p>注意：手雷类伤害不会盲目读取攻击者主手，
+     * 因为爆炸发生时玩家往往已经切换物品或物品已被消耗。
+     * 这类情况优先依赖 extraDeathData；没有时再兜底成本体手雷。</p>
+     */
+    private static @Nullable NbtCompound resolveDamageReplayData(@Nullable PlayerEntity killer, Identifier deathReason, @Nullable NbtCompound preferredData) {
+        NbtCompound preferredItemData = copyReplayItemData(preferredData);
+        if (preferredItemData != null) {
+            return preferredItemData;
+        }
+
+        if (killer instanceof ServerPlayerEntity killerPlayer) {
+            if ((deathReason.equals(GameConstants.DeathReasons.KNIFE)
+                    || deathReason.equals(GameConstants.DeathReasons.GUN)
+                    || deathReason.equals(GameConstants.DeathReasons.BAT))
+                    && !killerPlayer.getMainHandStack().isEmpty()) {
+                return createReplayItemData(killerPlayer.getServerWorld(), killerPlayer.getMainHandStack());
+            }
+        }
+
+        if (deathReason.equals(GameConstants.DeathReasons.KNIFE)) {
+            return createReplayItemIdOnly(WatheItems.KNIFE);
+        }
+        if (deathReason.equals(GameConstants.DeathReasons.GUN)) {
+            return createReplayItemIdOnly(WatheItems.REVOLVER);
+        }
+        if (deathReason.equals(GameConstants.DeathReasons.BAT)) {
+            return createReplayItemIdOnly(WatheItems.BAT);
+        }
+        if (deathReason.equals(GameConstants.DeathReasons.GRENADE)) {
+            return createReplayItemIdOnly(WatheItems.GRENADE);
+        }
+        return null;
+    }
+
+    /**
+     * 把一次“即将造成死亡”的原因还原成回放里应该显示的伤害物品。
+     *
+     * <p>这里是给护盾挡伤事件使用的轻量包装，真正的解析逻辑统一在
+     * {@link #resolveDamageReplayData(PlayerEntity, Identifier, NbtCompound)} 里。</p>
+     */
+    public static @Nullable Identifier resolveDamageItemForBlockedDeath(@Nullable PlayerEntity killer, Identifier deathReason) {
+        return getReplayItemId(resolveDamageReplayData(killer, deathReason, PENDING_EXTRA_DEATH_DATA.get()));
+    }
+
     public static boolean isPlayerEliminated(PlayerEntity player) {
         return player == null || !player.isAlive() || player.isCreative() || player.isSpectator();
     }
@@ -253,6 +456,24 @@ public class GameFunctions {
         if (!AllowPlayerDeath.EVENT.invoker().allowDeath(victim, killer, deathReason)) return;
         if (component.getPsychoTicks() > 0) {
             if (component.getArmour() > 0) {
+                if (victim instanceof ServerPlayerEntity victimPlayer) {
+                    /*
+                     * 统一走解析方法，避免像“手雷爆炸打到护盾”这种并非主手直接命中的伤害
+                     * 被错误显示成未知物品。
+                     *
+                     * 同时这里也必须把 death_reason 带进 shield_blocked，
+                     * 这样像扩展模组的巫毒魔法这类“没有物品来源”的伤害，
+                     * 才能在护盾回放里退回显示成死因文本，而不是 [未知物品]。
+                     */
+                    NbtCompound damageReplayData = createBlockedDamageReplayData(killer, deathReason);
+                    GameRecordManager.recordShieldBlocked(
+                            victimPlayer,
+                            killer instanceof ServerPlayerEntity killerPlayer ? killerPlayer : null,
+                            Wathe.id("psycho_mode"),
+                            getReplayItemId(damageReplayData),
+                            damageReplayData
+                    );
+                }
                 component.setArmour(component.getArmour() - 1);
                 component.sync();
                 victim.playSoundToPlayer(WatheSounds.ITEM_PSYCHO_ARMOUR, SoundCategory.MASTER, 5F, 1F);
@@ -264,6 +485,40 @@ public class GameFunctions {
 
         if (victim instanceof ServerPlayerEntity serverPlayerEntity && isPlayerAliveAndSurvival(serverPlayerEntity)) {
             serverPlayerEntity.changeGameMode(net.minecraft.world.GameMode.SPECTATOR);
+
+            NbtCompound pendingExtraDeathData = PENDING_EXTRA_DEATH_DATA.get();
+            NbtCompound deathData = pendingExtraDeathData == null ? new NbtCompound() : pendingExtraDeathData.copy();
+            if (deathReason.equals(GameConstants.DeathReasons.POISON) || deathReason.equals(GameConstants.DeathReasons.BED_POISON)) {
+                PlayerPoisonComponent poisonComponent = PlayerPoisonComponent.KEY.get(victim);
+                if (poisonComponent.getPoisoner() != null) {
+                    deathData.putUuid("poisoner", poisonComponent.getPoisoner());
+                }
+                if (poisonComponent.getPoisonData() != null) {
+                    NbtCompound poisonData = poisonComponent.getPoisonData();
+                    if (poisonData.contains("item")) {
+                        deathData.putString("item", poisonData.getString("item"));
+                    }
+                    if (poisonData.contains("item_name")) {
+                        deathData.putString("item_name", poisonData.getString("item_name"));
+                    }
+                    deathData.put("poison_data", poisonData);
+                }
+            }
+            NbtCompound damageReplayData = resolveDamageReplayData(killer, deathReason, deathData);
+            if (damageReplayData != null) {
+                if (damageReplayData.contains("item") && !deathData.contains("item")) {
+                    deathData.putString("item", damageReplayData.getString("item"));
+                }
+                if (damageReplayData.contains("item_name") && !deathData.contains("item_name")) {
+                    deathData.putString("item_name", damageReplayData.getString("item_name"));
+                }
+            }
+            GameRecordManager.recordDeath(
+                    serverPlayerEntity,
+                    killer instanceof ServerPlayerEntity killerPlayer ? killerPlayer : null,
+                    deathReason,
+                    deathData.isEmpty() ? null : deathData
+            );
         } else {
             return;
         }
@@ -317,10 +572,47 @@ public class GameFunctions {
         TrainVoicePlugin.addPlayer(victim.getUuid());
     }
 
+    /**
+     * 带有额外死亡回放数据的击杀入口。
+     *
+     * <p>这里的 {@code extraDeathData} 只会在“真正死亡成立”后才被并入 death 事件，
+     * 因此扩展职业模组可以安全地把回放所需的补充字段塞进来，
+     * 不会再出现“先记录了死亡文案，结果又被护盾或免死逻辑拦下”的假回放。</p>
+     *
+     * <p>一个典型用途是：
+     * 某次死亡在玩法上并没有传统意义上的 killer，
+     * 但回放仍希望显示“被谁的能力影响而死”。
+     * 此时可把对应玩家 uuid 写进 {@code replay_actor}，
+     * 由回放层决定是否把它当作第二个句子参数来展示。</p>
+     */
+    public static void killPlayer(PlayerEntity victim, boolean spawnBody, @Nullable PlayerEntity killer, Identifier deathReason, @Nullable NbtCompound extraDeathData) {
+        if (extraDeathData == null || extraDeathData.isEmpty()) {
+            killPlayer(victim, spawnBody, killer, deathReason);
+            return;
+        }
+
+        PENDING_EXTRA_DEATH_DATA.set(extraDeathData.copy());
+        try {
+            killPlayer(victim, spawnBody, killer, deathReason);
+        } finally {
+            PENDING_EXTRA_DEATH_DATA.remove();
+        }
+    }
+
     public static boolean shouldDropOnDeath(@NotNull ItemStack stack, PlayerEntity victim) {
         return !stack.isEmpty() && (stack.isOf(WatheItems.REVOLVER) || ShouldDropOnDeath.EVENT.invoker().shouldDrop(stack, victim));
     }
 
+    /**
+     * Wathe 里“局内存活”的定义。
+     *
+     * <p>这里并不是单纯看玩家原版的 {@link PlayerEntity#isAlive()}，
+     * 而是看玩家是否还以“局内可操作身份”留在游戏里。
+     * 只要不是 spectator 且不是 creative，就视为仍然存活。</p>
+     *
+     * <p>因此玩家被 Wathe 击杀后，虽然客户端仍能看到该玩家切成旁观继续存在，
+     * 但在玩法层面已经算“非存活”；对应的信息承载实体会变成留在场上的尸体。</p>
+     */
     public static boolean isPlayerAliveAndSurvival(PlayerEntity player) {
         return player != null && !player.isSpectator() && !player.isCreative();
     }

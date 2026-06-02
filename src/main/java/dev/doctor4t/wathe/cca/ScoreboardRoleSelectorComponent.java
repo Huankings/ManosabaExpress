@@ -157,7 +157,15 @@ public class ScoreboardRoleSelectorComponent implements AutoSyncedComponent {
         for (UUID uuid : this.forcedVigilantes) {
             PlayerEntity player = world.getPlayerByUuid(uuid);
             if (player instanceof ServerPlayerEntity serverPlayer && players.contains(serverPlayer) && !gameComponent.canUseKillerFeatures(player)) {
-                player.giveItemStack(new ItemStack(WatheItems.REVOLVER));
+                /*
+                 * 这里只负责给玩家占用一个“原版义警位”，
+                 * 不再在分配阶段直接发左轮。
+                 *
+                 * 这样 HarpyModLoader 后续如果要把这个原版义警位替换成扩展义警职业，
+                 * 就不会连带把左轮也一起塞给扩展义警。
+                 * 最终只有“对局开始后仍然保留原版 WatheRoles.VIGILANTE 身份”的玩家，
+                 * 才会在后续统一补发左轮。
+                 */
                 gameComponent.addRole(player, WatheRoles.VIGILANTE);
                 vigilanteCount--;
                 this.vigilanteRounds.put(player.getUuid(), this.vigilanteRounds.getOrDefault(player.getUuid(), 1) + 1);
@@ -187,8 +195,24 @@ public class ScoreboardRoleSelectorComponent implements AutoSyncedComponent {
             }
         }
         for (ServerPlayerEntity player : vigilantes) {
-            player.giveItemStack(new ItemStack(WatheItems.REVOLVER));
             gameComponent.addRole(player, WatheRoles.VIGILANTE);
+        }
+    }
+
+    /**
+     * 只给“最终仍然保持原版义警职业”的玩家发左轮。
+     *
+     * <p>这一步刻意放在整个义警位分配结束之后：
+     * 1. 原版 wathe 模式下，没有扩展义警替换，原版义警仍会正常拿到左轮；
+     * 2. 扩展模组若把原版义警位替换成了别的义警职业，则该玩家不再满足
+     *    {@link WatheRoles#VIGILANTE} 判定，因此不会自动拿左轮；
+     * 3. 以后新增的其他义警阵营职业也能沿用同一规则，自行决定起始武器。</p>
+     */
+    public static void giveRevolversToVanillaVigilantes(@NotNull GameWorldComponent gameComponent, @NotNull List<ServerPlayerEntity> players) {
+        for (ServerPlayerEntity player : players) {
+            if (gameComponent.isRole(player, WatheRoles.VIGILANTE)) {
+                player.giveItemStack(new ItemStack(WatheItems.REVOLVER));
+            }
         }
     }
 

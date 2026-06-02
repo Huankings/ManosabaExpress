@@ -1,6 +1,7 @@
 package dev.doctor4t.wathe.client.util;
 
 import dev.doctor4t.ratatouille.util.TextUtils;
+import dev.doctor4t.wathe.game.GameConstants;
 import dev.doctor4t.wathe.index.WatheItems;
 import net.fabricmc.fabric.api.client.item.v1.ItemTooltipCallback;
 import net.minecraft.client.MinecraftClient;
@@ -54,13 +55,25 @@ public class WatheItemTooltips {
 
     private static void addCooldownText(Item item, List<Text> tooltipList, @NotNull ItemStack itemStack) {
         if (!itemStack.isOf(item)) return;
+        if (MinecraftClient.getInstance().player == null) return;
         ItemCooldownManager itemCooldownManager = MinecraftClient.getInstance().player.getItemCooldownManager();
         if (itemCooldownManager.isCoolingDown(item)) {
             ItemCooldownManager.Entry knifeEntry = itemCooldownManager.entries.get(item);
             int timeLeft = knifeEntry.endTick - itemCooldownManager.tick;
             if (timeLeft > 0) {
-                int minutes = (int) Math.floor((double) timeLeft / 1200);
-                int seconds = (timeLeft - (minutes * 1200)) / 20;
+                /*
+                 * 左轮的总冷却时长现在取决于当前玩家所属阵营，
+                 * 因此这里优先用“阵营动态冷却”去换算显示给玩家的剩余时间。
+                 */
+                int totalCooldown = item == WatheItems.REVOLVER
+                        ? GameConstants.getRevolverCooldown(MinecraftClient.getInstance().player)
+                        : timeLeft;
+                float progress = itemCooldownManager.getCooldownProgress(item, 0);
+                int displayTicks = item == WatheItems.REVOLVER
+                        ? Math.max(timeLeft, (int) (totalCooldown * progress) + 19)
+                        : timeLeft;
+                int minutes = (int) Math.floor((double) displayTicks / 1200);
+                int seconds = (displayTicks - (minutes * 1200)) / 20;
                 String countdown = (minutes > 0 ? minutes + "m" : "") + (seconds > 0 ? seconds + "s" : "");
                 tooltipList.add(Text.translatable("tip.cooldown", countdown).withColor(COOLDOWN_COLOR));
             }

@@ -6,11 +6,11 @@
   "announcement.goals.killer": "在时间耗尽前消灭所有平民。",
   "announcement.goals.vigilante": "消灭任何凶手并保护平民。",
   "announcement.loose_ends.goal": "在危险找上你之前解决所有隐患。祝你好运。",
-  "announcement.loose_ends.premise": "列车上的每个人都携带一把袖珍手枪和一把匕首。",
-  "announcement.loose_ends.welcome": "欢迎登车……孤行者。",
+  "announcement.loose_ends.premise": "魔女岛上的每个人都携带一把袖珍手枪和一把匕首。",
+  "announcement.loose_ends.welcome": "欢迎登岛……孤行者。",
   "announcement.loose_ends.winner": "%s 获胜！",
-  "announcement.premise": "列车上潜伏着一名杀手。",
-  "announcement.premises": "列车上潜伏着 %s 名杀手。",
+  "announcement.premise": "魔女岛上潜伏着一名杀手。",
+  "announcement.premises": "魔女岛上潜伏着 %s 名杀手。",
   "announcement.role.civilian": "平民！",
   "announcement.role.killer": "杀手！",
   "announcement.role.loose_end": "孤行者！",
@@ -19,7 +19,7 @@
   "announcement.title.killer": "杀手",
   "announcement.title.loose_end": "孤行者",
   "announcement.title.vigilante": "义警",
-  "announcement.welcome": "欢迎登车 %s",
+  "announcement.welcome": "欢迎登岛 %s",
   "announcement.win.civilian": "乘客胜利！",
   "announcement.win.killer": "杀手胜利！",
   "announcement.win.loose_end": "%s 获胜！",
@@ -254,14 +254,14 @@
   "block.wathe.white_ottoman": "白色单脚矮凳",
   "block.wathe.white_trimmed_bed": "白边饰床",
 
-  "category.wathe.keybinds": "列车谋杀之谜",
+  "category.wathe.keybinds": "魔女岛谋杀之谜",
 
   "commands.supporter_only": "这些超搞怪的赞助者指令仅限 Ko-Fi 与 YouTube 会员使用；如果你想体验一下，欢迎考虑赞助！<3",
 
   "container.cabinet": "柜子",
   "container.cargo_box": "货箱",
   
-  "credits.wathe.thank_you": "感谢你游玩《哈比快车-最后航程》！\n我和我的团队花了很多时间制作这个模组，希望你喜欢它。\n如果你喜欢并且想要制作视频或直播，\n请务必在视频和模组页面中标注我的频道！\n - RAT / doctor4t",
+  "credits.wathe.thank_you": "感谢你游玩《魔女岛-最后航程》！\n我和我的团队负责了地图的搭建，我负责了游戏的一些魔改开发，希望你喜欢它。\n如果你喜欢魔女岛并且想要制作视频或直播，\n请务必在视频中标注我的频道！\n同时，别忘了支持原作者RAT / doctor4t并赞助他们给他们经济支持\n - 幻影丘 / Annina",
   "entity.wathe.firecracker": "爆竹",
   "entity.wathe.grenade": "手雷",
   "entity.wathe.note": "便条",
@@ -282,10 +282,10 @@
 
   "item.wathe.bat": "球棒",
   "item.wathe.blackout": "停电器",
-  "item.wathe.blackout.tooltip": "关闭全车所有灯光 15 至 20 秒\n使用直觉（左 Alt）可在黑暗中看见目标\n购买后立即生效，冷却 5 分钟",
+  "item.wathe.blackout.tooltip": "关闭魔女岛所有灯光 15 至 20 秒\n使用直觉（左 Alt）可在黑暗中看见目标\n购买后立即生效，冷却 3 分钟",
 
   "item.wathe.body_bag": "裹尸袋",
-  "item.wathe.body_bag.tooltip": "用于尸体，可将其打包移除\n一次性物品，冷却 5 分钟",
+  "item.wathe.body_bag.tooltip": "用于尸体，可将其打包移除\n一次性物品，冷却 1 分钟",
 
   "item.wathe.champagne": "香槟",
   "item.wathe.cosmopolitan": "大都会鸡尾酒",
@@ -299,17 +299,17 @@
   "item.wathe.firecracker.tooltip": "放置 15 秒后爆炸\n可模拟枪声吸引他人",
 
   "item.wathe.grenade": "手雷",
-  "item.wathe.grenade.tooltip": "右键投掷，撞击即爆\n适合清理人群，但要小心爆炸范围！\n一次性物品，冷却 5 分钟",
+  "item.wathe.grenade.tooltip": "左键可在直投模式与蓄力模式之间切换\n直投模式下右键立即按基础速度投出，蓄力模式下可按住右键最多 1 秒后投掷\n一次性物品，冷却 5 分钟",
 
   "item.wathe.key": "钥匙",
 
   "item.wathe.knife": "匕首",
-  "item.wathe.knife.tooltip": "右键蓄力一秒，靠近目标即可发动暗杀\n击杀后冷却 1 分钟\n攻击可击退玩家（无冷却）",
+  "item.wathe.knife.tooltip": "右键蓄力一秒，靠近目标即可发动暗杀\n击杀后冷却 35 秒\n攻击可击退玩家（无冷却）",
 
   "item.wathe.letter": "信件",
 
   "item.wathe.lockpick": "开锁器",
-  "item.wathe.lockpick.tooltip": "用于任意上锁的门将其打开（无冷却）\n潜行使用可将门堵死 1 分钟（冷却 3 分钟）",
+  "item.wathe.lockpick.tooltip": "用于任意上锁的门将其打开（无冷却）\n潜行使用可将门堵死 1 分钟（冷却 2 分钟 40 秒）",
 
   "item.wathe.martini": "马提尼",
   "item.wathe.mojito": "莫吉托",
@@ -321,7 +321,7 @@
   "item.wathe.poison_vial": "毒药瓶",
   "item.wathe.poison_vial.tooltip": "偷偷混入食物或饮品中，使下一个取餐者中毒而亡",
   "item.wathe.psycho_mode": "疯魔模式",
-  "item.wathe.psycho_mode.tooltip": "\"你喜欢伤害别人吗？\"\n隐藏你的身份，让你在 30 秒内举着球棒肆意妄为\n球棒全力挥击可直接击杀，持续期间无法切换其他物品\n购买后立即启用，冷却时间 5 分钟",
+  "item.wathe.psycho_mode.tooltip": "\"你喜欢伤害别人吗？\"\n隐藏你的身份，让你在 38 秒内举着球棒肆意妄为\n球棒全力挥击可直接击杀，持续期间无法切换其他物品\n购买后立即启用，冷却时间 4 分钟 30 秒",
   "item.wathe.revolver": "左轮手枪",
   "item.wathe.revolver.tooltip": "瞄准、右键点击并射击\n若误杀无辜者则会掉落",
   "item.wathe.scorpion": "蝎子",
@@ -334,7 +334,7 @@
   "lobby.autostart.active": "玩家数达到 6 人以上后将自动开始游戏",
   "lobby.autostart.starting": "游戏开始中",
   "lobby.autostart.time": "游戏将在 %ss 后开始",
-  "lobby.players.count": "已登车玩家：%s / %s",
+  "lobby.players.count": "已登岛玩家：%s / %s",
   "subtitles.block.cargo_box.close": "货箱关闭",
   "subtitles.block.cargo_box.open": "货箱打开",
   "subtitles.block.door.toggle": "门运作",
@@ -342,20 +342,109 @@
   "task.drink": "去喝点东西。",
   "task.eat": "去吃点零食。",
   "task.fake": "你可以假装",
-  "task.feel": "你觉得该去",
+  "task.feel": "你觉得应该",
   "task.outside": "出去呼吸点新鲜空气。",
+  "task.water": "去泡一下水。",
+  "task.fire": "在火边取暖",
+  "task.shift": "蹲一下。",
+  "task.stare": "凝视别人一段时间。",
+  "task.away": "离人远一点。",
+  "task.run": "去跑步。",
+  "task.sit": "去坐一下。",
+  "task.cook": "去烤点生食",
+  "task.potion": "去喝点药水。",
+  "task.music": "去玩会音符盒。",
+  "task.book": "去看会书。",
+  "task.stay": "保持不动",
+  "task.fish": "去钓鱼。",
   "task.sleep": "去睡一会儿。",
   "tip.cooldown": "冷却中：%s",
+  "tip.grenade.switch_throw_mode": "当前手雷投掷方式切换为:%s",
+  "tip.grenade.current_throw_mode": "当前手雷投掷方式:%s",
+  "tip.grenade.throw_mode.direct": "直投",
+  "tip.grenade.throw_mode.charged": "蓄力",
   "tip.derringer.used": "已使用：无法再次开火，击杀一名玩家可重新装填！",
   "tip.door.jammed": "这扇门被卡住，暂时无法打开！",
   "tip.door.locked": "这扇门被锁住了，无法打开。",
   "tip.door.requires_different_key": "这扇门被锁住，需要另一把钥匙才能打开。",
   "tip.door.requires_key": "这扇门被锁住，需要一把钥匙才能打开。",
-  "tip.letter.name": "亲爱的 %s，欢迎登上哈耳庇厄号快车！",
+  "tip.letter.name": "亲爱的 %s，欢迎登上魔女岛！",
   "tip.letter.room": "随信附上您的车票以及用于进入",
-  "tip.letter.room.cabin_suite": "您的客舱套房的钥匙",
-  "tip.letter.room.grand_suite": "特等套房的钥匙",
-  "tip.letter.room.twin_cabin": "您的双人客舱的钥匙",
+  "tip.letter.room.cabin_suite": "您的特色牢房钥匙",
+  "tip.letter.room.grand_suite": "您的普通牢房钥匙",
+  "tip.letter.room.twin_cabin": "您的双人牢房钥匙",
   "tip.letter.tooltip1": "供您于 1923 年 1 月 1 日旅程时使用。",
-  "tip.letter.tooltip2": "哈比号祝您旅途愉快、平安顺遂。"
+  "tip.letter.tooltip2": "魔女事务所祝您旅途愉快、平安顺遂。",
+  "hud.mood.breakdown_warning": "精神即将崩溃"
+  ,"replay.title": "对局回放"
+  ,"replay.footer": "回放结束"
+  ,"replay.role.unknown": "未知职业"
+  ,"replay.item.unknown": "未知物品"
+  ,"replay.shop_purchase": "%s 购买了 %s，花费 %s 金币"
+  ,"replay.item_pickup": "%s 捡起了 %s"
+  ,"replay.item_pickup.multiple": "%s 捡起了 %s x%s"
+  ,"replay.platter_take": "%s 从托盘拿取了 %s"
+  ,"replay.platter_take.poisoned": "%s 从托盘拿取了带有毒药的 %s"
+  ,"replay.consume.eat": "%s 食用了 %s"
+  ,"replay.consume.eat.poisoned": "%s 食用了带有毒药的 %s"
+  ,"replay.consume.drink_cocktail": "%s 饮用了 %s"
+  ,"replay.consume.drink_cocktail.poisoned": "%s 饮用了带有毒药的 %s"
+  ,"replay.consume.drink_potion": "%s 喝下了 %s"
+  ,"replay.consume.drink_potion.poisoned": "%s 喝下了带有毒药的 %s"
+  ,"replay.poisoned": "%s 开始中毒"
+  ,"replay.poisoned.wathe.bed_poison.by": "%s 被 %s 放置的蝎子蛰伤"
+  ,"replay.death.wathe.knife_stab.killed": "%s 被%s的 %s 击杀"
+  ,"replay.death.wathe.gun_shot.killed": "%s 被 %s 的%s击杀"
+  ,"replay.death.wathe.bat_hit.killed": "%s 被 %s 的%s击杀"
+  ,"replay.death.wathe.grenade.killed": "%s 被 %s 投掷的%s炸死"
+  ,"replay.death.wathe.poison.from_item": "%s 因带有毒药的 %s 而中毒身亡，毒药来自于 %s"
+  ,"replay.death.wathe.poison.killed": "%s 因为 %s 而中毒身亡"
+  ,"replay.death.wathe.poison.died": "%s 中毒身亡"
+  ,"replay.death.wathe.bed_poison.died": "%s 因为被 %s 的蝎子蛰到而中毒身亡"
+  ,"replay.death.wathe.mental_breakdown.died": "%s 死于精神崩溃"
+  ,"replay.death.wathe.fell_out_of_train.died": "%s 掉落出了这个世界"
+  ,"replay.death.wathe.fell_out_of_train.killed": "%s 被 %s 推下了这个世界"
+  ,"replay.death.unknown.died": "%s 死亡"
+  ,"replay.death.unknown.killed": "%s 被 %s 击杀"
+  ,"replay.shield_blocked.wathe.psycho_mode.by_item": "%s 的疯魔护盾抵挡住了来自 %s 的 %s 的伤害"
+  ,"replay.shield_blocked.wathe.psycho_mode.item": "%s 的疯魔护盾抵挡住了来自 %s 的伤害"
+  ,"replay.role_changed": "%s 的身份从 %s 变成了 %s"
+  ,"replay.task_complete": "%s 完成了任务：%s"
+  ,"replay.task.unknown": "未知任务"
+  ,"replay.item_use.wathe.grenade": "%s 投掷了手雷"
+  ,"replay.item_use.wathe.crowbar": "%s 用撬棍撬开了门"
+  ,"replay.item_use.wathe.lockpick_jam": "%s 用开锁器卡住了门"
+  ,"replay.item_use.wathe.body_bag": "%s 使用裹尸袋收走了 %s 的尸体"
+  ,"replay.item_use.wathe.body_bag.unknown": "%s 使用裹尸袋收走了一具尸体"
+  ,"replay.item_use.wathe.note": "%s 贴上了便条"
+  ,"replay.item_use.wathe.firecracker": "%s 放置了鞭炮"
+  ,"replay.item_use.wathe.poison_vial": "%s 将毒药下在了托盘里面"
+  ,"replay.item_use.wathe.scorpion": "%s 将蝎子放置在了床里"
+  ,"replay.item_hit.wathe.knife": "%s 用%s命中了 %s"
+  ,"replay.item_hit.wathe.revolver": "%s 用%s命中了 %s"
+  ,"replay.item_hit.wathe.bat": "%s 使用%s命中了 %s"
+  ,"replay.global.wathe.psycho_mode_end": "%s 的疯魔时刻结束"
+  ,"replay.global.wathe.blackout_recovering": "电力正在恢复"
+  ,"replay.global.wathe.blackout_restored": "电力已完全恢复"
+  ,"replay.global.wathe.fishing_rod_used": "%s 使用了钓鱼竿"
+  ,"replay.global.wathe.scorpion_sting": "%s 被 %s 放置的蝎子蛰伤"
+  ,"replay.global.wathe.scorpion_sting.unknown": "%s 被蝎子蛰伤"
+  ,"hud.task_point.toggle.enabled": "任务点透视已开启"
+  ,"hud.task_point.toggle.disabled": "任务点透视已关闭"
+  ,"hud.task_point.bed": "床位"
+  ,"hud.task_point.keyed_door": "对应房门"
+  ,"hud.task_point.water_source": "水"
+  ,"hud.task_point.fire_source": "火源"
+  ,"hud.task_point.food_tray": "食物托盘"
+  ,"hud.task_point.cocktail_tray": "鸡尾酒托盘"
+  ,"hud.task_point.seat": "座位"
+  ,"hud.task_point.potion_tray": "药水托盘"
+  ,"hud.task_point.note_block": "音符盒"
+  ,"hud.task_point.lectern": "讲台"
+  ,"hud.task_point.fishing_rod_tray": "钓鱼竿托盘"
+  ,"hud.task_point.furnace": "熔炉"
+  ,"hud.task_point.smoker": "烟熏炉"
+  ,"hud.task_point.raw_food_tray": "生食托盘"
+  ,"hud.task_point.fuel_tray": "燃料托盘"
+  ,"key.wathe.task_points": "任务点透视"
 }

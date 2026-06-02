@@ -9,6 +9,13 @@ import dev.doctor4t.wathe.command.argument.MapEffectArgumentType;
 import dev.doctor4t.wathe.command.argument.TimeOfDayArgumentType;
 import dev.doctor4t.wathe.game.GameConstants;
 import dev.doctor4t.wathe.index.*;
+import dev.doctor4t.wathe.record.GameRecordHooks;
+import dev.doctor4t.wathe.record.GameRecordManager;
+import dev.doctor4t.wathe.record.GameRecordTypes;
+import dev.doctor4t.wathe.record.replay.DefaultReplayFormatters;
+import dev.doctor4t.wathe.record.replay.ReplayGenerator;
+import dev.doctor4t.wathe.record.replay.ReplayRegistry;
+import dev.doctor4t.wathe.task.TaskPointSyncManager;
 import dev.doctor4t.wathe.util.*;
 import dev.upcraft.datasync.api.DataSyncAPI;
 import dev.upcraft.datasync.api.util.Entitlements;
@@ -22,6 +29,7 @@ import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.command.argument.serialize.ConstantArgumentSerializer;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.player.PlayerEntity;
+import net.minecraft.registry.Registries;
 import net.minecraft.server.command.ServerCommandSource;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.text.Text;
@@ -73,16 +81,29 @@ public class Wathe implements ModInitializer {
             SetTimerCommand.register(dispatcher);
             SetMoneyCommand.register(dispatcher);
             LockToSupportersCommand.register(dispatcher);
+            SetKillerCountCommand.register(dispatcher);
+            SetGameModeCommand.register(dispatcher);
+            SetGradualResetCommand.register(dispatcher);
+            MoodEffectDeathCommand.register(dispatcher);
+            TaskPointCommand.register(dispatcher);
+            AllowJumpCommand.register(dispatcher);
+            PlayerCollisionCommand.register(dispatcher);
         }));
 
-        // server lock to supporters
+        /*
+         * 保留原版支持者检测逻辑。
+         * 如果对局已经开始，局中新加入的玩家也会在这里留下“玩家加入”事件。
+         */
         ServerPlayerEvents.JOIN.register(player -> {
             DataSyncAPI.refreshAllPlayerData(player.getUuid()).thenRunAsync(() -> {
-                // check if player is supporter now, if not kick
                 if (GameWorldComponent.KEY.get(player.getWorld()).isLockedToSupporters() && !Wathe.isSupporter(player)) {
                     player.networkHandler.disconnect(Text.literal("Server is reserved to doctor4t supporters."));
                 }
             }, player.getWorld().getServer());
+
+            if (GameRecordManager.hasActiveMatch()) {
+                GameRecordManager.recordPlayerJoin(player);
+            }
         });
 
         PayloadTypeRegistry.playS2C().register(ShootMuzzleS2CPayload.ID, ShootMuzzleS2CPayload.CODEC);
@@ -91,16 +112,91 @@ public class Wathe implements ModInitializer {
         PayloadTypeRegistry.playS2C().register(TaskCompletePayload.ID, TaskCompletePayload.CODEC);
         PayloadTypeRegistry.playS2C().register(AnnounceWelcomePayload.ID, AnnounceWelcomePayload.CODEC);
         PayloadTypeRegistry.playS2C().register(AnnounceEndingPayload.ID, AnnounceEndingPayload.CODEC);
+        PayloadTypeRegistry.playS2C().register(TaskPointSyncPayload.ID, TaskPointSyncPayload.CODEC);
         PayloadTypeRegistry.playC2S().register(KnifeStabPayload.ID, KnifeStabPayload.CODEC);
         PayloadTypeRegistry.playC2S().register(GunShootPayload.ID, GunShootPayload.CODEC);
+        PayloadTypeRegistry.playC2S().register(GrenadeThrowModePayload.ID, GrenadeThrowModePayload.CODEC);
         PayloadTypeRegistry.playC2S().register(StoreBuyPayload.ID, StoreBuyPayload.CODEC);
         PayloadTypeRegistry.playC2S().register(NoteEditPayload.ID, NoteEditPayload.CODEC);
+
         ServerPlayNetworking.registerGlobalReceiver(KnifeStabPayload.ID, new KnifeStabPayload.Receiver());
         ServerPlayNetworking.registerGlobalReceiver(GunShootPayload.ID, new GunShootPayload.Receiver());
+        ServerPlayNetworking.registerGlobalReceiver(GrenadeThrowModePayload.ID, new GrenadeThrowModePayload.Receiver());
         ServerPlayNetworking.registerGlobalReceiver(StoreBuyPayload.ID, new StoreBuyPayload.Receiver());
         ServerPlayNetworking.registerGlobalReceiver(NoteEditPayload.ID, new NoteEditPayload.Receiver());
 
+        // 注册原版“塞床物品”到统一床效果接口。
+        WatheBedEffects.register();
+
+        /*
+         * 回放系统分为两层：
+         * 1. GameRecordHooks / GameRecordManager 负责采集和封存事件；
+         * 2. ReplayRegistry / DefaultReplayFormatters 负责把事件翻译成聊天文本。
+         *
+         * 先注册本体默认格式化器，后续扩展职业模组可继续追加自己的格式化器。
+         */
+        registerReplayFormatters();
+        GameRecordHooks.register();
+
+        /*
+         * 玩家离线事件要纳入时间线；重生则不算“重新加入”，避免切旁观时刷出伪加入记录。
+         */
+        ServerPlayerEvents.LEAVE.register(GameRecordManager::recordPlayerLeave);
+
+        /*
+         * 一局对局记录真正封存后，再完整播放一次整局事件。
+         * 局内实时播报则由 GameRecordManager.addEvent 在记录时即时发送。
+         */
+        dev.doctor4t.wathe.api.event.RecordEvents.ON_RECORD_END.register(ReplayGenerator::generateAndSend);
+
+        // 初始化任务点扫描 / 同步系统。
+        TaskPointSyncManager.initialize();
+
         Scheduler.init();
+    }
+
+    private static void registerReplayFormatters() {
+        ReplayRegistry.registerFormatter(GameRecordTypes.SHOP_PURCHASE, DefaultReplayFormatters::formatShopPurchase);
+        ReplayRegistry.registerFormatter(GameRecordTypes.ITEM_PICKUP, DefaultReplayFormatters::formatItemPickup);
+        ReplayRegistry.registerFormatter(GameRecordTypes.ITEM_USE, DefaultReplayFormatters::formatItemUse);
+        ReplayRegistry.registerFormatter(GameRecordTypes.ITEM_HIT, DefaultReplayFormatters::formatItemHit);
+        ReplayRegistry.registerFormatter(GameRecordTypes.PLATTER_TAKE, DefaultReplayFormatters::formatPlatterTake);
+        ReplayRegistry.registerFormatter(GameRecordTypes.CONSUME_ITEM, DefaultReplayFormatters::formatConsumeItem);
+        ReplayRegistry.registerFormatter(GameRecordTypes.PLAYER_POISONED, DefaultReplayFormatters::formatPoisoned);
+        ReplayRegistry.registerFormatter(GameRecordTypes.DEATH, DefaultReplayFormatters::formatDeath);
+        ReplayRegistry.registerFormatter(GameRecordTypes.SHIELD_BLOCKED, DefaultReplayFormatters::formatShieldBlocked);
+        ReplayRegistry.registerFormatter(GameRecordTypes.SKILL_USE, DefaultReplayFormatters::formatSkillUse);
+        ReplayRegistry.registerFormatter(GameRecordTypes.GLOBAL_EVENT, DefaultReplayFormatters::formatGlobalEvent);
+        ReplayRegistry.registerFormatter(GameRecordTypes.DOOR_INTERACTION, DefaultReplayFormatters::formatDoorInteraction);
+        ReplayRegistry.registerFormatter(GameRecordTypes.ROLE_CHANGED, DefaultReplayFormatters::formatRoleChanged);
+        ReplayRegistry.registerFormatter(GameRecordTypes.TASK_COMPLETE, DefaultReplayFormatters::formatTaskComplete);
+
+        /*
+         * 本体内置物品 / 全局事件格式化器。
+         * 扩展职业模组只要注册同类 formatter，就能把自己的事件接进同一套回放系统。
+         */
+        ReplayRegistry.registerItemUseFormatter(Registries.ITEM.getId(WatheItems.GRENADE), DefaultReplayFormatters::formatGrenadeUse);
+        ReplayRegistry.registerItemUseFormatter(Registries.ITEM.getId(WatheItems.CROWBAR), DefaultReplayFormatters::formatCrowbarUse);
+        ReplayRegistry.registerItemUseFormatter(Registries.ITEM.getId(WatheItems.LOCKPICK), DefaultReplayFormatters::formatLockpickUse);
+        ReplayRegistry.registerItemUseFormatter(Registries.ITEM.getId(WatheItems.BODY_BAG), DefaultReplayFormatters::formatBodyBagUse);
+        ReplayRegistry.registerItemUseFormatter(Registries.ITEM.getId(WatheItems.NOTE), DefaultReplayFormatters::formatNoteUse);
+        ReplayRegistry.registerItemUseFormatter(Registries.ITEM.getId(WatheItems.FIRECRACKER), DefaultReplayFormatters::formatFirecrackerUse);
+        ReplayRegistry.registerItemUseFormatter(Registries.ITEM.getId(WatheItems.POISON_VIAL), DefaultReplayFormatters::formatPoisonVialUse);
+        ReplayRegistry.registerItemUseFormatter(Registries.ITEM.getId(WatheItems.SCORPION), DefaultReplayFormatters::formatScorpionUse);
+
+        ReplayRegistry.registerItemHitFormatter(Registries.ITEM.getId(WatheItems.KNIFE), DefaultReplayFormatters::formatKnifeHit);
+        ReplayRegistry.registerItemHitFormatter(Registries.ITEM.getId(WatheItems.REVOLVER), DefaultReplayFormatters::formatGunHit);
+        ReplayRegistry.registerItemHitFormatter(Registries.ITEM.getId(WatheItems.DERRINGER), DefaultReplayFormatters::formatGunHit);
+        ReplayRegistry.registerItemHitFormatter(Registries.ITEM.getId(WatheItems.BAT), DefaultReplayFormatters::formatBatHit);
+        ReplayRegistry.registerItemHitTypeFormatter(GameConstants.DeathReasons.KNIFE, DefaultReplayFormatters::formatKnifeHit);
+        ReplayRegistry.registerItemHitTypeFormatter(GameConstants.DeathReasons.GUN, DefaultReplayFormatters::formatGunHit);
+        ReplayRegistry.registerItemHitTypeFormatter(GameConstants.DeathReasons.BAT, DefaultReplayFormatters::formatBatHit);
+
+        ReplayRegistry.registerGlobalEventFormatter(Wathe.id("psycho_mode_end"), DefaultReplayFormatters::formatPsychoModeEnd);
+        ReplayRegistry.registerGlobalEventFormatter(Wathe.id("blackout_recovering"), DefaultReplayFormatters::formatBlackoutRecovering);
+        ReplayRegistry.registerGlobalEventFormatter(Wathe.id("blackout_restored"), DefaultReplayFormatters::formatBlackoutRestored);
+        ReplayRegistry.registerGlobalEventFormatter(Wathe.id("fishing_rod_used"), DefaultReplayFormatters::formatFishingRodUsed);
+        ReplayRegistry.registerGlobalEventFormatter(Wathe.id("scorpion_sting"), DefaultReplayFormatters::formatScorpionSting);
     }
 
     public static boolean isSkyVisibleAdjacent(@NotNull Entity player) {
@@ -132,16 +228,22 @@ public class Wathe implements ModInitializer {
     public static final Identifier COMMAND_ACCESS = id("commandaccess");
 
     public static int executeSupporterCommand(ServerCommandSource source, Runnable runnable) {
-        ServerPlayerEntity player = source.getPlayer();
-        if (player == null || !player.getClass().equals(ServerPlayerEntity.class)) return 0;
-
-        if (isSupporter(player) || FabricLoader.getInstance().isDevelopmentEnvironment()) {
-            runnable.run();
-            return 1;
-        } else {
-            player.sendMessage(Text.translatable("commands.supporter_only"));
-            return 0;
-        }
+        /*
+         * 这里原本是“赞助者专用指令”的统一闸门：
+         * Start / SetTimer / SetMoney / GameSettings / MapVariables 等命令虽然已经要求 OP 权限，
+         * 但执行时仍会再次检查玩家是否拥有 supporter entitlement，
+         * 所以在正式服导出的 jar 里，管理员依然会被这层二次限制拦住。
+         *
+         * 现在为了方便本地联调和服务器实测，直接把这层 supporter 校验注销掉，
+         * 改为：只要命令已经通过各自的 Brigadier `.requires(source -> source.hasPermissionLevel(2))`
+         * 注册条件，就允许继续执行。这样控制台和管理员玩家都能正常测试这些命令。
+         *
+         * 注意：
+         * 1. 这里只解除“指令层”的 supporter 限制，不影响其他仍然使用 isSupporter 的展示/皮肤逻辑；
+         * 2. 命令本身的管理员权限判断仍然保留，所以普通玩家不会因为这里放开就获得测试指令权限。
+         */
+        runnable.run();
+        return 1;
     }
 
     public static @NotNull Boolean isSupporter(PlayerEntity player) {

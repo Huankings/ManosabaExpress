@@ -6,12 +6,16 @@ import dev.doctor4t.ratatouille.client.util.ambience.AmbienceUtil;
 import dev.doctor4t.ratatouille.client.util.ambience.BackgroundAmbience;
 import dev.doctor4t.wathe.Wathe;
 import dev.doctor4t.wathe.WatheConfig;
+import dev.doctor4t.wathe.api.Role;
 import dev.doctor4t.wathe.cca.GameWorldComponent;
+import dev.doctor4t.wathe.cca.PlayerGrenadeComponent;
 import dev.doctor4t.wathe.cca.PlayerMoodComponent;
 import dev.doctor4t.wathe.cca.TrainWorldComponent;
 import dev.doctor4t.wathe.client.gui.RoundTextRenderer;
 import dev.doctor4t.wathe.client.gui.StoreRenderer;
 import dev.doctor4t.wathe.client.gui.TimeRenderer;
+import dev.doctor4t.wathe.client.task.TaskPointClientState;
+import dev.doctor4t.wathe.client.task.TaskPointOverlayRenderer;
 import dev.doctor4t.wathe.client.model.WatheModelLayers;
 import dev.doctor4t.wathe.client.model.item.KnifeModelLoadingPlugin;
 import dev.doctor4t.wathe.client.render.block_entity.PlateBlockEntityRenderer;
@@ -23,6 +27,7 @@ import dev.doctor4t.wathe.client.render.entity.NoteEntityRenderer;
 import dev.doctor4t.wathe.client.util.WatheItemTooltips;
 import dev.doctor4t.wathe.entity.FirecrackerEntity;
 import dev.doctor4t.wathe.entity.NoteEntity;
+import dev.doctor4t.wathe.entity.PlayerBodyEntity;
 import dev.doctor4t.wathe.game.GameConstants;
 import dev.doctor4t.wathe.game.GameFunctions;
 import dev.doctor4t.wathe.index.*;
@@ -31,9 +36,12 @@ import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.blockrenderlayer.v1.BlockRenderLayerMap;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
+import net.fabricmc.fabric.api.event.client.player.ClientPreAttackCallback;
 import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
 import net.fabricmc.fabric.api.client.model.loading.v1.ModelLoadingPlugin;
+import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
+import net.fabricmc.fabric.api.client.rendering.v1.WorldRenderEvents;
 import net.fabricmc.fabric.api.client.rendering.v1.EntityRendererRegistry;
 import net.minecraft.block.Block;
 import net.minecraft.client.MinecraftClient;
@@ -55,9 +63,13 @@ import net.minecraft.entity.ItemEntity;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.registry.Registries;
 import net.minecraft.sound.SoundCategory;
+import net.minecraft.text.MutableText;
+import net.minecraft.text.Text;
+import net.minecraft.util.Formatting;
 import net.minecraft.util.Identifier;
 import net.minecraft.util.math.MathHelper;
 import net.minecraft.util.math.Vec3d;
+import org.jetbrains.annotations.NotNull;
 import org.lwjgl.glfw.GLFW;
 
 import java.util.*;
@@ -74,8 +86,11 @@ public class WatheClient implements ClientModInitializer {
     public static final Map<UUID, PlayerListEntry> PLAYER_ENTRIES_CACHE = Maps.newHashMap();
 
     public static KeyBinding instinctKeybind;
+    public static KeyBinding taskPointKeybind;
     public static float prevInstinctLightLevel = -.04f;
     public static float instinctLightLevel = -.04f;
+    private static int lastGrenadeSelectedSlot = -1;
+    private static boolean grenadeThrowModeToggleHeld = false;
 
     public static boolean shouldDisableHudAndDebug() {
         MinecraftClient client = MinecraftClient.getInstance();
@@ -211,7 +226,8 @@ public class WatheClient implements ClientModInitializer {
         ClientTickEvents.START_WORLD_TICK.register(clientWorld -> {
             gameComponent = GameWorldComponent.KEY.get(clientWorld);
             trainComponent = TrainWorldComponent.KEY.get(clientWorld);
-            moodComponent = PlayerMoodComponent.KEY.get(MinecraftClient.getInstance().player);
+            ClientPlayerEntity player = MinecraftClient.getInstance().player;
+            moodComponent = player == null ? null : PlayerMoodComponent.KEY.get(player);
         });
 
         // Lock options
@@ -233,6 +249,42 @@ public class WatheClient implements ClientModInitializer {
 
         // Item tooltips
         WatheItemTooltips.addTooltips();
+
+        ClientPreAttackCallback.EVENT.register((client, player, clickCount) -> {
+            /*
+             * 左键切换手雷模式，而不是执行原本的攻击动作。
+             *
+             * 这里使用客户端“预攻击”回调的原因是：
+             * 1. 可以在攻击真正发生前直接拦截；
+             * 2. 不会误打玩家、误打方块；
+             * 3. 只在主手拿着手雷时生效，其它物品完全不受影响。
+             */
+            if (!player.getMainHandStack().isOf(WatheItems.GRENADE)) {
+                return false;
+            }
+
+            /*
+             * Fabric 的预攻击回调在“左键持续按住”时会重复触发，
+             * 如果不做额外限流，就会出现：
+             * 1. 点一下左键，因为按下时间稍长而连续切换两次；
+             * 2. 长按左键时，模式在直投 / 蓄力之间疯狂来回跳。
+             *
+             * 这里加一个“本次按住是否已经处理过”的锁：
+             * 1. 同一次按住左键，只允许切换一次；
+             * 2. 必须先松开左键，下一次重新按下才允许再次切换；
+             * 3. 在锁未释放前，后续重复回调仍继续返回 true，保证攻击动作也会被吞掉。
+             */
+            if (grenadeThrowModeToggleHeld) {
+                return true;
+            }
+            grenadeThrowModeToggleHeld = true;
+
+            PlayerGrenadeComponent component = PlayerGrenadeComponent.KEY.get(player);
+            component.toggleLocal();
+            ClientPlayNetworking.send(new GrenadeThrowModePayload(component.isDirectThrowMode()));
+            showGrenadeThrowModeSwitchMessage(player);
+            return true;
+        });
 
         ClientTickEvents.START_WORLD_TICK.register(clientWorld -> {
             prevInstinctLightLevel = instinctLightLevel;
@@ -267,6 +319,7 @@ public class WatheClient implements ClientModInitializer {
 
             ClientPlayerEntity player = MinecraftClient.getInstance().player;
             if (player != null) {
+                maybeShowGrenadeThrowModeHint(player);
                 StoreRenderer.tick();
                 TimeRenderer.tick();
             }
@@ -275,6 +328,26 @@ public class WatheClient implements ClientModInitializer {
         ClientTickEvents.END_CLIENT_TICK.register((client) -> {
             WatheClient.handParticleManager.tick();
             RoundTextRenderer.tick();
+
+            /*
+             * 左键松开后再解除“本次按住已处理”的锁。
+             *
+             * 这样就能实现：
+             * - 按住期间无论回调触发多少次，都只切一次；
+             * - 松开后下一次点击，才允许再次切换。
+             */
+            if (!client.options.attackKey.isPressed()) {
+                grenadeThrowModeToggleHeld = false;
+            }
+
+            while (taskPointKeybind != null && taskPointKeybind.wasPressed() && client.player != null) {
+                boolean enabled = TaskPointClientState.toggleTaskPointOverlayEnabled();
+                client.player.sendMessage(
+                        Text.translatable(enabled ? "hud.task_point.toggle.enabled" : "hud.task_point.toggle.disabled")
+                                .formatted(enabled ? Formatting.GREEN : Formatting.RED),
+                        true
+                );
+            }
         });
 
         ClientPlayNetworking.registerGlobalReceiver(ShootMuzzleS2CPayload.ID, new ShootMuzzleS2CPayload.Receiver());
@@ -283,12 +356,23 @@ public class WatheClient implements ClientModInitializer {
         ClientPlayNetworking.registerGlobalReceiver(AnnounceWelcomePayload.ID, new AnnounceWelcomePayload.Receiver());
         ClientPlayNetworking.registerGlobalReceiver(AnnounceEndingPayload.ID, new AnnounceEndingPayload.Receiver());
         ClientPlayNetworking.registerGlobalReceiver(TaskCompletePayload.ID, new TaskCompletePayload.Receiver());
+        ClientPlayNetworking.registerGlobalReceiver(TaskPointSyncPayload.ID, new TaskPointSyncPayload.Receiver());
+        ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> TaskPointClientState.clear());
+        WorldRenderEvents.AFTER_TRANSLUCENT.register(TaskPointOverlayRenderer::render);
 
         // Instinct keybind
         instinctKeybind = KeyBindingHelper.registerKeyBinding(new KeyBinding(
                 "key." + Wathe.MOD_ID + ".instinct",
                 InputUtil.Type.KEYSYM,
                 GLFW.GLFW_KEY_LEFT_ALT,
+                "category." + Wathe.MOD_ID + ".keybinds"
+        ));
+
+        // 任务点透视开关键：按一下切换开/关，而不是像本能那样长按生效。
+        taskPointKeybind = KeyBindingHelper.registerKeyBinding(new KeyBinding(
+                "key." + Wathe.MOD_ID + ".task_points",
+                InputUtil.Type.KEYSYM,
+                GLFW.GLFW_KEY_B,
                 "category." + Wathe.MOD_ID + ".keybinds"
         ));
     }
@@ -357,9 +441,37 @@ public class WatheClient implements ClientModInitializer {
         return gameComponent != null && gameComponent.canUseKillerFeatures(MinecraftClient.getInstance().player);
     }
 
+    /**
+     * 按“角色表里登记的真实职业”取本能透视颜色。
+     *
+     * <p>这里故意不复用活人那套“杀手红 / 心情色 / 旁观白”的显示逻辑，
+     * 因为尸体需要表达的是“死者到底是什么职业”，而不是活着时给本能看的
+     * 那套玩法语义。这样原版职业和后续通过 {@code WatheRoles.registerRole(...)}
+     * 注册的扩展职业，都会自动继承各自的职业颜色。</p>
+     *
+     * @param playerUuid 尸体绑定的原玩家 UUID
+     * @return 对应职业颜色；如果当前客户端还拿不到该玩家职业，则返回 -1 表示不高亮
+     */
+    public static int getInstinctRoleHighlight(UUID playerUuid) {
+        if (gameComponent == null) return -1;
+
+        Role role = gameComponent.getRole(playerUuid);
+        return role == null ? -1 : role.color();
+    }
+
     public static int getInstinctHighlight(Entity target) {
         if (!isInstinctEnabled()) return -1;
-//        if (target instanceof PlayerBodyEntity) return 0x606060;
+
+        // 尸体职业色只开放给“自己已经不在局内存活状态”的观察视角使用，
+        // 也就是 spectator / creative 这两种 Wathe 里的“非存活玩家透视”。
+        // 这样可以避免存活杀手或其他存活职业，额外看到本不该看到的尸体职业信息。
+        if (target instanceof PlayerBodyEntity body) {
+            if (isPlayerSpectatingOrCreative()) {
+                return getInstinctRoleHighlight(body.getPlayerUuid());
+            }
+            return -1;
+        }
+
         if (target instanceof ItemEntity || target instanceof NoteEntity || target instanceof FirecrackerEntity)
             return 0xDB9D00;
         if (target instanceof PlayerEntity player) {
@@ -386,5 +498,34 @@ public class WatheClient implements ClientModInitializer {
 
     public static int getLockedRenderDistance(boolean ultraPerfMode) {
         return ultraPerfMode ? 2 : 32;
+    }
+
+    /**
+     * 切到手雷栏位时，在屏幕下方提示当前投掷模式。
+     *
+     * <p>这里只在“刚切到手雷”那一刻提示一次：
+     * 1. 避免玩家一直拿着手雷时每 tick 刷屏；
+     * 2. 只要从别的物品切回手雷，就能再次确认当前模式；
+     * 3. 如果玩家连续持有同一格手雷，则不重复打扰。</p>
+     */
+    private static void maybeShowGrenadeThrowModeHint(@NotNull ClientPlayerEntity player) {
+        int currentSlot = player.getInventory().selectedSlot;
+        boolean isHoldingGrenade = player.getMainHandStack().isOf(WatheItems.GRENADE);
+        if (isHoldingGrenade && lastGrenadeSelectedSlot != currentSlot) {
+            showGrenadeThrowModeMessage(player, "tip.grenade.current_throw_mode");
+            lastGrenadeSelectedSlot = currentSlot;
+        } else if (!isHoldingGrenade) {
+            lastGrenadeSelectedSlot = -1;
+        }
+    }
+
+    public static void showGrenadeThrowModeSwitchMessage(@NotNull PlayerEntity player) {
+        showGrenadeThrowModeMessage(player, "tip.grenade.switch_throw_mode");
+    }
+
+    public static void showGrenadeThrowModeMessage(@NotNull PlayerEntity player, @NotNull String translationKey) {
+        PlayerGrenadeComponent.ThrowMode throwMode = PlayerGrenadeComponent.KEY.get(player).getThrowMode();
+        MutableText message = Text.translatable(translationKey, throwMode.getDisplayText()).formatted(Formatting.WHITE);
+        player.sendMessage(message, true);
     }
 }

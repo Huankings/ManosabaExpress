@@ -10,6 +10,7 @@ import net.minecraft.entity.EntityType;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.entity.projectile.thrown.ThrownItemEntity;
 import net.minecraft.item.Item;
+import net.minecraft.nbt.NbtCompound;
 import net.minecraft.particle.ItemStackParticleEffect;
 import net.minecraft.particle.ParticleTypes;
 import net.minecraft.server.network.ServerPlayerEntity;
@@ -41,7 +42,19 @@ public class GrenadeEntity extends ThrownItemEntity {
             for (ServerPlayerEntity player : world.getPlayers(serverPlayerEntity ->
                     this.getBoundingBox().expand(3f).contains(serverPlayerEntity.getPos()) &&
                             GameFunctions.isPlayerAliveAndSurvival(serverPlayerEntity))) {
-                GameFunctions.killPlayer(player, true, this.getOwner() instanceof PlayerEntity playerEntity ? playerEntity : null, GameConstants.DeathReasons.GRENADE);
+                /*
+                 * 手雷爆炸时，攻击者主手通常已经不再持有“那枚被扔出的手雷”，
+                 * 因此这里主动把爆炸来源物品写进 extraDeathData，
+                 * 让 death / shield replay 都能稳定显示真实爆炸物名称。
+                 */
+                NbtCompound replayItemData = GameFunctions.createReplayItemData(world, WatheItems.GRENADE.getDefaultStack());
+                GameFunctions.killPlayer(
+                        player,
+                        true,
+                        this.getOwner() instanceof PlayerEntity playerEntity ? playerEntity : null,
+                        GameConstants.DeathReasons.GRENADE,
+                        replayItemData
+                );
             }
 
             this.discard();

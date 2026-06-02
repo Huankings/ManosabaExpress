@@ -58,7 +58,7 @@ public class GameSettingsCommand {
                                 )
                                 .then(CommandManager.literal("roleDividend")
                                         .then(CommandManager.literal("killer")
-                                                .then(CommandManager.argument("dividend", IntegerArgumentType.integer(3))
+                                                .then(CommandManager.argument("dividend", IntegerArgumentType.integer(2))
                                                         .executes(context -> setKillerDividend(context.getSource(), IntegerArgumentType.getInteger(context, "dividend")))
                                                 )
                                         )

@@ -21,6 +21,14 @@ import java.util.Optional;
 public class BeveragePlateBlockEntity extends BlockEntity {
     private final List<ItemStack> storedItems = new ArrayList<>();
     private String poisoner = null;
+    /**
+     * 托盘上的“非原生毒药型附加效果”。
+     *
+     * <p>例如 noellesroles 的防御试剂 / 幻觉试剂，就不应该继续复用 poisoner，
+     * 否则 wathe 一改毒药逻辑，扩展模组就会跟着一起变成真中毒。</p>
+     */
+    private String trayEffect = null;
+    private String trayEffectOwner = null;
     private PlateType plate = PlateType.DRINK;
 
     public BeveragePlateBlockEntity(BlockPos pos, BlockState state) {
@@ -57,6 +65,24 @@ public class BeveragePlateBlockEntity extends BlockEntity {
         this.sync();
     }
 
+    public @Nullable String getTrayEffect() {
+        return this.trayEffect;
+    }
+
+    public @Nullable String getTrayEffectOwner() {
+        return this.trayEffectOwner;
+    }
+
+    public void setTrayEffect(@Nullable String trayEffect, @Nullable String trayEffectOwner) {
+        this.trayEffect = trayEffect;
+        this.trayEffectOwner = trayEffectOwner;
+        this.sync();
+    }
+
+    public void clearTrayEffect() {
+        this.setTrayEffect(null, null);
+    }
+
     public boolean isDrink() {
         return this.plate == PlateType.DRINK;
     }
@@ -76,6 +102,12 @@ public class BeveragePlateBlockEntity extends BlockEntity {
         }
         nbt.put("Items", itemsNbt);
         if (this.poisoner != null) nbt.putString("poisoner", this.poisoner);
+        if (this.trayEffect != null) {
+            nbt.putString("tray_effect", this.trayEffect);
+        }
+        if (this.trayEffectOwner != null) {
+            nbt.putString("tray_effect_owner", this.trayEffectOwner);
+        }
         nbt.putBoolean("Drink", this.plate == PlateType.DRINK);
     }
 
@@ -91,6 +123,8 @@ public class BeveragePlateBlockEntity extends BlockEntity {
             }
         }
         this.poisoner = nbt.contains("poisoner") ? nbt.getString("poisoner") : null;
+        this.trayEffect = nbt.contains("tray_effect") ? nbt.getString("tray_effect") : null;
+        this.trayEffectOwner = nbt.contains("tray_effect_owner") ? nbt.getString("tray_effect_owner") : null;
         this.plate = nbt.getBoolean("Drink") ? PlateType.DRINK : PlateType.FOOD;
     }
 

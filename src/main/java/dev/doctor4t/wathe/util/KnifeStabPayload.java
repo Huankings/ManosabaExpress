@@ -7,6 +7,7 @@ import dev.doctor4t.wathe.game.GameConstants;
 import dev.doctor4t.wathe.game.GameFunctions;
 import dev.doctor4t.wathe.index.WatheItems;
 import dev.doctor4t.wathe.index.WatheSounds;
+import dev.doctor4t.wathe.record.GameRecordManager;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.network.PacketByteBuf;
@@ -32,6 +33,18 @@ public record KnifeStabPayload(int target) implements CustomPayload {
             ServerPlayerEntity player = context.player();
             if (!(player.getServerWorld().getEntityById(payload.target()) instanceof PlayerEntity target)) return;
             if (target.distanceTo(player) > 3.0) return;
+
+            // 先记录“匕首命中”，再进入真正的死亡判定。
+            if (target instanceof ServerPlayerEntity serverTarget) {
+                GameRecordManager.recordItemHit(
+                        player,
+                        player.getMainHandStack(),
+                        GameConstants.DeathReasons.KNIFE,
+                        serverTarget,
+                        null
+                );
+            }
+
             GameFunctions.killPlayer(target, true, player, GameConstants.DeathReasons.KNIFE);
             target.playSound(WatheSounds.ITEM_KNIFE_STAB, 1.0f, 1.0f);
             player.swingHand(Hand.MAIN_HAND);

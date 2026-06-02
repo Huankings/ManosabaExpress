@@ -51,8 +51,8 @@ public class LobbyPlayersRenderer {
             int i = 0;
             MutableText thanksText = Text.translatable("credits.wathe.thank_you");
 
-            String fallback = "Thank you for playing The Last Voyage of the Harpy Express!\nMe and my team spent a lot of time working\non this mod and we hope you enjoy it.\nIf you do and wish to make a video or stream\nplease make sure to credit my channel,\nvideo and the mod page!\n - RAT / doctor4t";
-            if (!thanksText.getString().contains(" - RAT / doctor4t")) {
+            String fallback = "感谢你游玩《魔女岛-最后航程》！\n我和我的团队负责了地图的搭建，我负责了游戏的一些魔改开发，希望你喜欢它。\n如果你喜欢魔女岛并且想要制作视频或直播，\n请务必在视频中标注我的频道！\n同时，别忘了支持原作者RAT / doctor4t并赞助他们给他们经济支持\n - 幻影丘 / Annina";
+            if (!thanksText.getString().contains(" - 幻影丘 / Annina")) {
                 thanksText = Text.literal(fallback);
             }
 

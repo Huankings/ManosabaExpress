@@ -2,6 +2,7 @@ package dev.doctor4t.wathe.client.render.entity;
 
 import dev.doctor4t.ratatouille.client.lib.render.helpers.Easing;
 import dev.doctor4t.wathe.Wathe;
+import dev.doctor4t.wathe.cca.PlayerMoodComponent;
 import dev.doctor4t.wathe.client.WatheClient;
 import dev.doctor4t.wathe.client.model.WatheModelLayers;
 import dev.doctor4t.wathe.client.model.entity.PlayerSkeletonEntityModel;
@@ -39,18 +40,39 @@ public class PlayerBodyEntityRenderer<T extends LivingEntity, M extends EntityMo
 
     public void render(PlayerBodyEntity playerBodyEntity, float f, float g, MatrixStack matrixStack, VertexConsumerProvider vertexConsumerProvider, int light) {
         this.setModelPose();
+        boolean lowerThanDepressed = isLocalMoodLowerThanDepressed();
 
         matrixStack.push();
         float clamp = MathHelper.clamp((float) (playerBodyEntity.age - GameConstants.TIME_TO_DECOMPOSITION) / GameConstants.DECOMPOSING_TIME, 0, GameConstants.TIME_TO_DECOMPOSITION + GameConstants.DECOMPOSING_TIME);
         float ease = Easing.CUBIC_IN.ease(clamp, 0, -1, 1);
         if (ease > -1) {
             matrixStack.translate(0, ease, 0);
-            float alpha = WatheClient.moodComponent.isLowerThanDepressed() ? MathHelper.lerp(MathHelper.clamp(Easing.SINE_IN.ease(Math.min(1f, (float) playerBodyEntity.age / 100f), 0, 1, 1), 0, 1), 1f, 0f) : 1f;
+            float alpha = lowerThanDepressed ? MathHelper.lerp(MathHelper.clamp(Easing.SINE_IN.ease(Math.min(1f, (float) playerBodyEntity.age / 100f), 0, 1, 1), 0, 1), 1f, 0f) : 1f;
             this.renderBody(playerBodyEntity, f, g, matrixStack, vertexConsumerProvider, light, alpha);
         }
         matrixStack.pop();
 
-        renderSkeleton(playerBodyEntity, f, g, matrixStack, vertexConsumerProvider, light, WatheClient.moodComponent.isLowerThanDepressed() ? 0f : 1f);
+        renderSkeleton(playerBodyEntity, f, g, matrixStack, vertexConsumerProvider, light, lowerThanDepressed ? 0f : 1f);
+    }
+
+    /**
+     * 尸体渲染会在玩家刚进服时非常早地触发，
+     * 此时 WatheClient 里的静态 moodComponent 缓存可能还没在 world tick 里准备好。
+     * 为了避免“场上已有尸体 -> 新玩家一进服立刻渲染尸体 -> 客户端空指针崩溃”，
+     * 这里改成局部兜底获取；拿不到时直接按“非抑郁状态”处理。
+     */
+    private boolean isLocalMoodLowerThanDepressed() {
+        if (WatheClient.moodComponent != null) {
+            return WatheClient.moodComponent.isLowerThanDepressed();
+        }
+
+        MinecraftClient client = MinecraftClient.getInstance();
+        if (client.player == null) {
+            return false;
+        }
+
+        PlayerMoodComponent fallback = PlayerMoodComponent.KEY.get(client.player);
+        return fallback != null && fallback.isLowerThanDepressed();
     }
 
     public void renderBody(PlayerBodyEntity livingEntity, float f, float g, MatrixStack matrixStack, VertexConsumerProvider vertexConsumerProvider, int light, float alpha) {

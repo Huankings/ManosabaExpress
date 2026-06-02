@@ -3,12 +3,16 @@ package dev.doctor4t.wathe.cca;
 import dev.doctor4t.wathe.Wathe;
 import dev.doctor4t.wathe.game.GameConstants;
 import dev.doctor4t.wathe.game.GameFunctions;
+import dev.doctor4t.wathe.record.GameRecordManager;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.nbt.NbtCompound;
 import net.minecraft.registry.RegistryWrapper;
 import net.minecraft.sound.SoundCategory;
 import net.minecraft.sound.SoundEvents;
+import net.minecraft.util.Identifier;
 import net.minecraft.util.Pair;
+import net.minecraft.util.math.MathHelper;
+import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.NotNull;
 import org.ladysnake.cca.api.v3.component.ComponentKey;
 import org.ladysnake.cca.api.v3.component.ComponentRegistry;
@@ -28,6 +32,8 @@ public class PlayerPoisonComponent implements AutoSyncedComponent, ServerTicking
     public float pulseProgress = 0f;
     public boolean pulsing = false;
     public UUID poisoner;
+    private Identifier poisonSource = GameConstants.DeathReasons.POISON;
+    private @Nullable NbtCompound poisonData = null;
 
     public PlayerPoisonComponent(PlayerEntity player) {
         this.player = player;
@@ -43,6 +49,9 @@ public class PlayerPoisonComponent implements AutoSyncedComponent, ServerTicking
         this.initialPoisonTicks = 0;
         this.pulseProgress = 0f;
         this.pulsing = false;
+        this.poisoner = null;
+        this.poisonSource = GameConstants.DeathReasons.POISON;
+        this.poisonData = null;
         this.sync();
     }
 
@@ -87,18 +96,94 @@ public class PlayerPoisonComponent implements AutoSyncedComponent, ServerTicking
             this.poisonTicks--;
             if (this.poisonTicks == 0) {
                 this.poisonTicks = -1;
-                GameFunctions.killPlayer(this.player, true, this.poisoner == null ? null : this.player.getWorld().getPlayerByUuid(this.poisoner), GameConstants.DeathReasons.POISON);
+                /*
+                 * 毒发身亡时要把原始 poisonData 一起带进死亡回放。
+                 *
+                 * 这样餐盘毒药可以继续显示“因带有毒药的 某食物/饮品 而死”，
+                 * 扩展模组后续如果给真实中毒补充了自己的 item / item_name，
+                 * 也能顺着同一条链路被 death replay 正确读取出来。
+                 */
+                GameFunctions.killPlayer(
+                        this.player,
+                        true,
+                        this.poisoner == null ? null : this.player.getWorld().getPlayerByUuid(this.poisoner),
+                        this.poisonSource,
+                        this.poisonData
+                );
                 this.poisoner = null;
+                this.poisonSource = GameConstants.DeathReasons.POISON;
+                this.poisonData = null;
                 this.sync();
             }
         }
     }
 
     public void setPoisonTicks(int ticks, UUID poisoner) {
+        this.setDetailedPoisonTicks(ticks, poisoner, GameConstants.DeathReasons.POISON, null);
+    }
+
+    /**
+     * 为回放系统保留扩展型中毒入口。
+     *
+     * <p>source 用于区分“普通毒药 / 蝎子 / 扩展模组的其它毒源”；extra 则允许扩展模组
+     * 继续塞入具体物品名、托盘附加状态等数据，后续死亡回放就能还原成更完整的句子。</p>
+     */
+    public void setDetailedPoisonTicks(int ticks, UUID poisoner, Identifier source, @Nullable NbtCompound extra) {
         this.poisoner = poisoner;
+        this.poisonSource = source == null ? GameConstants.DeathReasons.POISON : source;
+        this.poisonData = extra == null ? null : extra.copy();
         this.poisonTicks = ticks;
         if (this.initialPoisonTicks == 0) this.initialPoisonTicks = ticks;
+
+        if (this.player instanceof net.minecraft.server.network.ServerPlayerEntity serverPlayer) {
+            GameRecordManager.recordPoisoned(serverPlayer, poisoner, ticks, this.poisonSource, this.poisonData);
+        }
+
         this.sync();
+    }
+
+    public Identifier getPoisonSource() {
+        return this.poisonSource;
+    }
+
+    public @Nullable UUID getPoisoner() {
+        return this.poisoner;
+    }
+
+    public @Nullable NbtCompound getPoisonData() {
+        return this.poisonData == null ? null : this.poisonData.copy();
+    }
+
+    public int getInitialPoisonTicks() {
+        return this.initialPoisonTicks;
+    }
+
+    public int getPoisonPulseCooldown() {
+        return this.poisonPulseCooldown;
+    }
+
+    /**
+     * 真毒在“心跳阶段”时才需要让客户端开始抖动。
+     *
+     * <p>这里单独封一个判断，方便后续其它客户端表现（比如相机、HUD、特效）
+     * 统一复用同一段判断逻辑，而不是到处重复写“前 200 tick 不处理”。</p>
+     */
+    public boolean isHeartbeatPhase() {
+        return this.poisonTicks > 0 && this.initialPoisonTicks > 0 && this.initialPoisonTicks - this.poisonTicks >= 200;
+    }
+
+    /**
+     * 这个进度专门给客户端抖动使用：进入心跳阶段后从 0 逐步增长到 1。
+     *
+     * <p>这样相机抖动的幅度就能随着中毒时间自然增强，既不会一开始就太猛，
+     * 也不会在整段毒效中始终保持同一强度。</p>
+     */
+    public float getHeartbeatProgress() {
+        if (!this.isHeartbeatPhase()) return 0f;
+
+        int heartbeatTicks = Math.max(0, this.initialPoisonTicks - this.poisonTicks - 200);
+        int heartbeatLength = Math.max(1, this.initialPoisonTicks - 200);
+        return MathHelper.clamp(heartbeatTicks / (float) heartbeatLength, 0f, 1f);
     }
 
     @Override
@@ -106,6 +191,10 @@ public class PlayerPoisonComponent implements AutoSyncedComponent, ServerTicking
         if (this.poisoner != null) tag.putUuid("poisoner", this.poisoner);
         tag.putInt("poisonTicks", this.poisonTicks);
         tag.putInt("initialPoisonTicks", this.initialPoisonTicks);
+        tag.putString("poisonSource", this.poisonSource.toString());
+        if (this.poisonData != null) {
+            tag.put("poisonData", this.poisonData.copy());
+        }
     }
 
     @Override
@@ -113,5 +202,7 @@ public class PlayerPoisonComponent implements AutoSyncedComponent, ServerTicking
         this.poisoner = tag.contains("poisoner") ? tag.getUuid("poisoner") : null;
         this.poisonTicks = tag.contains("poisonTicks") ? tag.getInt("poisonTicks") : -1;
         this.initialPoisonTicks = tag.contains("initialPoisonTicks") ? tag.getInt("initialPoisonTicks") : 0;
+        this.poisonSource = tag.contains("poisonSource") ? Identifier.of(tag.getString("poisonSource")) : GameConstants.DeathReasons.POISON;
+        this.poisonData = tag.contains("poisonData") ? tag.getCompound("poisonData").copy() : null;
     }
 }
