@@ -76,8 +76,22 @@ public class MurderGameMode extends GameMode {
         for (ServerPlayerEntity player : serverWorld.getPlayers()) {
             // passive money
             if (gameWorldComponent.canUseKillerFeatures(player)) {
-                Integer balanceToAdd = GameConstants.PASSIVE_MONEY_TICKER.apply(serverWorld.getTime());
-                if (balanceToAdd > 0) PlayerShopComponent.KEY.get(player).addToBalance(balanceToAdd);
+                PlayerShopComponent playerShop = PlayerShopComponent.KEY.get(player);
+                Role role = gameWorldComponent.getRole(player);
+                /*
+                 * 被动收入现在统一按“当前阵营 -> 对应上限 -> 本次最多可补多少差额”来结算：
+                 * 1. 杀手 / 中立 / 好人阵营各自拥有独立上限；
+                 * 2. 当常量被配置为负数时，该阵营会关闭上限限制；
+                 * 3. 若本次收益会超过上限，则只补足到上限，不会溢出。
+                 *
+                 * 这样一来，只要扩展职业最终正确映射到了自己的阵营，
+                 * 即使它们是通过 mixin 把自己接入主模组被动收入链路，也会自动遵守同一套上限规则。
+                 */
+                int basePassiveIncome = GameConstants.PASSIVE_MONEY_TICKER.apply(serverWorld.getTime());
+                int balanceToAdd = GameConstants.getPassiveMoneyAmount(role == null ? null : role.getFaction(), playerShop.balance, basePassiveIncome);
+                if (balanceToAdd > 0) {
+                    playerShop.addToBalance(balanceToAdd);
+                }
             }
 
             // check if some civilians are still alive

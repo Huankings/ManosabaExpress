@@ -165,7 +165,30 @@ public interface GameConstants {
         }
         return 0;
     };
-    int MONEY_PER_KILL = 120;
+    /**
+     * 杀手阵营的被动收入金币上限。
+     *
+     * <p>当玩家当前金币达到或超过该值后，将不再继续获得被动收入。
+     * 如果这里配置为负数，则表示关闭“杀手阵营被动收入上限”。</p>
+     */
+    int PASSIVE_MONEY_CAP_KILLER = -1;
+    /**
+     * 中立阵营的被动收入金币上限。
+     *
+     * <p>当玩家当前金币达到或超过该值后，将不再继续获得被动收入。
+     * 如果这里配置为负数，则表示关闭“中立阵营被动收入上限”。</p>
+     */
+    int PASSIVE_MONEY_CAP_NEUTRAL = -1;
+    /**
+     * 好人阵营的被动收入金币上限。
+     *
+     * <p>这里统一覆盖平民阵营与义警阵营，
+     * 以及未来所有注册到这两个阵营下、并且拥有被动收入能力的扩展职业。
+     * 如果这里配置为负数，则表示关闭“好人阵营被动收入上限”。</p>
+     */
+    int PASSIVE_MONEY_CAP_PASSENGER = -1;
+    //杀手每杀一个人获得的金币
+    int MONEY_PER_KILL = 125;
     int PSYCHO_MODE_ARMOUR = 1;
 
     // Timers
@@ -237,6 +260,49 @@ public interface GameConstants {
      */
     static int getRevolverCooldown(@Nullable Role role) {
         return getRevolverCooldown(role == null ? null : role.getFaction());
+    }
+
+    /**
+     * 根据阵营获取“被动收入金币上限”。
+     *
+     * <p>这里把“平民阵营”和“义警阵营”统一视为好人阵营，
+     * 共同使用同一套被动收入上限；
+     * 若未来扩展职业正确注册了自己的阵营，这里也会自动吃到同样规则。</p>
+     */
+    static int getPassiveMoneyCap(@Nullable Faction faction) {
+        if (faction == null) {
+            return PASSIVE_MONEY_CAP_PASSENGER;
+        }
+        return switch (faction) {
+            case KILLER -> PASSIVE_MONEY_CAP_KILLER;
+            case NEUTRAL -> PASSIVE_MONEY_CAP_NEUTRAL;
+            case CIVILIAN, VIGILANTE -> PASSIVE_MONEY_CAP_PASSENGER;
+        };
+    }
+
+    /**
+     * 计算本次被动收入实际还能加多少金币。
+     *
+     * <p>规则如下：</p>
+     * <p>1. 若本次基础被动收入小于等于 0，则直接不加；</p>
+     * <p>2. 若阵营上限配置为负数，则视为“关闭上限”，正常发放全部被动收入；</p>
+     * <p>3. 若当前金币已经达到或超过上限，则本次不再加钱；</p>
+     * <p>4. 若本次结算会超过上限，则只补足到上限，不会溢出。</p>
+     */
+    static int getPassiveMoneyAmount(@Nullable Faction faction, int currentBalance, int baseIncome) {
+        if (baseIncome <= 0) {
+            return 0;
+        }
+
+        int cap = getPassiveMoneyCap(faction);
+        if (cap < 0) {
+            return baseIncome;
+        }
+        if (currentBalance >= cap) {
+            return 0;
+        }
+
+        return Math.min(baseIncome, cap - currentBalance);
     }
 
     /**

@@ -23,12 +23,14 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
+import java.util.function.Predicate;
 
 /**
  * 负责把一局记录变成聊天栏可读回放。
  */
 public final class ReplayGenerator {
     private static Map<UUID, PlayerInfo> contextualPlayerInfoCache;
+    private static @Nullable PlayerDisplayMode contextualPlayerDisplayMode;
 
     private ReplayGenerator() {
     }
@@ -42,9 +44,36 @@ public final class ReplayGenerator {
     public record PlayerInfo(String name, String roleTranslationKey, String roleFallback, int roleColor, Faction faction, int nameColor) {
     }
 
+    /**
+     * 玩家名在不同回放场景下的显示模式。
+     *
+     * <p>Wathe 默认完整回放仍然沿用“名字(职业)”：
+     * 这样局后复盘时信息最完整。
+     *
+     * <p>但扩展模组有时也需要“只展示玩家名字、不泄露职业”的文本，
+     * 例如追忆者把局内事件写进成书时，就应该隐藏职业信息。
+     * 因此这里把显示模式抽成一个轻量枚举，供外部按需切换。</p>
+     */
+    public enum PlayerDisplayMode {
+        /**
+         * 默认模式：玩家名后面带职业名。
+         */
+        NAME_WITH_ROLE,
+        /**
+         * 仅显示玩家名字，不附带职业。
+         */
+        NAME_ONLY
+    }
+
     public static void generateAndSend(ServerWorld world, GameRecordManager.MatchRecord match) {
         Map<UUID, PlayerInfo> playerInfoCache = buildInitialPlayerInfoCache(match);
-        List<Text> replayLines = generateReplayLines(match, world, playerInfoCache);
+        List<Text> replayLines = generateReplayLinesInternal(
+                match,
+                world,
+                playerInfoCache,
+                event -> true,
+                PlayerDisplayMode.NAME_WITH_ROLE
+        );
 
         for (ServerPlayerEntity player : world.getServer().getPlayerManager().getPlayerList()) {
             sendReplayToPlayer(player, replayLines);
@@ -54,16 +83,19 @@ public final class ReplayGenerator {
     public static void sendLiveEvent(ServerWorld world, GameRecordManager.MatchRecord match, GameRecordEvent event) {
         Map<UUID, PlayerInfo> playerInfoCache = buildPlayerInfoCacheUntil(match, event);
         setContextualPlayerInfoCache(playerInfoCache);
+        setContextualPlayerDisplayMode(PlayerDisplayMode.NAME_WITH_ROLE);
         DefaultReplayFormatters.setPlayerInfoCache(playerInfoCache);
         ReplayEventFormatter formatter = ReplayRegistry.getFormatter(event.type());
         if (formatter == null) {
             DefaultReplayFormatters.clearPlayerInfoCache();
             clearContextualPlayerInfoCache();
+            clearContextualPlayerDisplayMode();
             return;
         }
         Text formatted = formatter.format(event, match, world);
         DefaultReplayFormatters.clearPlayerInfoCache();
         clearContextualPlayerInfoCache();
+        clearContextualPlayerDisplayMode();
         if (formatted == null) {
             return;
         }
@@ -178,7 +210,38 @@ public final class ReplayGenerator {
         return buildInitialPlayerInfoCache(match);
     }
 
-    private static List<Text> generateReplayLines(GameRecordManager.MatchRecord match, ServerWorld world, Map<UUID, PlayerInfo> playerInfoCache) {
+    /**
+     * 生成一组“可直接展示”的回放文本，并允许调用方：
+     * 1. 只筛选自己关心的事件；
+     * 2. 指定玩家名显示模式。
+     *
+     * <p>这个 helper 的意义主要在于给扩展模组复用：
+     * 它们不需要自己重新实现一套事件格式化逻辑，
+     * 只要把事件过滤条件传进来，就能继续吃到 Wathe 与所有扩展模组已注册的 formatter。</p>
+     */
+    public static List<Text> generateReplayLines(
+            GameRecordManager.MatchRecord match,
+            ServerWorld world,
+            @Nullable Predicate<GameRecordEvent> eventFilter,
+            PlayerDisplayMode displayMode
+    ) {
+        Map<UUID, PlayerInfo> playerInfoCache = buildInitialPlayerInfoCache(match);
+        return generateReplayLinesInternal(
+                match,
+                world,
+                playerInfoCache,
+                eventFilter == null ? event -> true : eventFilter,
+                displayMode
+        );
+    }
+
+    private static List<Text> generateReplayLinesInternal(
+            GameRecordManager.MatchRecord match,
+            ServerWorld world,
+            Map<UUID, PlayerInfo> playerInfoCache,
+            Predicate<GameRecordEvent> eventFilter,
+            PlayerDisplayMode displayMode
+    ) {
         List<Text> lines = new ArrayList<>();
         long startTick = match.getStartTick();
         List<GameRecordEvent> sortedEvents = sortedEvents(match);
@@ -186,19 +249,22 @@ public final class ReplayGenerator {
         for (GameRecordEvent event : sortedEvents) {
             Map<UUID, PlayerInfo> eventCache = new HashMap<>(playerInfoCache);
             setContextualPlayerInfoCache(eventCache);
+            setContextualPlayerDisplayMode(displayMode);
             DefaultReplayFormatters.setPlayerInfoCache(eventCache);
             ReplayEventFormatter formatter = ReplayRegistry.getFormatter(event.type());
             if (formatter == null) {
                 DefaultReplayFormatters.clearPlayerInfoCache();
                 clearContextualPlayerInfoCache();
+                clearContextualPlayerDisplayMode();
                 applyRoleChange(playerInfoCache, event);
                 continue;
             }
             Text formatted = formatter.format(event, match, world);
             DefaultReplayFormatters.clearPlayerInfoCache();
             clearContextualPlayerInfoCache();
+            clearContextualPlayerDisplayMode();
             applyRoleChange(playerInfoCache, event);
-            if (formatted == null) {
+            if (formatted == null || !eventFilter.test(event)) {
                 continue;
             }
             String timeStr = formatTime(event.worldTick(), startTick);
@@ -214,6 +280,14 @@ public final class ReplayGenerator {
 
     private static void clearContextualPlayerInfoCache() {
         contextualPlayerInfoCache = null;
+    }
+
+    private static void setContextualPlayerDisplayMode(PlayerDisplayMode mode) {
+        contextualPlayerDisplayMode = mode;
+    }
+
+    private static void clearContextualPlayerDisplayMode() {
+        contextualPlayerDisplayMode = null;
     }
 
     private static List<GameRecordEvent> sortedEvents(GameRecordManager.MatchRecord match) {
@@ -278,12 +352,29 @@ public final class ReplayGenerator {
      * 括号中的交换者则按职业自身颜色着色。</p>
      */
     public static Text formatPlayerName(UUID uuid, Map<UUID, PlayerInfo> playerInfoCache) {
+        PlayerDisplayMode displayMode = contextualPlayerDisplayMode == null
+                ? PlayerDisplayMode.NAME_WITH_ROLE
+                : contextualPlayerDisplayMode;
+        return formatPlayerName(uuid, playerInfoCache, displayMode);
+    }
+
+    /**
+     * 按指定模式格式化玩家显示名。
+     *
+     * <p>默认公开入口仍会优先读取当前上下文模式，
+     * 但如果调用方明确知道自己要什么显示方式，也可以直接走这个重载。</p>
+     */
+    public static Text formatPlayerName(UUID uuid, Map<UUID, PlayerInfo> playerInfoCache, PlayerDisplayMode displayMode) {
         PlayerInfo info = playerInfoCache.get(uuid);
         if (info == null) {
             return Text.literal(uuid.toString().substring(0, 8));
         }
 
         MutableText playerName = Text.literal(info.name()).setStyle(Style.EMPTY.withColor(TextColor.fromRgb(info.nameColor())));
+        if (displayMode == PlayerDisplayMode.NAME_ONLY) {
+            return playerName;
+        }
+
         MutableText roleText = Text.translatableWithFallback(info.roleTranslationKey(), info.roleFallback())
                 .setStyle(Style.EMPTY.withColor(TextColor.fromRgb(info.roleColor())));
         return playerName.append(Text.literal("(").formatted(Formatting.WHITE))
