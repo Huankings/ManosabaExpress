@@ -39,6 +39,14 @@ public class WatheComponents implements WorldComponentInitializer, EntityCompone
          * 3. 和用户需求一致，保证“后续再次使用手雷的时候仍然保持上次模式”。
          */
         registry.beginRegistration(PlayerEntity.class, PlayerGrenadeComponent.KEY).respawnStrategy(RespawnCopyStrategy.CHARACTER).end(PlayerGrenadeComponent::new);
+        /*
+         * 本能键输入模式同样是玩家个人偏好。
+         *
+         * 使用 CHARACTER 复制策略可以保证玩家死亡 / 重生后仍保留自己的选择：
+         * 喜欢开关模式的玩家不需要每局或每次重生重新设置；
+         * 喜欢长按模式的玩家也不会被其他人的选择影响。
+         */
+        registry.beginRegistration(PlayerEntity.class, PlayerInstinctComponent.KEY).respawnStrategy(RespawnCopyStrategy.CHARACTER).end(PlayerInstinctComponent::new);
     }
 
     @Override

@@ -9,6 +9,7 @@ import dev.doctor4t.wathe.WatheConfig;
 import dev.doctor4t.wathe.api.Role;
 import dev.doctor4t.wathe.cca.GameWorldComponent;
 import dev.doctor4t.wathe.cca.PlayerGrenadeComponent;
+import dev.doctor4t.wathe.cca.PlayerInstinctComponent;
 import dev.doctor4t.wathe.cca.PlayerMoodComponent;
 import dev.doctor4t.wathe.cca.TrainWorldComponent;
 import dev.doctor4t.wathe.client.gui.RoundTextRenderer;
@@ -91,6 +92,7 @@ public class WatheClient implements ClientModInitializer {
     public static float instinctLightLevel = -.04f;
     private static int lastGrenadeSelectedSlot = -1;
     private static boolean grenadeThrowModeToggleHeld = false;
+    private static boolean instinctToggleActive = false;
 
     public static boolean shouldDisableHudAndDebug() {
         MinecraftClient client = MinecraftClient.getInstance();
@@ -328,6 +330,7 @@ public class WatheClient implements ClientModInitializer {
         ClientTickEvents.END_CLIENT_TICK.register((client) -> {
             WatheClient.handParticleManager.tick();
             RoundTextRenderer.tick();
+            handleInstinctKeybind(client);
 
             /*
              * 左键松开后再解除“本次按住已处理”的锁。
@@ -357,7 +360,10 @@ public class WatheClient implements ClientModInitializer {
         ClientPlayNetworking.registerGlobalReceiver(AnnounceEndingPayload.ID, new AnnounceEndingPayload.Receiver());
         ClientPlayNetworking.registerGlobalReceiver(TaskCompletePayload.ID, new TaskCompletePayload.Receiver());
         ClientPlayNetworking.registerGlobalReceiver(TaskPointSyncPayload.ID, new TaskPointSyncPayload.Receiver());
-        ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> TaskPointClientState.clear());
+        ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
+            TaskPointClientState.clear();
+            instinctToggleActive = false;
+        });
         WorldRenderEvents.AFTER_TRANSLUCENT.register(TaskPointOverlayRenderer::render);
 
         // Instinct keybind
@@ -442,6 +448,65 @@ public class WatheClient implements ClientModInitializer {
     }
 
     /**
+     * 每 tick 统一处理本能键的“按下事件”。
+     *
+     * <p>这里不直接决定玩家是否真的能看到本能透视，只负责把“玩家怎么按键”
+     * 转换成一个稳定的输入状态：
+     * 1. 开关模式：按一下翻转本地 {@link #instinctToggleActive}；
+     * 2. 长按模式：消费掉 {@code wasPressed()}，但真实输入状态仍由 {@code isPressed()} 决定。</p>
+     *
+     * <p>长按模式也要消费 {@code wasPressed()} 是一个容易漏掉的小细节。
+     * 如果不消费，玩家在长按模式按过几次键后，再用指令切回开关模式，
+     * 旧的按键次数可能会被一次性处理，导致本能开关突然连续翻转。</p>
+     */
+    private static void handleInstinctKeybind(@NotNull MinecraftClient client) {
+        if (instinctKeybind == null || client.player == null) {
+            instinctToggleActive = false;
+            return;
+        }
+
+        boolean toggleMode = isInstinctToggleModeEnabled();
+        while (instinctKeybind.wasPressed()) {
+            if (toggleMode) {
+                instinctToggleActive = !instinctToggleActive;
+            }
+        }
+
+        if (!toggleMode) {
+            /*
+             * 长按模式下不保留本地开关状态。
+             * 这样玩家从“开关已开启”切到“长按模式”时，本能会立刻回到按住才生效的语义。
+             */
+            instinctToggleActive = false;
+        }
+    }
+
+    /**
+     * 返回本地玩家选择的本能键输入模式。
+     *
+     * <p>该值来自 {@link PlayerInstinctComponent}，由服务端上的 /instinct 指令修改并同步到客户端。
+     * 客户端刚进入世界、组件尚未同步完成时，沿用默认的开关模式 true。</p>
+     */
+    public static boolean isInstinctToggleModeEnabled() {
+        ClientPlayerEntity player = MinecraftClient.getInstance().player;
+        return player == null || PlayerInstinctComponent.KEY.get(player).isToggleModeEnabled();
+    }
+
+    /**
+     * 扩展职业应该统一调用这个方法来判断“本能键输入是否处于激活状态”。
+     *
+     * <p>不要在扩展里直接读取 {@code instinctKeybind.isPressed()} / {@code isDown()}：
+     * 直接读物理按键只会得到长按语义，无法跟随玩家通过 /instinct 选择的开关模式。
+     * 这个方法只表达输入状态，具体职业是否有资格使用本能仍由各自的角色判断负责。</p>
+     */
+    public static boolean isInstinctInputActive() {
+        if (instinctKeybind == null || MinecraftClient.getInstance().player == null) {
+            return false;
+        }
+        return isInstinctToggleModeEnabled() ? instinctToggleActive : instinctKeybind.isPressed();
+    }
+
+    /**
      * 按“角色表里登记的真实职业”取本能透视颜色。
      *
      * <p>这里故意不复用活人那套“杀手红 / 心情色 / 旁观白”的显示逻辑，
@@ -493,7 +558,10 @@ public class WatheClient implements ClientModInitializer {
     }
 
     public static boolean isInstinctEnabled() {
-        return instinctKeybind.isPressed() && ((isKiller() && isPlayerAliveAndInSurvival()) || isPlayerSpectatingOrCreative());
+        if (MinecraftClient.getInstance().player == null) {
+            return false;
+        }
+        return isInstinctInputActive() && ((isKiller() && isPlayerAliveAndInSurvival()) || isPlayerSpectatingOrCreative());
     }
 
     public static int getLockedRenderDistance(boolean ultraPerfMode) {

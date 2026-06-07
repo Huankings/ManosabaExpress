@@ -29,6 +29,7 @@
   },
   "client": [
     "client.AbstractClientPlayerEntityMixin",
+
     "client.EntityRendererDispatchMixin",
     "client.GameRendererMixin",
     "client.MinecraftClientMixin",
