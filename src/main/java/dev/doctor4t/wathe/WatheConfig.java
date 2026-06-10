@@ -18,6 +18,9 @@ public class WatheConfig extends MidnightConfig {
         int lockedRenderDistance = WatheClient.getLockedRenderDistance(ultraPerfMode);
         OptionLocker.overrideOption("renderDistance", lockedRenderDistance);
 
-        MinecraftClient.getInstance().options.viewDistance.setValue(lockedRenderDistance);
+        MinecraftClient client = MinecraftClient.getInstance();
+        if (client.options != null) {
+            client.options.viewDistance.setValue(lockedRenderDistance);
+        }
     }
 }

@@ -52,6 +52,8 @@ public abstract class PlayerEntityMixin extends LivingEntity {
     @Unique
     private float sprintingTicks;
     @Unique
+    private boolean sprintingTicksResetForCurrentRound;
+    @Unique
     private Scheduler.ScheduledTask poisonSleepTask;
 
     protected PlayerEntityMixin(EntityType<? extends LivingEntity> entityType, World world) {
@@ -70,19 +72,53 @@ public abstract class PlayerEntityMixin extends LivingEntity {
 
     @Inject(method = "tickMovement", at = @At("HEAD"))
     public void wathe$limitSprint(CallbackInfo ci) {
+        PlayerEntity self = (PlayerEntity) (Object) this;
         GameWorldComponent gameComponent = GameWorldComponent.KEY.get(this.getWorld());
-        if (GameFunctions.isPlayerAliveAndSurvival((PlayerEntity) (Object) this) && gameComponent != null && gameComponent.isRunning()) {
-            Role role = gameComponent.getRole((PlayerEntity) (Object) this);
-            if (role != null && role.getMaxSprintTime() >= 0) {
-                if (this.isSprinting()) {
-                    sprintingTicks = Math.max(sprintingTicks - 1, 0);//体力减少速度
-                } else {
-                    sprintingTicks = Math.min(sprintingTicks + 0.8f, role.getMaxSprintTime());//体力回复速度
-                }
+        boolean isRunningGame = gameComponent != null && gameComponent.isRunning();
+        if (!isRunningGame) {
+            /*
+             * STARTING / INACTIVE 阶段会经过这里，把标记放回 false。
+             * 下一局真正进入 ACTIVE 并拿到角色后，有限体力玩家就会再次从 0 开始恢复体力。
+             */
+            this.sprintingTicksResetForCurrentRound = false;
+            return;
+        }
+        /*
+         * 调试时可能在同一局内临时切到创造 / 旁观再切回生存 / 冒险。
+         * 这种情况只暂停体力逻辑，不能复位本局清零标记，否则切回来会被当成开局再次清空体力。
+         */
+        if (!GameFunctions.isPlayerAliveAndSurvival(self)) {
+            return;
+        }
 
-                if (sprintingTicks <= 0) {
-                    this.setSprinting(false);
-                }
+        Role role = gameComponent.getRole(self);
+        if (role == null) {
+            return;
+        }
+
+        if (!this.sprintingTicksResetForCurrentRound) {
+            /*
+             * 当前体力值存在玩家 NBT 里，原先不会随每局游戏初始化而清空，
+             * 导致上一局结束时剩多少体力，下一局开局就继承多少体力。
+             * 这里在每局第一次拿到角色时清空有限体力角色；无限体力角色（-1）不需要处理。
+             */
+            if (role.getMaxSprintTime() >= 0) {
+                this.sprintingTicks = 0;
+                this.setSprinting(false);
+            }
+            this.sprintingTicksResetForCurrentRound = true;
+            return;
+        }
+
+        if (role.getMaxSprintTime() >= 0) {
+            if (this.isSprinting()) {
+                sprintingTicks = Math.max(sprintingTicks - 1, 0);//体力减少速度
+            } else {
+                sprintingTicks = Math.min(sprintingTicks + 0.8f, role.getMaxSprintTime());//体力回复速度
+            }
+
+            if (sprintingTicks <= 0) {
+                this.setSprinting(false);
             }
         }
     }
@@ -205,11 +241,13 @@ public abstract class PlayerEntityMixin extends LivingEntity {
     @Inject(method = "writeCustomDataToNbt", at = @At("TAIL"))
     private void wathe$saveData(NbtCompound nbt, CallbackInfo ci) {
         nbt.putFloat("sprintingTicks", this.sprintingTicks);
+        nbt.putBoolean("sprintingTicksResetForCurrentRound", this.sprintingTicksResetForCurrentRound);
     }
 
     @Inject(method = "readCustomDataFromNbt", at = @At("TAIL"))
     private void wathe$readData(NbtCompound nbt, CallbackInfo ci) {
         this.sprintingTicks = nbt.getFloat("sprintingTicks");
+        this.sprintingTicksResetForCurrentRound = nbt.getBoolean("sprintingTicksResetForCurrentRound");
     }
 
     @ModifyExpressionValue(method = "tick", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/World;isDay()Z"))
