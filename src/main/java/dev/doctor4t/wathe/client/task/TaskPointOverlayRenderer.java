@@ -284,7 +284,7 @@ public final class TaskPointOverlayRenderer {
     /**
      * 计算渲染时应该使用的本地包围盒。
      *
-     * <p>这里目前主要处理床这种“两格一个任务点”的情况。
+     * <p>这里目前主要处理床和小门这种“一个任务点对应多个方块”的情况。
      * 其它普通单格方块则直接使用自身碰撞箱/轮廓箱。
      */
     private static @NotNull Box getCombinedLocalBox(
@@ -300,11 +300,7 @@ public final class TaskPointOverlayRenderer {
         Box baseBox = shape.isEmpty() ? new Box(0, 0, 0, 1, 1, 1) : shape.getBoundingBox();
 
         if (state.contains(BedBlock.PART) && state.contains(BedBlock.FACING)) {
-            Direction facing = state.get(BedBlock.FACING);
-            if (state.get(BedBlock.PART) == BedPart.FOOT) {
-                return baseBox.expand(facing.getOffsetX(), 0, facing.getOffsetZ());
-            }
-            return baseBox.expand(-facing.getOffsetX(), 0, -facing.getOffsetZ());
+            return getBedLocalBox(state, baseBox);
         }
 
         /**
@@ -313,13 +309,68 @@ public final class TaskPointOverlayRenderer {
          * 避免门透视时只看到下半截线框。
          */
         if (state.getBlock() instanceof SmallDoorBlock && state.contains(SmallDoorBlock.HALF)) {
-            if (state.get(SmallDoorBlock.HALF) == DoubleBlockHalf.LOWER) {
-                return baseBox.expand(0, 1, 0);
-            }
-            return baseBox.offset(0, -1, 0).expand(0, 1, 0);
+            return getSmallDoorLocalBox(state, baseBox);
         }
 
         return baseBox;
+    }
+
+    /**
+     * 床的任务点统一按“当前床格 + 另一半床格”构造。
+     *
+     * <p>这里不用 {@link Box#expand(double, double, double)} 直接扩展原始轮廓箱，
+     * 因为部分方块轮廓本身可能已经跨格；先限制回当前方块，再按床朝向拼出另一格，
+     * 才能保证四个朝向都只覆盖床本身的两格长度。
+     */
+    private static @NotNull Box getBedLocalBox(@NotNull BlockState state, @NotNull Box baseBox) {
+        Box singleBlockBox = clampToCurrentBlock(baseBox);
+        Direction facing = state.get(BedBlock.FACING);
+        Direction otherPartDirection = state.get(BedBlock.PART) == BedPart.FOOT ? facing : facing.getOpposite();
+
+        return extendLocalBoxByDirection(singleBlockBox, otherPartDirection);
+    }
+
+    /**
+     * 小门透视固定覆盖同一扇门的上下两格高度。
+     */
+    private static @NotNull Box getSmallDoorLocalBox(@NotNull BlockState state, @NotNull Box baseBox) {
+        Box singleBlockBox = clampToCurrentBlock(baseBox);
+        if (state.get(SmallDoorBlock.HALF) == DoubleBlockHalf.LOWER) {
+            return new Box(singleBlockBox.minX, 0.0D, singleBlockBox.minZ, singleBlockBox.maxX, 2.0D, singleBlockBox.maxZ);
+        }
+        return new Box(singleBlockBox.minX, -1.0D, singleBlockBox.minZ, singleBlockBox.maxX, 1.0D, singleBlockBox.maxZ);
+    }
+
+    /**
+     * 把可能已经跨格的轮廓先收回当前方块坐标范围。
+     */
+    private static @NotNull Box clampToCurrentBlock(@NotNull Box box) {
+        return new Box(
+                clampUnit(box.minX),
+                clampUnit(box.minY),
+                clampUnit(box.minZ),
+                clampUnit(box.maxX),
+                clampUnit(box.maxY),
+                clampUnit(box.maxZ)
+        );
+    }
+
+    private static @NotNull Box extendLocalBoxByDirection(@NotNull Box box, @NotNull Direction direction) {
+        int offsetX = direction.getOffsetX();
+        int offsetZ = direction.getOffsetZ();
+
+        return new Box(
+                box.minX + Math.min(0, offsetX),
+                box.minY,
+                box.minZ + Math.min(0, offsetZ),
+                box.maxX + Math.max(0, offsetX),
+                box.maxY,
+                box.maxZ + Math.max(0, offsetZ)
+        );
+    }
+
+    private static double clampUnit(double value) {
+        return Math.max(0.0D, Math.min(1.0D, value));
     }
 
     /**
