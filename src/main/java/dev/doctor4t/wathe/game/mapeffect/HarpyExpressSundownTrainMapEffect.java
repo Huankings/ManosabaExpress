@@ -15,6 +15,6 @@ public class HarpyExpressSundownTrainMapEffect extends HarpyExpressTrainMapEffec
     @Override
     public void initializeMapEffects(ServerWorld serverWorld, List<ServerPlayerEntity> players) {
         super.initializeMapEffects(serverWorld, players);
-        TrainWorldComponent.KEY.get(serverWorld).setTimeOfDay(TrainWorldComponent.TimeOfDay.SUNDOWN);
+        TrainWorldComponent.setServerTimeOfDay(serverWorld.getServer(), TrainWorldComponent.TimeOfDay.SUNDOWN);
     }
 }

@@ -42,6 +42,7 @@
 			"wathe:train",
 			"wathe:game",
 			"wathe:mapvariables",
+			"wathe:map_enhancements",
 			"wathe:blackout",
 			"wathe:time",
 			"wathe:autostart",
@@ -54,6 +55,7 @@
 			"wathe:psycho",
 			"wathe:grenade_throw_mode",
 			"wathe:instinct",
+			"wathe:map_voting",
 			"wathe:rolecounter",
 			"wathe:note"
 		],

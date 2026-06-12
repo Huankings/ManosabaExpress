@@ -9,6 +9,9 @@ import dev.doctor4t.wathe.api.event.GameEvents;
 import dev.doctor4t.wathe.api.event.ShouldDropOnDeath;
 import dev.doctor4t.wathe.cca.*;
 import dev.doctor4t.wathe.compat.TrainVoicePlugin;
+import dev.doctor4t.wathe.config.datapack.MapRegistry;
+import dev.doctor4t.wathe.config.datapack.MapEnhancementsConfiguration.VisualConfig;
+import dev.doctor4t.wathe.config.datapack.RoomConfig;
 import dev.doctor4t.wathe.entity.FirecrackerEntity;
 import dev.doctor4t.wathe.entity.NoteEntity;
 import dev.doctor4t.wathe.entity.PlayerBodyEntity;
@@ -25,16 +28,21 @@ import net.minecraft.block.Blocks;
 import net.minecraft.block.entity.BlockEntity;
 import net.minecraft.block.pattern.CachedBlockPosition;
 import net.minecraft.component.ComponentMap;
+import net.minecraft.component.DataComponentTypes;
+import net.minecraft.component.type.LoreComponent;
 import net.minecraft.entity.EntityType;
 import net.minecraft.entity.ItemEntity;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
 import net.minecraft.nbt.NbtCompound;
+import net.minecraft.registry.RegistryKey;
+import net.minecraft.registry.RegistryKeys;
 import net.minecraft.registry.Registries;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.sound.SoundCategory;
+import net.minecraft.text.Style;
 import net.minecraft.text.Text;
 import net.minecraft.util.Clearable;
 import net.minecraft.util.Identifier;
@@ -151,9 +159,17 @@ public class GameFunctions {
      * 当关闭渐进式重置时，则保持原版行为，直接进入 STARTING。</p>
      */
     public static void startGame(ServerWorld world, GameMode gameMode, MapEffect mapEffect, int time) {
+        MapVotingComponent votingComponent = MapVotingComponent.KEY.get(world.getServer().getScoreboard());
+        if (votingComponent.isVotingActive()) {
+            for (ServerPlayerEntity player : world.getPlayers()) {
+                player.sendMessage(Text.translatable("game.start_error.voting_active"), true);
+            }
+            return;
+        }
+
         GameWorldComponent game = GameWorldComponent.KEY.get(world);
         MapVariablesWorldComponent areas = MapVariablesWorldComponent.KEY.get(world);
-        int playerCount = Math.toIntExact(world.getPlayers().stream().filter(serverPlayerEntity -> (areas.getReadyArea().contains(serverPlayerEntity.getPos()))).count());
+        int playerCount = Math.toIntExact(world.getPlayers().stream().filter(serverPlayerEntity -> isPlayerInReadyArea(serverPlayerEntity, areas)).count());
         game.setGameMode(gameMode);
         game.setMapEffect(mapEffect);
         GameTimeComponent.KEY.get(world).setResetTime(time);
@@ -215,6 +231,7 @@ public class GameFunctions {
 
     private static void baseInitialize(ServerWorld serverWorld, GameWorldComponent gameComponent, List<ServerPlayerEntity> players) {
         MapVariablesWorldComponent areas = MapVariablesWorldComponent.KEY.get(serverWorld);
+        MapEnhancementsWorldComponent enhancements = MapEnhancementsWorldComponent.KEY.get(serverWorld);
 
         WorldBlackoutComponent.KEY.get(serverWorld).reset();
 
@@ -233,11 +250,8 @@ public class GameFunctions {
             player.dismountVehicle();
         }
 
-        // teleport players to play area
         for (ServerPlayerEntity player : players) {
             player.changeGameMode(net.minecraft.world.GameMode.ADVENTURE);
-            Vec3d pos = player.getPos().add(Vec3d.of(areas.getPlayAreaOffset()));
-            player.requestTeleport(pos.getX(), pos.getY() + 1, pos.getZ());
         }
 
         // teleport non playing players
@@ -275,14 +289,153 @@ public class GameFunctions {
         // map effect initialize
         gameComponent.getMapEffect().initializeMapEffects(serverWorld, players);
 
+        applyMapEnhancementsAtRoundStart(serverWorld, gameComponent, enhancements);
+
+        if (enhancements.getRoomCount() > 0) {
+            assignConfiguredRooms(serverWorld, gameComponent, enhancements, players);
+        } else {
+            teleportPlayersToDefaultPlayArea(areas, players);
+        }
+
         gameComponent.setGameStatus(GameWorldComponent.GameStatus.ACTIVE);
         gameComponent.sync();
     }
 
+    private static void applyMapEnhancementsAtRoundStart(ServerWorld serverWorld, GameWorldComponent gameComponent, MapEnhancementsWorldComponent enhancements) {
+        TrainWorldComponent train = TrainWorldComponent.KEY.get(serverWorld);
+
+        if (enhancements.hasVisualConfig()) {
+            VisualConfig visual = enhancements.getVisualConfig();
+            train.setHud(visual.hud());
+            train.setSpeed(visual.staticMap() ? 0 : visual.trainSpeed());
+            /*
+             * 和 /wathe:setVisual time 一样，地图 JSON 的开局视觉时间也应用到所有维度。
+             * 这样多维度客户端不会出现短暂变夜后又被其他世界时间同步抢回白天。
+             */
+            TrainWorldComponent.setServerTimeOfDay(serverWorld.getServer(), visual.timeOfDay());
+        }
+
+        if (enhancements.hasFogConfig()) {
+            // fog.enabled 用来覆盖地图效果里的默认雾开关，方便静态/特殊地图单独关闭。
+            train.setFog(enhancements.getFogConfig().enabled());
+        }
+
+        if (enhancements.hasSnowParticlesConfig()) {
+            // snow_particles.enabled 同样只作为地图开局默认值，客户端粒子数量仍读取完整 JSON。
+            train.setSnow(enhancements.getSnowParticlesConfig().enabled());
+        }
+
+        if (enhancements.hasJumpConfig()) {
+            /*
+             * JSON 只在开局时执行一次默认跳跃规则。
+             * 对局开始后 /wathe:allowjump 仍然直接改 GameWorldComponent，因此指令优先级最高。
+             */
+            gameComponent.setAlivePlayerJumpAllowed(enhancements.getJumpConfig().allowed());
+        }
+    }
+
+    private static void teleportPlayersToDefaultPlayArea(MapVariablesWorldComponent areas, List<ServerPlayerEntity> players) {
+        for (ServerPlayerEntity player : players) {
+            Vec3d pos = player.getPos().add(Vec3d.of(areas.getPlayAreaOffset()));
+            player.requestTeleport(pos.getX(), pos.getY() + 1, pos.getZ());
+        }
+    }
+
+    private static void assignConfiguredRooms(ServerWorld serverWorld, GameWorldComponent gameComponent, MapEnhancementsWorldComponent enhancements, List<ServerPlayerEntity> players) {
+        Random random = new Random();
+        Map<Integer, Integer> roomPlayerCounts = new HashMap<>();
+        List<ServerPlayerEntity> shuffledPlayers = new ArrayList<>(players);
+        Collections.shuffle(shuffledPlayers, random);
+
+        for (ServerPlayerEntity player : shuffledPlayers) {
+            removeRoomKeys(player);
+
+            int roomNumber = findRandomAvailableRoom(roomPlayerCounts, enhancements, enhancements.getRoomCount(), random);
+            int playerIndexInRoom = roomPlayerCounts.getOrDefault(roomNumber, 0);
+            String roomName = enhancements.getRoomConfig(roomNumber)
+                    .map(config -> config.getName(roomNumber))
+                    .orElse("Room " + roomNumber);
+
+            gameComponent.addPlayerToRoom(roomNumber, roomName, player);
+            roomPlayerCounts.put(roomNumber, playerIndexInRoom + 1);
+            giveRoomKey(player, roomName);
+
+            Optional<RoomConfig.SpawnPoint> spawnPoint = enhancements.getSpawnPointForPlayer(roomNumber, playerIndexInRoom);
+            if (spawnPoint.isPresent()) {
+                teleportToConfiguredSpawn(serverWorld, player, spawnPoint.get());
+            } else {
+                Wathe.LOGGER.warn("Room {} on dimension {} has no spawn point, keeping player {} at current position",
+                        roomNumber, serverWorld.getRegistryKey().getValue(), player.getGameProfile().getName());
+            }
+        }
+    }
+
+    private static int findRandomAvailableRoom(Map<Integer, Integer> roomPlayerCounts, MapEnhancementsWorldComponent enhancements, int totalRooms, Random random) {
+        List<Integer> availableRooms = new ArrayList<>();
+        int minCount = Integer.MAX_VALUE;
+
+        for (int i = 1; i <= totalRooms; i++) {
+            int currentCount = roomPlayerCounts.getOrDefault(i, 0);
+            int maxPlayers = enhancements.getRoomConfig(i)
+                    .map(RoomConfig::getMaxPlayers)
+                    .map(count -> Math.max(1, count))
+                    .orElse(1);
+
+            if (currentCount < maxPlayers) {
+                if (currentCount < minCount) {
+                    minCount = currentCount;
+                    availableRooms.clear();
+                    availableRooms.add(i);
+                } else if (currentCount == minCount) {
+                    availableRooms.add(i);
+                }
+            }
+        }
+
+        if (!availableRooms.isEmpty()) {
+            return availableRooms.get(random.nextInt(availableRooms.size()));
+        }
+
+        int totalPlayers = roomPlayerCounts.values().stream().mapToInt(Integer::intValue).sum();
+        return totalRooms <= 0 ? 1 : (totalPlayers % totalRooms) + 1;
+    }
+
+    private static void giveRoomKey(ServerPlayerEntity player, String roomName) {
+        ItemStack itemStack = new ItemStack(WatheItems.KEY);
+        itemStack.apply(DataComponentTypes.LORE, LoreComponent.DEFAULT, component -> new LoreComponent(
+                Text.literal(roomName).getWithStyle(Style.EMPTY.withItalic(false).withColor(0xFF8C00))
+        ));
+        player.giveItemStack(itemStack);
+    }
+
+    private static void removeRoomKeys(ServerPlayerEntity player) {
+        for (int slot = 0; slot < player.getInventory().size(); slot++) {
+            ItemStack stack = player.getInventory().getStack(slot);
+            if (stack.isOf(WatheItems.KEY)) {
+                player.getInventory().setStack(slot, ItemStack.EMPTY);
+            }
+        }
+    }
+
+    private static void teleportToConfiguredSpawn(ServerWorld serverWorld, ServerPlayerEntity player, RoomConfig.SpawnPoint spawnPoint) {
+        BlockPos chunkPos = BlockPos.ofFloored(spawnPoint.x(), spawnPoint.y(), spawnPoint.z());
+        serverWorld.getChunk(chunkPos);
+        player.teleport(serverWorld, spawnPoint.x(), spawnPoint.y(), spawnPoint.z(), spawnPoint.yaw(), spawnPoint.pitch());
+    }
+
     private static List<ServerPlayerEntity> getReadyPlayerList(ServerWorld serverWorld) {
         MapVariablesWorldComponent areas = MapVariablesWorldComponent.KEY.get(serverWorld);
-        List<ServerPlayerEntity> players = serverWorld.getPlayers(serverPlayerEntity -> areas.getReadyArea().contains(serverPlayerEntity.getPos()));
+        List<ServerPlayerEntity> players = serverWorld.getPlayers(serverPlayerEntity -> isPlayerInReadyArea(serverPlayerEntity, areas));
         return players;
+    }
+
+    private static boolean isPlayerInReadyArea(PlayerEntity player, MapVariablesWorldComponent areas) {
+        /*
+         * 准备区只负责判断“谁想参加下一局”。
+         * 创造/旁观玩家在开局时会被 baseInitialize 统一切回冒险模式，
+         * 所以这里不能复用局内胜负用的 isPlayerAliveAndSurvival 判定。
+         */
+        return player != null && areas.getReadyArea().contains(player.getPos());
     }
 
     public static void finalizeGame(ServerWorld world) {
@@ -294,7 +447,7 @@ public class GameFunctions {
         WorldBlackoutComponent.KEY.get(world).reset();
         TrainWorldComponent trainComponent = TrainWorldComponent.KEY.get(world);
         trainComponent.setSpeed(0);
-        trainComponent.setTimeOfDay(TrainWorldComponent.TimeOfDay.DAY);
+        TrainWorldComponent.setServerTimeOfDay(world.getServer(), TrainWorldComponent.TimeOfDay.DAY);
 
         // discard all player bodies
         for (PlayerBodyEntity body : world.getEntitiesByType(WatheEntities.PLAYER_BODY, playerBodyEntity -> true))
@@ -316,6 +469,10 @@ public class GameFunctions {
         gameComponent.sync();
 
         GameEvents.ON_FINISH_FINALIZE.invoker().onFinishFinalize(world, gameComponent);
+
+        if (MapRegistry.getInstance().getMapCount() > 0) {
+            MapVotingComponent.KEY.get(world.getServer().getScoreboard()).startVoting();
+        }
     }
 
     public static void resetPlayer(ServerPlayerEntity player) {
@@ -645,7 +802,7 @@ public class GameFunctions {
 
     // returns whether another reset should be attempted
     public static boolean tryResetTrain(ServerWorld serverWorld) {
-        if (serverWorld.getServer().getOverworld().equals(serverWorld)) {
+        Identifier dimensionId = serverWorld.getRegistryKey().getValue();
             MapVariablesWorldComponent areas = MapVariablesWorldComponent.KEY.get(serverWorld);
             BlockPos backupMinPos = BlockPos.ofFloored(areas.getResetTemplateArea().getMinPos());
             BlockPos backupMaxPos = BlockPos.ofFloored(areas.getResetTemplateArea().getMaxPos());
@@ -728,11 +885,11 @@ public class GameFunctions {
 
                 serverWorld.getBlockTickScheduler().scheduleTicks(serverWorld.getBlockTickScheduler(), backupTrainBox, blockPos5);
                 if (mx == 0) {
-                    Wathe.LOGGER.info("Train reset failed: No blocks copied. Queueing another attempt.");
+                    Wathe.LOGGER.info("Train reset failed: No blocks copied. Queueing another attempt. Dimension: {}", dimensionId);
                     return true;
                 }
             } else {
-                Wathe.LOGGER.info("Train reset failed: Clone positions not loaded. Queueing another attempt.");
+                Wathe.LOGGER.info("Train reset failed: Clone positions not loaded. Queueing another attempt. Dimension: {}", dimensionId);
                 return true;
             }
 
@@ -748,17 +905,109 @@ public class GameFunctions {
             for (NoteEntity entity : serverWorld.getEntitiesByType(WatheEntities.NOTE, entity -> true))
                 entity.discard();
 
-
-            Wathe.LOGGER.info("Train reset successful.");
+            Wathe.LOGGER.info("Train reset successful. Dimension: {}", dimensionId);
             return false;
+    }
+
+    /**
+     * 把玩家的原版重生点设置到当前地图维度。
+     *
+     * <p>这主要服务于投票切图后的晚加入玩家和意外重生场景，避免他们回到主世界。</p>
+     */
+    public static void setPlayerSpawnToMapSpawn(ServerPlayerEntity player, ServerWorld world) {
+        MapVariablesWorldComponent mapVariables = MapVariablesWorldComponent.KEY.get(world);
+        MapVariablesWorldComponent.PosWithOrientation spawnPos = player.isSpectator()
+                ? mapVariables.getSpectatorSpawnPos()
+                : mapVariables.getSpawnPos();
+
+        player.setSpawnPoint(
+                world.getRegistryKey(),
+                BlockPos.ofFloored(spawnPos.pos),
+                spawnPos.yaw,
+                true,
+                false
+        );
+    }
+
+    public static void teleportPlayer(ServerPlayerEntity player) {
+        if (player.getServer() == null) {
+            return;
         }
-        return false;
+
+        MapVotingComponent voting = MapVotingComponent.KEY.get(player.getServer().getScoreboard());
+        Identifier targetDimensionId = voting.getLastSelectedDimension();
+        if (targetDimensionId == null) {
+            return;
+        }
+
+        RegistryKey<World> worldKey = RegistryKey.of(RegistryKeys.WORLD, targetDimensionId);
+        ServerWorld targetWorld = player.getServer().getWorld(worldKey);
+        if (targetWorld == null) {
+            Wathe.LOGGER.warn("Cannot teleport player {}: selected Wathe map dimension {} is missing",
+                    player.getGameProfile().getName(), targetDimensionId);
+            return;
+        }
+
+        teleportPlayerToMapSpawn(player, targetWorld);
+    }
+
+    /**
+     * 投票结束后把全服玩家迁移到选中的地图维度。
+     *
+     * <p>这里遍历所有世界，而不是只迁移主世界玩家；否则玩家在别的维度时会漏传，
+     * 下一局准备区、指令目标和结算组件都会落到不同世界。</p>
+     */
+    public static void finalizeVoting(ServerWorld currentWorld, Identifier targetDimensionId) {
+        RegistryKey<World> dimKey = RegistryKey.of(RegistryKeys.WORLD, targetDimensionId);
+        ServerWorld targetWorld = currentWorld.getServer().getWorld(dimKey);
+
+        if (targetWorld == null) {
+            Wathe.LOGGER.warn("Target Wathe map dimension {} not found, map voting result ignored", targetDimensionId);
+            return;
+        }
+
+        for (ServerWorld world : currentWorld.getServer().getWorlds()) {
+            for (ServerPlayerEntity player : new ArrayList<>(world.getPlayers())) {
+                if (world.getRegistryKey().equals(dimKey)) {
+                    /*
+                     * 如果投票结果还是当前维度，不移动玩家位置。
+                     * 只刷新重生点，避免“继续玩本地图”时把准备区玩家又拉回出生点。
+                     */
+                    setPlayerSpawnToMapSpawn(player, targetWorld);
+                } else {
+                    teleportPlayerToMapSpawn(player, targetWorld);
+                }
+            }
+        }
+
+        Wathe.LOGGER.info("Wathe map voting selected dimension {}", targetDimensionId);
+    }
+
+    private static void teleportPlayerToMapSpawn(ServerPlayerEntity player, ServerWorld targetWorld) {
+        MapVariablesWorldComponent mapVariables = MapVariablesWorldComponent.KEY.get(targetWorld);
+        MapVariablesWorldComponent.PosWithOrientation spawnPos = player.isSpectator()
+                ? mapVariables.getSpectatorSpawnPos()
+                : mapVariables.getSpawnPos();
+
+        BlockPos chunkPos = BlockPos.ofFloored(spawnPos.pos);
+        targetWorld.getChunk(chunkPos);
+        player.teleport(
+                targetWorld,
+                spawnPos.pos.getX() + 0.5,
+                spawnPos.pos.getY() + 1,
+                spawnPos.pos.getZ() + 0.5,
+                spawnPos.yaw,
+                spawnPos.pitch
+        );
+        setPlayerSpawnToMapSpawn(player, targetWorld);
+        player.getInventory().clear();
+        TrainVoicePlugin.resetPlayer(player.getUuid());
     }
 
     public static int getReadyPlayerCount(World world) {
         List<? extends PlayerEntity> players = world.getPlayers();
         MapVariablesWorldComponent areas = MapVariablesWorldComponent.KEY.get(world);
-        return Math.toIntExact(players.stream().filter(p -> areas.getReadyArea().contains(p.getPos())).count());
+        return Math.toIntExact(players.stream().filter(p -> isPlayerInReadyArea(p, areas)).count());
     }
 
     public enum WinStatus {

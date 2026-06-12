@@ -3,6 +3,7 @@ package dev.doctor4t.wathe.command;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.BoolArgumentType;
 import dev.doctor4t.wathe.cca.GameWorldComponent;
+import dev.doctor4t.wathe.util.GameWorldResolver;
 import net.minecraft.server.command.CommandManager;
 import net.minecraft.server.command.ServerCommandSource;
 import net.minecraft.text.Text;
@@ -43,7 +44,7 @@ public class AllowJumpCommand {
      * 所以不仅会立刻同步给当前在线客户端，也会随世界数据一起保存。
      */
     private static int execute(ServerCommandSource source, boolean enabled) {
-        GameWorldComponent game = GameWorldComponent.KEY.get(source.getWorld());
+        GameWorldComponent game = GameWorldComponent.KEY.get(GameWorldResolver.resolve(source));
         game.setAlivePlayerJumpAllowed(enabled);
 
         Text stateText = Text.literal(enabled ? "开启" : "关闭").formatted(Formatting.GOLD);
@@ -58,7 +59,7 @@ public class AllowJumpCommand {
      * 查询当前保存的跳跃开关状态。
      */
     private static int query(ServerCommandSource source) {
-        GameWorldComponent game = GameWorldComponent.KEY.get(source.getWorld());
+        GameWorldComponent game = GameWorldComponent.KEY.get(GameWorldResolver.resolve(source));
         Text stateText = Text.literal(game.isAlivePlayerJumpAllowed() ? "开启" : "关闭").formatted(Formatting.GOLD);
 
         source.sendFeedback(

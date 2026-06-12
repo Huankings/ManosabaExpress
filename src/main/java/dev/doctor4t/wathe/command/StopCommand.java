@@ -2,6 +2,7 @@ package dev.doctor4t.wathe.command;
 
 import com.mojang.brigadier.CommandDispatcher;
 import dev.doctor4t.wathe.game.GameFunctions;
+import dev.doctor4t.wathe.util.GameWorldResolver;
 import net.minecraft.server.command.CommandManager;
 import net.minecraft.server.command.ServerCommandSource;
 import org.jetbrains.annotations.NotNull;
@@ -11,12 +12,12 @@ public class StopCommand {
         dispatcher.register(CommandManager.literal("wathe:stop")
                 .requires(source -> source.hasPermissionLevel(2))
                 .then(CommandManager.literal("force").executes(context -> {
-                            GameFunctions.finalizeGame(context.getSource().getWorld());
+                            GameFunctions.finalizeGame(GameWorldResolver.resolve(context.getSource()));
                             return 1;
                         }
                 ))
                 .executes(context -> {
-                    GameFunctions.stopGame(context.getSource().getWorld());
+                    GameFunctions.stopGame(GameWorldResolver.resolve(context.getSource()));
                     return 1;
                 })
         );

@@ -12,8 +12,10 @@ import dev.doctor4t.wathe.command.argument.GameModeArgumentType;
 import dev.doctor4t.wathe.command.argument.MapEffectArgumentType;
 import dev.doctor4t.wathe.game.GameConstants;
 import dev.doctor4t.wathe.game.GameFunctions;
+import dev.doctor4t.wathe.util.GameWorldResolver;
 import net.minecraft.server.command.CommandManager;
 import net.minecraft.server.command.ServerCommandSource;
+import net.minecraft.server.world.ServerWorld;
 import net.minecraft.text.Text;
 
 public class StartCommand {
@@ -39,14 +41,15 @@ public class StartCommand {
     }
 
     private static int execute(ServerCommandSource source, GameMode gameMode, MapEffect mapEffect, int minutes) {
-        if (GameWorldComponent.KEY.get(source.getWorld()).isRunning()) {
+        ServerWorld targetWorld = GameWorldResolver.resolve(source);
+        if (GameWorldResolver.hasBusyGame(source.getServer())) {
             source.sendError(Text.translatable("game.start_error.game_running"));
             return -1;
         }
         if (gameMode == WatheGameModes.LOOSE_ENDS || gameMode == WatheGameModes.DISCOVERY || mapEffect == WatheMapEffects.HARPY_EXPRESS_SUNDOWN || mapEffect == WatheMapEffects.HARPY_EXPRESS_DAY) {
-            return Wathe.executeSupporterCommand(source, () -> GameFunctions.startGame(source.getWorld(), gameMode, mapEffect, GameConstants.getInTicks(minutes >= 0 ? minutes : gameMode.defaultStartTime, 0)));
+            return Wathe.executeSupporterCommand(source, () -> GameFunctions.startGame(targetWorld, gameMode, mapEffect, GameConstants.getInTicks(minutes >= 0 ? minutes : gameMode.defaultStartTime, 0)));
         } else  {
-            GameFunctions.startGame(source.getWorld(), gameMode, mapEffect, GameConstants.getInTicks(minutes >= 0 ? minutes : gameMode.defaultStartTime, 0));
+            GameFunctions.startGame(targetWorld, gameMode, mapEffect, GameConstants.getInTicks(minutes >= 0 ? minutes : gameMode.defaultStartTime, 0));
             return 1;
         }
     }

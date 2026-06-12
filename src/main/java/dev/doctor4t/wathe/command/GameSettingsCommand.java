@@ -9,6 +9,7 @@ import dev.doctor4t.wathe.cca.AutoStartComponent;
 import dev.doctor4t.wathe.cca.GameWorldComponent;
 import dev.doctor4t.wathe.cca.ScoreboardRoleSelectorComponent;
 import dev.doctor4t.wathe.game.GameConstants;
+import dev.doctor4t.wathe.util.GameWorldResolver;
 import net.minecraft.server.command.CommandManager;
 import net.minecraft.server.command.ServerCommandSource;
 import net.minecraft.text.Text;
@@ -83,7 +84,7 @@ public class GameSettingsCommand {
 
     private static int setAutoStart(ServerCommandSource source, int seconds) {
         return Wathe.executeSupporterCommand(source,
-                () -> AutoStartComponent.KEY.get(source.getWorld()).setStartTime(GameConstants.getInTicks(0, seconds))
+                () -> AutoStartComponent.KEY.get(GameWorldResolver.resolve(source)).setStartTime(GameConstants.getInTicks(0, seconds))
         );
     }
 

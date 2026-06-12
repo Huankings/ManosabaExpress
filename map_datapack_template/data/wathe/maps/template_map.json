@@ -1,0 +1,117 @@
+{
+  "dimension": "wathe:template_map",
+  "display_name": "模板地图",
+  "description": "这里填写投票界面显示的地图说明",
+  "min_players": 6,
+  "max_players": 24,
+  "enhancements": {
+    "rooms": [
+      {
+        "name": "一号房间",
+        "max_players": 2,
+        "spawn_points": [
+          {
+            "x": 0.5,
+            "y": 80.0,
+            "z": 0.5,
+            "yaw": 0.0,
+            "pitch": 0.0
+          },
+          {
+            "x": 1.5,
+            "y": 80.0,
+            "z": 0.5,
+            "yaw": 0.0,
+            "pitch": 0.0
+          }
+        ]
+      },
+      {
+        "name": "二号房间",
+        "max_players": 2,
+        "spawn_points": [
+          {
+            "x": 10.5,
+            "y": 80.0,
+            "z": 0.5,
+            "yaw": 180.0,
+            "pitch": 0.0
+          },
+          {
+            "x": 11.5,
+            "y": 80.0,
+            "z": 0.5,
+            "yaw": 180.0,
+            "pitch": 0.0
+          }
+        ]
+      }
+    ],
+    "scenery": {
+      "height_offset": 116,
+      "min_x": -208,
+      "max_x": 303,
+      "min_z": -896,
+      "max_z": -177
+    },
+    "visibility": {
+      "day": 400,
+      "night": 200,
+      "sundown": 300
+    },
+    "fog": {
+      "enabled": true,
+      "start": 32.0,
+      "end_moving": 96.0,
+      "end_stationary": 64.0,
+      "night_color": "#0D0D14"
+    },
+    "camera_shake": {
+      "enabled": true,
+      "amplitude_indoor": 0.002,
+      "amplitude_outdoor": 0.006,
+      "strength_indoor": 0.04,
+      "strength_outdoor": 0.08
+    },
+    "snow_particles": {
+      "enabled": false,
+      "count": 200,
+      "spawn_offset_x": -20.0,
+      "spawn_range_y": 10.0,
+      "spawn_range_z": 10.0
+    },
+    "gravity": {
+      "gravity_multiplier": 1.0
+    },
+    "movement": {
+      "walk_speed_multiplier": 1.0,
+      "sprint_speed_multiplier": 1.0
+    },
+    "jump": {
+      "allowed": true,
+      "stamina_cost": 0.0
+    },
+    "visual": {
+      "static_map": false,
+      "hud": true,
+      "train_speed": 100,
+      "time_of_day": "DAY"
+    },
+    "interaction_blacklist": {
+      "blocks": [
+        
+      ],
+      "block_tags": [
+        
+      ]
+    },
+    "ambience": {
+      "require_train_moving": true,
+      "inside_sound": "wathe:ambient.train.inside",
+      "outside_sound": "wathe:ambient.train.outside"
+    },
+    "special_roles": {
+      "enabled_roles": []
+    }
+  }
+}

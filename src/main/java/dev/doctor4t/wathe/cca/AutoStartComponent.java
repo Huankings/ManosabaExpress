@@ -37,13 +37,37 @@ public class AutoStartComponent implements AutoSyncedComponent, CommonTickingCom
     @Override
     public void tick() {
         GameWorldComponent gameWorldComponent = GameWorldComponent.KEY.get(this.world);
-        if (gameWorldComponent.isRunning()) return;
+        if (gameWorldComponent.getGameStatus() != GameWorldComponent.GameStatus.INACTIVE) {
+            this.resetCountdown();
+            return;
+        }
 
-        if (this.startTime <= 0 && this.time <= 0) return;
+        if (this.world instanceof ServerWorld serverWorld) {
+            MapVotingComponent votingComponent = MapVotingComponent.KEY.get(serverWorld.getServer().getScoreboard());
+            if (votingComponent.isVotingActive()) {
+                /*
+                 * 地图投票期间准备区可能正好也是出生点。
+                 * 这时只显示投票，不推进自动开局倒计时，避免投票刚结束就立刻开局。
+                 */
+                this.resetCountdown();
+                return;
+            }
+        }
+
+        if (this.startTime <= 0) {
+            if (this.time != 0) {
+                this.setTime(0);
+            }
+            return;
+        }
+
+        if (this.time < 0) {
+            this.setTime(this.startTime);
+        }
 
         GameMode gameMode = gameWorldComponent.getGameMode();
         if (GameFunctions.getReadyPlayerCount(world) >= gameMode.minPlayerCount) {
-            if (this.time-- <= 0 && this.world instanceof ServerWorld serverWorld) {
+            if (this.time-- == 0 && this.world instanceof ServerWorld serverWorld) {
                 if (gameWorldComponent.getGameStatus() == GameWorldComponent.GameStatus.INACTIVE) {
                     GameFunctions.startGame(serverWorld, gameMode, gameWorldComponent.getMapEffect(), GameConstants.getInTicks(gameMode.defaultStartTime, 0));
                     return;
@@ -78,11 +102,19 @@ public class AutoStartComponent implements AutoSyncedComponent, CommonTickingCom
 
     public void setStartTime(int time) {
         this.startTime = time;
+        this.setTime(time);
     }
 
     public void setTime(int time) {
         this.time = time;
         this.sync();
+    }
+
+    private void resetCountdown() {
+        int targetTime = Math.max(0, this.startTime);
+        if (this.time != targetTime) {
+            this.setTime(targetTime);
+        }
     }
 
     @Override

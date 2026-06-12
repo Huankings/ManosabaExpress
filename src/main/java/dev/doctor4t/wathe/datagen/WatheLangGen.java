@@ -40,6 +40,8 @@ public class WatheLangGen extends FabricLanguageProvider {
         builder.add("lobby.autostart.active", "Game will start once 6+ players are boarded");
         builder.add("lobby.autostart.time", "Game starting in %ss");
         builder.add("lobby.autostart.starting", "Game starting");
+        builder.add("lobby.voting.active", "Map voting in progress");
+        builder.add("lobby.voting.keybind_hint", "Press [%s] to open / [ESC] to close map voting");
 
         builder.add("announcement.role.civilian", "Civilian!");
         builder.add("announcement.role.vigilante", "Vigilante!");

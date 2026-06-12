@@ -3,6 +3,8 @@ package dev.doctor4t.wathe.mixin.client.scenery;
 import com.llamalad7.mixinextras.sugar.Local;
 import dev.doctor4t.wathe.cca.TrainWorldComponent;
 import dev.doctor4t.wathe.client.WatheClient;
+import dev.doctor4t.wathe.config.datapack.MapEnhancementsConfiguration.SceneryConfig;
+import dev.doctor4t.wathe.config.datapack.MapEnhancementsConfiguration.VisibilityConfig;
 import it.unimi.dsi.fastutil.objects.ObjectListIterator;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gl.GlUniform;
@@ -35,14 +37,30 @@ public class SceneryWorldRendererMixin {
             cancellable = true)
     private void wathe$renderScenery(RenderLayer renderLayer, double x, double y, double z, Matrix4f matrix4f, Matrix4f positionMatrix, CallbackInfo ci, @Local ObjectListIterator<ChunkBuilder.BuiltChunk> objectListIterator, @Local ShaderProgram shaderProgram) {
         if (WatheClient.isTrainMoving()) {
+            if (WatheClient.trainComponent == null || client.cameraEntity == null) {
+                return;
+            }
+
             GlUniform glUniform = shaderProgram.chunkOffset;
+
+            SceneryConfig sceneryConfig = WatheClient.mapEnhancementsWorldComponent != null
+                    ? WatheClient.mapEnhancementsWorldComponent.getSceneryConfig()
+                    : SceneryConfig.DEFAULT;
+            VisibilityConfig visibilityConfig = WatheClient.mapEnhancementsWorldComponent != null
+                    ? WatheClient.mapEnhancementsWorldComponent.getVisibilityConfig()
+                    : VisibilityConfig.DEFAULT;
 
             float trainSpeed = WatheClient.getTrainSpeed(); // in kmh
             int chunkSize = 16;
             int tileWidth = 15 * chunkSize;
-            int height = 116;
+            int height = sceneryConfig.heightOffset();
             int tileLength = 32 * chunkSize;
             int tileSize = tileLength * 3;
+            int visibility = switch (WatheClient.trainComponent.getTimeOfDay()) {
+                case DAY -> visibilityConfig.day();
+                case NIGHT -> visibilityConfig.night();
+                case SUNDOWN -> visibilityConfig.sundown();
+            };
 
             float time = WatheClient.trainComponent.getTime() + client.getRenderTickCounter().getTickDelta(true);
 
@@ -84,7 +102,7 @@ public class SceneryWorldRendererMixin {
                             finalZ = v3;
                         }
 
-                        if (Math.abs(finalX) < (WatheClient.trainComponent.getTimeOfDay() == TrainWorldComponent.TimeOfDay.SUNDOWN ? 320 : 160)) {
+                        if (Math.abs(finalX) < visibility) {
                             glUniform.set(
                                     finalX,
                                     finalY,

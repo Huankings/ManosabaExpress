@@ -9,8 +9,10 @@ import dev.doctor4t.wathe.api.Role;
 import dev.doctor4t.wathe.api.bed.BedEffectRegistry;
 import dev.doctor4t.wathe.api.event.AllowPlayerPunching;
 import dev.doctor4t.wathe.cca.GameWorldComponent;
+import dev.doctor4t.wathe.cca.MapEnhancementsWorldComponent;
 import dev.doctor4t.wathe.cca.PlayerMoodComponent;
 import dev.doctor4t.wathe.cca.PlayerPoisonComponent;
+import dev.doctor4t.wathe.config.datapack.MapEnhancementsConfiguration.MovementConfig;
 import dev.doctor4t.wathe.game.GameConstants;
 import dev.doctor4t.wathe.game.GameFunctions;
 import dev.doctor4t.wathe.index.WatheDataComponentTypes;
@@ -24,6 +26,7 @@ import net.minecraft.component.type.FoodComponent;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.EntityType;
 import net.minecraft.entity.LivingEntity;
+import net.minecraft.entity.attribute.EntityAttributes;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.item.ItemStack;
 import net.minecraft.nbt.NbtCompound;
@@ -63,8 +66,19 @@ public abstract class PlayerEntityMixin extends LivingEntity {
 
     @ModifyReturnValue(method = "getMovementSpeed", at = @At("RETURN"))
     public float wathe$overrideMovementSpeed(float original) {
-        if (GameFunctions.isPlayerAliveAndSurvival((PlayerEntity) (Object) this)) {
-            return this.isSprinting() ? 0.1f : 0.07f;
+        GameWorldComponent gameComponent = GameWorldComponent.KEY.get(this.getWorld());
+        if (gameComponent != null && gameComponent.isRunning() && GameFunctions.isPlayerAliveAndSurvival((PlayerEntity) (Object) this)) {
+            MovementConfig movement = MapEnhancementsWorldComponent.KEY.get(this.getWorld()).getMovementConfig();
+
+            /*
+             * 原版返回值里已经包含速度/缓慢等状态效果。
+             * 这里只替换 Wathe 的基础走路/疾跑速度，再把状态效果乘数补回去。
+             */
+            float baseAttributeValue = (float) this.getAttributeBaseValue(EntityAttributes.GENERIC_MOVEMENT_SPEED);
+            float vanillaExpectedSpeed = this.isSprinting() ? baseAttributeValue * 1.3f : baseAttributeValue;
+            float effectMultiplier = vanillaExpectedSpeed > 0 ? original / vanillaExpectedSpeed : 1.0f;
+            float watheBaseSpeed = this.isSprinting() ? 0.1f * movement.sprintSpeedMultiplier() : 0.07f * movement.walkSpeedMultiplier();
+            return watheBaseSpeed * effectMultiplier;
         } else {
             return original;
         }

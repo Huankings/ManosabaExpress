@@ -8,6 +8,8 @@ import dev.doctor4t.wathe.Wathe;
 import dev.doctor4t.wathe.WatheConfig;
 import dev.doctor4t.wathe.api.Role;
 import dev.doctor4t.wathe.cca.GameWorldComponent;
+import dev.doctor4t.wathe.cca.MapEnhancementsWorldComponent;
+import dev.doctor4t.wathe.cca.MapVotingComponent;
 import dev.doctor4t.wathe.cca.PlayerGrenadeComponent;
 import dev.doctor4t.wathe.cca.PlayerInstinctComponent;
 import dev.doctor4t.wathe.cca.PlayerMoodComponent;
@@ -15,6 +17,7 @@ import dev.doctor4t.wathe.cca.TrainWorldComponent;
 import dev.doctor4t.wathe.client.gui.RoundTextRenderer;
 import dev.doctor4t.wathe.client.gui.StoreRenderer;
 import dev.doctor4t.wathe.client.gui.TimeRenderer;
+import dev.doctor4t.wathe.client.gui.screen.MapVotingScreen;
 import dev.doctor4t.wathe.client.task.TaskPointClientState;
 import dev.doctor4t.wathe.client.task.TaskPointOverlayRenderer;
 import dev.doctor4t.wathe.client.model.WatheModelLayers;
@@ -83,16 +86,20 @@ public class WatheClient implements ClientModInitializer {
     public static GameWorldComponent gameComponent;
     public static TrainWorldComponent trainComponent;
     public static PlayerMoodComponent moodComponent;
+    public static MapEnhancementsWorldComponent mapEnhancementsWorldComponent;
 
     public static final Map<UUID, PlayerListEntry> PLAYER_ENTRIES_CACHE = Maps.newHashMap();
 
     public static KeyBinding instinctKeybind;
     public static KeyBinding taskPointKeybind;
+    public static KeyBinding mapVoteKeybind;
     public static float prevInstinctLightLevel = -.04f;
     public static float instinctLightLevel = -.04f;
     private static int lastGrenadeSelectedSlot = -1;
     private static boolean grenadeThrowModeToggleHeld = false;
     private static boolean instinctToggleActive = false;
+    private static boolean hasAutoOpenedVotingScreen = false;
+    private static boolean wasVotingActive = false;
 
     public static boolean shouldDisableHudAndDebug() {
         MinecraftClient client = MinecraftClient.getInstance();
@@ -228,6 +235,7 @@ public class WatheClient implements ClientModInitializer {
         ClientTickEvents.START_WORLD_TICK.register(clientWorld -> {
             gameComponent = GameWorldComponent.KEY.get(clientWorld);
             trainComponent = TrainWorldComponent.KEY.get(clientWorld);
+            mapEnhancementsWorldComponent = MapEnhancementsWorldComponent.KEY.get(clientWorld);
             ClientPlayerEntity player = MinecraftClient.getInstance().player;
             moodComponent = player == null ? null : PlayerMoodComponent.KEY.get(player);
         });
@@ -325,6 +333,8 @@ public class WatheClient implements ClientModInitializer {
                 StoreRenderer.tick();
                 TimeRenderer.tick();
             }
+
+            handleMapVotingScreen(MinecraftClient.getInstance(), MapVotingComponent.KEY.get(clientWorld.getScoreboard()));
         });
 
         ClientTickEvents.END_CLIENT_TICK.register((client) -> {
@@ -381,6 +391,14 @@ public class WatheClient implements ClientModInitializer {
                 GLFW.GLFW_KEY_B,
                 "category." + Wathe.MOD_ID + ".keybinds"
         ));
+
+        // 地图投票界面开关键：H 打开/关闭，轮盘动画阶段会强制保持打开。
+        mapVoteKeybind = KeyBindingHelper.registerKeyBinding(new KeyBinding(
+                "key." + Wathe.MOD_ID + ".map_vote",
+                InputUtil.Type.KEYSYM,
+                GLFW.GLFW_KEY_H,
+                "category." + Wathe.MOD_ID + ".keybinds"
+        ));
     }
 
     public static TrainWorldComponent getTrainComponent() {
@@ -392,7 +410,58 @@ public class WatheClient implements ClientModInitializer {
     }
 
     public static boolean isTrainMoving() {
-        return trainComponent != null && trainComponent.getSpeed() > 0;
+        return gameComponent != null
+                && gameComponent.getGameStatus() != GameWorldComponent.GameStatus.INACTIVE
+                && trainComponent != null
+                && trainComponent.getSpeed() > 0;
+    }
+
+    private static void handleMapVotingScreen(@NotNull MinecraftClient client, @NotNull MapVotingComponent voting) {
+        boolean votingActive = voting.isVotingActive();
+        boolean roulettePhase = votingActive && voting.isRoulettePhase();
+
+        if (votingActive && !wasVotingActive) {
+            hasAutoOpenedVotingScreen = false;
+        }
+
+        /*
+         * 服务端一结算完就会开启投票；客户端稍等结算动画播完再自动打开，
+         * 避免玩家看不到胜负信息。
+         */
+        if (votingActive && !hasAutoOpenedVotingScreen && !RoundTextRenderer.isEndAnimationPlaying()) {
+            if (!(client.currentScreen instanceof MapVotingScreen)) {
+                client.setScreen(new MapVotingScreen());
+            }
+            hasAutoOpenedVotingScreen = true;
+        }
+
+        if (mapVoteKeybind != null && votingActive && mapVoteKeybind.wasPressed()) {
+            if (roulettePhase) {
+                if (!(client.currentScreen instanceof MapVotingScreen)) {
+                    RoundTextRenderer.clearEndAnimation();
+                    client.setScreen(new MapVotingScreen());
+                    hasAutoOpenedVotingScreen = true;
+                }
+            } else if (client.currentScreen instanceof MapVotingScreen) {
+                client.setScreen(null);
+            } else {
+                RoundTextRenderer.clearEndAnimation();
+                client.setScreen(new MapVotingScreen());
+                hasAutoOpenedVotingScreen = true;
+            }
+        }
+
+        if (roulettePhase && !(client.currentScreen instanceof MapVotingScreen)) {
+            RoundTextRenderer.clearEndAnimation();
+            client.setScreen(new MapVotingScreen());
+            hasAutoOpenedVotingScreen = true;
+        }
+
+        if (!votingActive && client.currentScreen instanceof MapVotingScreen) {
+            client.setScreen(null);
+        }
+
+        wasVotingActive = votingActive;
     }
 
     public static class CustomModelProvider implements ModelLoadingPlugin {

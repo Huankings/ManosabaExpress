@@ -1,6 +1,7 @@
 package dev.doctor4t.wathe.mixin.client.scenery;
 
 import dev.doctor4t.wathe.client.WatheClient;
+import dev.doctor4t.wathe.config.datapack.MapEnhancementsConfiguration.SnowParticlesConfig;
 import dev.doctor4t.wathe.index.WatheBlocks;
 import dev.doctor4t.wathe.index.WatheParticles;
 import net.minecraft.client.MinecraftClient;
@@ -60,15 +61,33 @@ public abstract class ClientWorldMixin extends World {
 
     @Inject(method = "tick", at = @At("TAIL"))
     public void wathe$addSnowflakes(BooleanSupplier shouldKeepTicking, CallbackInfo ci) {
-        if (WatheClient.isTrainMoving() && WatheClient.getTrainComponent().isSnowing()) {
-            ClientPlayerEntity player = client.player;
-            Random random = player.getRandom();
-            for (int i = 0; i < 200; i++) {
-                Vec3d playerVel = player.getMovement();
-                Vec3d pos = new Vec3d(player.getX() - 20f + random.nextFloat() + playerVel.getX(), player.getY() + (random.nextFloat() * 2 - 1) * 10f + playerVel.getY(), player.getZ() + (random.nextFloat() * 2 - 1) * 10f + playerVel.getZ());
-                if (this.client.world.isSkyVisible(BlockPos.ofFloored(pos))) {
-                    this.addParticle(WatheParticles.SNOWFLAKE, pos.getX(), pos.getY(), pos.getZ(), 2 + playerVel.getX(), playerVel.getY(), playerVel.getZ());
-                }
+        if (!WatheClient.isTrainMoving()
+                || WatheClient.getTrainComponent() == null
+                || !WatheClient.getTrainComponent().isSnowing()
+                || WatheClient.mapEnhancementsWorldComponent == null) {
+            return;
+        }
+
+        SnowParticlesConfig snowConfig = WatheClient.mapEnhancementsWorldComponent.getSnowParticlesConfig();
+        if (!snowConfig.enabled() || snowConfig.count() <= 0) {
+            return;
+        }
+
+        ClientPlayerEntity player = client.player;
+        if (player == null || this.client.world == null) {
+            return;
+        }
+
+        Random random = player.getRandom();
+        Vec3d playerVel = player.getMovement();
+        for (int i = 0; i < snowConfig.count(); i++) {
+            Vec3d pos = new Vec3d(
+                    player.getX() + snowConfig.spawnOffsetX() + random.nextFloat() + playerVel.getX(),
+                    player.getY() + (random.nextFloat() * 2 - 1) * snowConfig.spawnRangeY() + playerVel.getY(),
+                    player.getZ() + (random.nextFloat() * 2 - 1) * snowConfig.spawnRangeZ() + playerVel.getZ()
+            );
+            if (this.client.world.isSkyVisible(BlockPos.ofFloored(pos))) {
+                this.addParticle(WatheParticles.SNOWFLAKE, pos.getX(), pos.getY(), pos.getZ(), 2 + playerVel.getX(), playerVel.getY(), playerVel.getZ());
             }
         }
     }

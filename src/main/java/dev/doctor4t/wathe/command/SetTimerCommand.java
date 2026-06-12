@@ -5,6 +5,7 @@ import com.mojang.brigadier.arguments.IntegerArgumentType;
 import dev.doctor4t.wathe.Wathe;
 import dev.doctor4t.wathe.cca.GameTimeComponent;
 import dev.doctor4t.wathe.game.GameConstants;
+import dev.doctor4t.wathe.util.GameWorldResolver;
 import net.minecraft.server.command.CommandManager;
 import net.minecraft.server.command.ServerCommandSource;
 
@@ -26,7 +27,7 @@ public class SetTimerCommand {
     private static int setTimer(ServerCommandSource source, int minutes, int seconds) {
         return Wathe.executeSupporterCommand(source,
                 () -> {
-                    GameTimeComponent.KEY.get(source.getWorld()).setTime(GameConstants.getInTicks(minutes, seconds));
+                    GameTimeComponent.KEY.get(GameWorldResolver.resolve(source)).setTime(GameConstants.getInTicks(minutes, seconds));
                 }
         );
     }

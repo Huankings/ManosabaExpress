@@ -379,6 +379,23 @@ public class RoundTextRenderer {
         endTime = END_DURATION;
     }
 
+    /**
+     * 地图投票界面需要知道结算动画是否还在播放。
+     *
+     * <p>投票在服务端结算完成后会马上开始，但客户端最好等结算文本先显示一会儿，
+     * 否则玩家会感觉“结算页被投票页吃掉了”。</p>
+     */
+    public static boolean isEndAnimationPlaying() {
+        return endTime > 0;
+    }
+
+    /**
+     * 玩家手动打开投票界面时，主动清掉结算动画，避免两个全屏 UI 互相盖住。
+     */
+    public static void clearEndAnimation() {
+        endTime = 0;
+    }
+
     private static void renderRoundEndPlayer(
             @NotNull TextRenderer renderer,
             @NotNull DrawContext context,

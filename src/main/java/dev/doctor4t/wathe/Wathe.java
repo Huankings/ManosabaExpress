@@ -3,11 +3,15 @@ package dev.doctor4t.wathe;
 import com.google.common.reflect.Reflection;
 import dev.doctor4t.wathe.block.DoorPartBlock;
 import dev.doctor4t.wathe.cca.GameWorldComponent;
+import dev.doctor4t.wathe.cca.MapEnhancementsWorldComponent;
+import dev.doctor4t.wathe.cca.MapVotingComponent;
 import dev.doctor4t.wathe.command.*;
 import dev.doctor4t.wathe.command.argument.GameModeArgumentType;
 import dev.doctor4t.wathe.command.argument.MapEffectArgumentType;
 import dev.doctor4t.wathe.command.argument.TimeOfDayArgumentType;
+import dev.doctor4t.wathe.config.datapack.MapEnhancementsConfigurationReloader;
 import dev.doctor4t.wathe.game.GameConstants;
+import dev.doctor4t.wathe.game.GameFunctions;
 import dev.doctor4t.wathe.index.*;
 import dev.doctor4t.wathe.record.GameRecordHooks;
 import dev.doctor4t.wathe.record.GameRecordManager;
@@ -23,6 +27,7 @@ import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.ArgumentTypeRegistry;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.entity.event.v1.ServerPlayerEvents;
+import net.fabricmc.fabric.api.event.player.UseBlockCallback;
 import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.fabricmc.loader.api.FabricLoader;
@@ -32,7 +37,9 @@ import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.registry.Registries;
 import net.minecraft.server.command.ServerCommandSource;
 import net.minecraft.server.network.ServerPlayerEntity;
+import net.minecraft.server.world.ServerWorld;
 import net.minecraft.text.Text;
+import net.minecraft.util.ActionResult;
 import net.minecraft.util.Identifier;
 import net.minecraft.util.math.BlockPos;
 import org.jetbrains.annotations.NotNull;
@@ -53,6 +60,9 @@ public class Wathe implements ModInitializer {
     public void onInitialize() {
         // Init constants
         GameConstants.init();
+
+        // 读取 data/wathe/maps/*.json，供地图投票和地图增强配置使用。
+        MapEnhancementsConfigurationReloader.register();
 
         // Registry initializers
         Reflection.initialize(WatheDataComponentTypes.class);
@@ -89,6 +99,7 @@ public class Wathe implements ModInitializer {
             AllowJumpCommand.register(dispatcher);
             PlayerCollisionCommand.register(dispatcher);
             InstinctCommand.register(dispatcher);
+            MapVoteCommand.register(dispatcher);
         }));
 
         /*
@@ -105,6 +116,21 @@ public class Wathe implements ModInitializer {
             if (GameRecordManager.hasActiveMatch()) {
                 GameRecordManager.recordPlayerJoin(player);
             }
+
+            MapVotingComponent voting = MapVotingComponent.KEY.get(player.getServer().getScoreboard());
+            voting.onPlayerJoin();
+            ServerWorld selectedWorld = voting.getLastSelectedWorld();
+            if (!voting.isVotingActive()
+                    && selectedWorld != null
+                    && !selectedWorld.getRegistryKey().equals(player.getWorld().getRegistryKey())) {
+                /*
+                 * 投票已经选定地图后，晚加入玩家可能仍出生在主世界。
+                 * 这里把他拉回当前地图维度，避免下一次 /start 或旁观视角落到错误世界。
+                 */
+                GameFunctions.teleportPlayer(player);
+            } else if (selectedWorld != null && selectedWorld.getRegistryKey().equals(player.getWorld().getRegistryKey())) {
+                GameFunctions.setPlayerSpawnToMapSpawn(player, selectedWorld);
+            }
         });
 
         PayloadTypeRegistry.playS2C().register(ShootMuzzleS2CPayload.ID, ShootMuzzleS2CPayload.CODEC);
@@ -119,12 +145,30 @@ public class Wathe implements ModInitializer {
         PayloadTypeRegistry.playC2S().register(GrenadeThrowModePayload.ID, GrenadeThrowModePayload.CODEC);
         PayloadTypeRegistry.playC2S().register(StoreBuyPayload.ID, StoreBuyPayload.CODEC);
         PayloadTypeRegistry.playC2S().register(NoteEditPayload.ID, NoteEditPayload.CODEC);
+        PayloadTypeRegistry.playC2S().register(MapVotePayload.ID, MapVotePayload.CODEC);
 
         ServerPlayNetworking.registerGlobalReceiver(KnifeStabPayload.ID, new KnifeStabPayload.Receiver());
         ServerPlayNetworking.registerGlobalReceiver(GunShootPayload.ID, new GunShootPayload.Receiver());
         ServerPlayNetworking.registerGlobalReceiver(GrenadeThrowModePayload.ID, new GrenadeThrowModePayload.Receiver());
         ServerPlayNetworking.registerGlobalReceiver(StoreBuyPayload.ID, new StoreBuyPayload.Receiver());
         ServerPlayNetworking.registerGlobalReceiver(NoteEditPayload.ID, new NoteEditPayload.Receiver());
+        ServerPlayNetworking.registerGlobalReceiver(MapVotePayload.ID, new MapVotePayload.Receiver());
+
+        UseBlockCallback.EVENT.register((player, world, hand, hitResult) -> {
+            if (world.isClient || player.isCreative()) {
+                return ActionResult.PASS;
+            }
+
+            /*
+             * 地图数据包可以声明某些方块禁止交互，例如装饰按钮、展示容器等。
+             * 只在非创造玩家身上生效，方便管理员仍能现场调试地图。
+             */
+            MapEnhancementsWorldComponent enhancements = MapEnhancementsWorldComponent.KEY.get(world);
+            if (enhancements.getInteractionBlacklistConfig().isBlacklisted(world.getBlockState(hitResult.getBlockPos()).getBlock())) {
+                return ActionResult.FAIL;
+            }
+            return ActionResult.PASS;
+        });
 
         // 注册原版“塞床物品”到统一床效果接口。
         WatheBedEffects.register();

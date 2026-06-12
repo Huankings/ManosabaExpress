@@ -316,6 +316,8 @@
   "lobby.autostart.starting": "Game starting",
   "lobby.autostart.time": "Game starting in %ss",
   "lobby.players.count": "Players boarded: %s / %s",
+  "lobby.voting.active": "Map voting in progress",
+  "lobby.voting.keybind_hint": "Press [%s] to open / [ESC] to close map voting",
   "subtitles.block.cargo_box.close": "Cargo Box closes",
   "subtitles.block.cargo_box.open": "Cargo Box opens",
   "subtitles.block.door.toggle": "Door operates",

@@ -4,9 +4,13 @@ import dev.doctor4t.wathe.Wathe;
 import dev.doctor4t.wathe.client.WatheClient;
 import dev.doctor4t.wathe.game.mapeffect.HarpyExpressTrainMapEffect;
 import net.minecraft.nbt.NbtCompound;
+import net.minecraft.network.packet.s2c.play.WorldTimeUpdateS2CPacket;
 import net.minecraft.registry.RegistryWrapper;
+import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.util.StringIdentifiable;
+import net.minecraft.world.GameRules;
 import net.minecraft.world.World;
 import org.ladysnake.cca.api.v3.component.ComponentKey;
 import org.ladysnake.cca.api.v3.component.ComponentRegistry;
@@ -84,7 +88,42 @@ public class TrainWorldComponent implements AutoSyncedComponent, ServerTickingCo
 
     public void setTimeOfDay(TimeOfDay timeOfDay) {
         this.timeOfDay = timeOfDay;
+        this.applyTimeOfDayToWorld(true);
         this.sync();
+    }
+
+    public static void setServerTimeOfDay(MinecraftServer server, TimeOfDay timeOfDay) {
+        /*
+         * 原版 /time set 会把所有已加载世界一起改掉。
+         * 多维度地图里如果只改当前维度，其他维度旧的 TrainWorldComponent
+         * 仍可能在后续 tick 把客户端看到的时间抢回去，所以 Wathe 的视觉时间
+         * 也按原版指令习惯同步到整台服务器。
+         */
+        for (ServerWorld serverWorld : server.getWorlds()) {
+            TrainWorldComponent component = KEY.get(serverWorld);
+            component.timeOfDay = timeOfDay;
+            component.applyTimeOfDayToWorld(true);
+            component.sync();
+        }
+    }
+
+    private void applyTimeOfDayToWorld(boolean syncPlayersImmediately) {
+        if (this.world instanceof ServerWorld serverWorld) {
+            /*
+             * 多维度地图不能只改 TrainWorldComponent 的枚举值。
+             * 客户端天空、太阳/月亮位置和夜晚雾色读取的是 Minecraft 世界时间，
+             * 所以这里在设置视觉时间时同步写入当前维度本身的 timeOfDay。
+             */
+            serverWorld.setTimeOfDay(this.timeOfDay.time);
+
+            if (syncPlayersImmediately) {
+                boolean doDaylightCycle = serverWorld.getGameRules().getBoolean(GameRules.DO_DAYLIGHT_CYCLE);
+                WorldTimeUpdateS2CPacket packet = new WorldTimeUpdateS2CPacket(serverWorld.getTime(), this.timeOfDay.time, doDaylightCycle);
+                for (ServerPlayerEntity player : serverWorld.getPlayers()) {
+                    player.networkHandler.sendPacket(packet);
+                }
+            }
+        }
     }
 
     @Override
@@ -125,8 +164,14 @@ public class TrainWorldComponent implements AutoSyncedComponent, ServerTickingCo
         tickTime();
 
         ServerWorld serverWorld = (ServerWorld) world;
-        if (GameWorldComponent.KEY.get(serverWorld).getMapEffect() instanceof HarpyExpressTrainMapEffect) {
-            serverWorld.setTimeOfDay(timeOfDay.time);
+        GameWorldComponent gameComponent = GameWorldComponent.KEY.get(serverWorld);
+        if (gameComponent.isRunning() && gameComponent.getMapEffect() instanceof HarpyExpressTrainMapEffect) {
+            /*
+             * 多维度存档里可能有多个世界保留了旧的列车地图效果。
+             * 如果 INACTIVE 世界也持续写时间，它会把当前游戏维度刚设置好的
+             * NIGHT / SUNDOWN 抢回 DAY，表现成黑夜一闪而过。
+             */
+            applyTimeOfDayToWorld(false);
         }
     }
 
@@ -139,6 +184,10 @@ public class TrainWorldComponent implements AutoSyncedComponent, ServerTickingCo
 
         TimeOfDay(int time) {
             this.time = time;
+        }
+
+        public int getTimeValue() {
+            return this.time;
         }
 
         @Override

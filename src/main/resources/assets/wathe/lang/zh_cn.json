@@ -335,6 +335,8 @@
   "lobby.autostart.starting": "游戏开始中",
   "lobby.autostart.time": "游戏将在 %ss 后开始",
   "lobby.players.count": "已登岛玩家：%s / %s",
+  "lobby.voting.active": "地图投票进行中",
+  "lobby.voting.keybind_hint": "按 [%s] 打开 / [ESC] 关闭投票界面",
   "subtitles.block.cargo_box.close": "货箱关闭",
   "subtitles.block.cargo_box.open": "货箱打开",
   "subtitles.block.door.toggle": "门运作",
@@ -447,4 +449,15 @@
   ,"hud.task_point.raw_food_tray": "生食托盘"
   ,"hud.task_point.fuel_tray": "燃料托盘"
   ,"key.wathe.task_points": "任务点透视"
+  ,"key.wathe.map_vote": "地图投票"
+  ,"gui.wathe.map_voting.title": "地图投票"
+  ,"gui.wathe.map_voting.selecting": "正在选择地图"
+  ,"gui.wathe.map_voting.player_range": "%s-%s人"
+  ,"gui.wathe.map_voting.unavailable.min_players": "至少%s人"
+  ,"gui.wathe.map_voting.unavailable.max_players": "最多%s人"
+  ,"gui.wathe.map_voting.unavailable.random_excluded": "本轮未抽中"
+  ,"gui.wathe.map_voting.unavailable": "不可用"
+  ,"gui.wathe.map_voting.votes": "%s票"
+  ,"gui.wathe.map_voting.voted_stamp": "已投"
+  ,"game.start_error.voting_active": "地图投票进行中，暂时无法开始游戏"
 }

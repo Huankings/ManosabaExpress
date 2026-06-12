@@ -4,6 +4,7 @@ import com.llamalad7.mixinextras.injector.ModifyExpressionValue;
 import com.llamalad7.mixinextras.sugar.Local;
 import dev.doctor4t.wathe.client.WatheClient;
 import dev.doctor4t.wathe.compat.SodiumShaderInterface;
+import dev.doctor4t.wathe.config.datapack.MapEnhancementsConfiguration.SceneryConfig;
 import net.caffeinemc.mods.sodium.client.gl.buffer.GlBufferUsage;
 import net.caffeinemc.mods.sodium.client.gl.buffer.GlMutableBuffer;
 import net.caffeinemc.mods.sodium.client.gl.device.CommandList;
@@ -63,6 +64,9 @@ public abstract class DefaultChunkRendererMixin {
                                          CallbackInfo ci,
                                          @Local(ordinal = 0) ChunkShaderInterface shader,
                                          @Local(ordinal = 0) RenderRegion region) {
+        if (wathe_buffer == null) {
+            wathe_buffer = MemoryUtil.memAlloc(RenderRegion.REGION_SIZE * 16);
+        }
         glBuffer = commandList.createMutableBuffer();
         commandList.uploadData(glBuffer, wathe_buffer, GlBufferUsage.STREAM_DRAW);
 
@@ -79,9 +83,14 @@ public abstract class DefaultChunkRendererMixin {
                                         TerrainRenderPass renderPass,
                                         CameraTransform camera,
                                         CallbackInfo ci) {
-        MemoryUtil.memFree(wathe_buffer);
-        commandList.deleteBuffer(glBuffer);
-        wathe_buffer = null;
+        if (wathe_buffer != null) {
+            MemoryUtil.memFree(wathe_buffer);
+            wathe_buffer = null;
+        }
+        if (glBuffer != null) {
+            commandList.deleteBuffer(glBuffer);
+            glBuffer = null;
+        }
     }
 
     @Inject(method = "fillCommandBuffer",
@@ -108,9 +117,12 @@ public abstract class DefaultChunkRendererMixin {
 
         if (WatheClient.isTrainMoving()) {
             float trainSpeed = WatheClient.getTrainSpeed();
+            SceneryConfig sceneryConfig = WatheClient.mapEnhancementsWorldComponent != null
+                    ? WatheClient.mapEnhancementsWorldComponent.getSceneryConfig()
+                    : SceneryConfig.DEFAULT;
             int chunkSize = 16;
             int tileWidth = 15 * chunkSize;
-            int height = 116;
+            int height = sceneryConfig.heightOffset();
             int tileLength = 32 * chunkSize;
             int tileSize = tileLength * 3;
             float time = WatheClient.trainComponent.getTime() + MinecraftClient.getInstance().getRenderTickCounter().getTickDelta(true);

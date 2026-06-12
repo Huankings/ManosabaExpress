@@ -147,6 +147,46 @@ public int getFixedKillerCount() { return this.fixedKillerCount; }
     private int fade = 0;
 
     private final HashMap<UUID, Role> roles = new HashMap<>();
+    private final HashMap<Integer, RoomData> rooms = new HashMap<>();
+
+    /**
+     * 当前对局的房间分配数据。
+     *
+     * <p>地图 JSON 可以声明任意数量的房间；这里把玩家 UUID 记录到对应房间里，
+     * 供扩展职业、信件或后续调试指令查询“这个玩家被分到了哪个房间”。</p>
+     */
+    public static class RoomData {
+        private final int index;
+        private final String name;
+        private final List<UUID> players = new ArrayList<>();
+
+        public RoomData(int index, String name) {
+            this.index = index;
+            this.name = name;
+        }
+
+        public int getIndex() {
+            return index;
+        }
+
+        public String getName() {
+            return name;
+        }
+
+        public List<UUID> getPlayers() {
+            return players;
+        }
+
+        public void addPlayer(UUID player) {
+            if (!players.contains(player)) {
+                players.add(player);
+            }
+        }
+
+        public boolean hasPlayer(UUID player) {
+            return players.contains(player);
+        }
+    }
 
     private int ticksUntilNextResetAttempt = -1;
 
@@ -329,7 +369,56 @@ public int getFixedKillerCount() { return this.fixedKillerCount; }
 
     public void clearRoleMap() {
         this.roles.clear();
+        this.rooms.clear();
         setPsychosActive(0);
+    }
+
+    public RoomData getOrCreateRoom(int roomIndex, String roomName) {
+        return this.rooms.computeIfAbsent(roomIndex, index -> new RoomData(index, roomName));
+    }
+
+    public void addPlayerToRoom(int roomIndex, String roomName, PlayerEntity player) {
+        addPlayerToRoom(roomIndex, roomName, player.getUuid());
+    }
+
+    public void addPlayerToRoom(int roomIndex, String roomName, UUID playerUuid) {
+        RoomData room = getOrCreateRoom(roomIndex, roomName);
+        room.addPlayer(playerUuid);
+        this.sync();
+    }
+
+    @Nullable
+    public RoomData getRoom(int roomIndex) {
+        return this.rooms.get(roomIndex);
+    }
+
+    public HashMap<Integer, RoomData> getRooms() {
+        return this.rooms;
+    }
+
+    @Nullable
+    public RoomData getPlayerRoom(PlayerEntity player) {
+        return getPlayerRoom(player.getUuid());
+    }
+
+    @Nullable
+    public RoomData getPlayerRoom(UUID playerUuid) {
+        for (RoomData room : this.rooms.values()) {
+            if (room.hasPlayer(playerUuid)) {
+                return room;
+            }
+        }
+        return null;
+    }
+
+    public int getPlayerRoomIndex(UUID playerUuid) {
+        RoomData room = getPlayerRoom(playerUuid);
+        return room != null ? room.getIndex() : -1;
+    }
+
+    public void clearRooms() {
+        this.rooms.clear();
+        this.sync();
     }
 
     public void queueMapReset() {
@@ -513,6 +602,22 @@ this.fixedKillerCount = nbtCompound.contains("FixedKillerCount") ? nbtCompound.g
         } else {
             this.looseEndWinner = null;
         }
+
+        this.rooms.clear();
+        if (nbtCompound.contains("Rooms")) {
+            NbtList roomsList = nbtCompound.getList("Rooms", NbtElement.COMPOUND_TYPE);
+            for (NbtElement element : roomsList) {
+                NbtCompound roomNbt = (NbtCompound) element;
+                RoomData room = new RoomData(roomNbt.getInt("index"), roomNbt.getString("name"));
+
+                NbtList playersList = roomNbt.getList("players", NbtElement.INT_ARRAY_TYPE);
+                for (NbtElement playerElement : playersList) {
+                    room.addPlayer(NbtHelper.toUuid(playerElement));
+                }
+
+                this.rooms.put(room.getIndex(), room);
+            }
+        }
     }
 
     private ArrayList<UUID> uuidListFromNbt(NbtCompound nbtCompound, String listName) {
@@ -551,6 +656,21 @@ this.fixedKillerCount = nbtCompound.contains("FixedKillerCount") ? nbtCompound.g
         }
 
         if (this.looseEndWinner != null) nbtCompound.putUuid("LooseEndWinner", this.looseEndWinner);
+
+        NbtList roomsList = new NbtList();
+        for (RoomData room : this.rooms.values()) {
+            NbtCompound roomNbt = new NbtCompound();
+            roomNbt.putInt("index", room.getIndex());
+            roomNbt.putString("name", room.getName());
+
+            NbtList playersList = new NbtList();
+            for (UUID playerUuid : room.getPlayers()) {
+                playersList.add(NbtHelper.fromUuid(playerUuid));
+            }
+            roomNbt.put("players", playersList);
+            roomsList.add(roomNbt);
+        }
+        nbtCompound.put("Rooms", roomsList);
     }
 
     private NbtList nbtFromUuidList(List<UUID> list) {
@@ -628,44 +748,50 @@ this.fixedKillerCount = nbtCompound.contains("FixedKillerCount") ? nbtCompound.g
         // if not running and spectators or not in lobby reset them
         if (serverWorld.getTime() % 20 == 0) {
             for (ServerPlayerEntity player : serverWorld.getPlayers()) {
-                if (!isRunning() && (player.isSpectator() && serverWorld.getServer().getPermissionLevel(player.getGameProfile()) < 2 || (GameFunctions.isPlayerAliveAndSurvival(player) && areas.playArea.contains(player.getPos())))) {
+                boolean spectatorOutsideReadyArea = player.isSpectator()
+                        && serverWorld.getServer().getPermissionLevel(player.getGameProfile()) < 2
+                        && !areas.readyArea.contains(player.getPos());
+                boolean alivePlayerInPlayArea = GameFunctions.isPlayerAliveAndSurvival(player)
+                        && areas.playArea.contains(player.getPos());
+
+                // 旁观玩家如果已经进了准备区，应当允许参与下一局，而不是立刻被重置走。
+                if (!isRunning() && (spectatorOutsideReadyArea || alivePlayerInPlayArea)) {
                     GameFunctions.resetPlayer(player);
                 }
             }
         }
 
-        if (serverWorld.getServer().getOverworld().equals(serverWorld)) {
-            TrainWorldComponent trainComponent = TrainWorldComponent.KEY.get(serverWorld);
-
-            // spectator limits
-            if (trainComponent.getSpeed() > 0) {
-                for (ServerPlayerEntity player : serverWorld.getPlayers()) {
-                    if (!GameFunctions.isPlayerAliveAndSurvival(player) && isBound()) {
-                        GameFunctions.limitPlayerToBox(player, areas.playArea);
-                    }
+        /*
+         * 地图投票会把对局放到数据包维度里，所以这里不能再限制为主世界。
+         * 但 STARTING 黑屏阶段还没有正式选取 readyArea 玩家；如果此时限制创造/旁观，
+         * 他们会被提前夹进 playArea，随后初始化时因为已离开准备区而被排除。
+         */
+        if (this.isRunning()) {
+            for (ServerPlayerEntity player : serverWorld.getPlayers()) {
+                if (!GameFunctions.isPlayerAliveAndSurvival(player) && isBound()) {
+                    GameFunctions.limitPlayerToBox(player, areas.playArea);
                 }
             }
+        }
 
-            if (this.isRunning()) {
-                for (ServerPlayerEntity player : serverWorld.getPlayers()) {
-                    if (GameFunctions.isPlayerAliveAndSurvival(player)) {
-                        // kill players who fell off the train
-                        if (player.getY() < areas.playArea.minY) {
-                            GameFunctions.killPlayer(player, false, player.getLastAttacker() instanceof PlayerEntity killerPlayer ? killerPlayer : null, GameConstants.DeathReasons.FELL_OUT_OF_TRAIN);
-                        }
-
-                        // put players with no role in spectator mode
-                        if (GameWorldComponent.KEY.get(world).getRole(player) == null) {
-                            player.changeGameMode(net.minecraft.world.GameMode.SPECTATOR);
-                        }
+        if (this.isRunning()) {
+            for (ServerPlayerEntity player : serverWorld.getPlayers()) {
+                if (GameFunctions.isPlayerAliveAndSurvival(player)) {
+                    // kill players who fell off the train
+                    if (player.getY() < areas.playArea.minY) {
+                        GameFunctions.killPlayer(player, false, player.getLastAttacker() instanceof PlayerEntity killerPlayer ? killerPlayer : null, GameConstants.DeathReasons.FELL_OUT_OF_TRAIN);
                     }
 
+                    // put players with no role in spectator mode
+                    if (this.getRole(player) == null) {
+                        player.changeGameMode(net.minecraft.world.GameMode.SPECTATOR);
+                    }
                 }
 
-
-                // run game loop logic
-                gameMode.tickServerGameLoop(serverWorld, this);
             }
+
+            // run game loop logic
+            gameMode.tickServerGameLoop(serverWorld, this);
         }
 
         if (serverWorld.getTime() % 20 == 0) {

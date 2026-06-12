@@ -16,6 +16,7 @@ public class WatheComponents implements WorldComponentInitializer, EntityCompone
         registry.register(TrainWorldComponent.KEY, TrainWorldComponent::new);
         registry.register(GameWorldComponent.KEY, GameWorldComponent::new);
         registry.register(MapVariablesWorldComponent.KEY, MapVariablesWorldComponent::new);
+        registry.register(MapEnhancementsWorldComponent.KEY, MapEnhancementsWorldComponent::new);
         registry.register(WorldBlackoutComponent.KEY, WorldBlackoutComponent::new);
         registry.register(GameTimeComponent.KEY, GameTimeComponent::new);
         registry.register(AutoStartComponent.KEY, AutoStartComponent::new);
@@ -52,5 +53,6 @@ public class WatheComponents implements WorldComponentInitializer, EntityCompone
     @Override
     public void registerScoreboardComponentFactories(@NotNull ScoreboardComponentFactoryRegistry registry) {
         registry.registerScoreboardComponent(ScoreboardRoleSelectorComponent.KEY, ScoreboardRoleSelectorComponent::new);
+        registry.registerScoreboardComponent(MapVotingComponent.KEY, MapVotingComponent::new);
     }
 }

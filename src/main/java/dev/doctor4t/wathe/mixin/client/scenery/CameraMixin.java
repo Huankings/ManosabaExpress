@@ -3,6 +3,7 @@ package dev.doctor4t.wathe.mixin.client.scenery;
 import dev.doctor4t.wathe.Wathe;
 import dev.doctor4t.wathe.WatheConfig;
 import dev.doctor4t.wathe.client.WatheClient;
+import dev.doctor4t.wathe.config.datapack.MapEnhancementsConfiguration.CameraShakeConfig;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.client.render.Camera;
@@ -33,21 +34,30 @@ public class CameraMixin {
 
     @Inject(method = "update", at = @At("RETURN"))
     private void wathe$doScreenshake(BlockView area, Entity focusedEntity, boolean thirdPerson, boolean inverseView, float tickDelta, CallbackInfo ci) {
-        if (WatheClient.isTrainMoving() && !WatheConfig.disableScreenShake) {
+        if (WatheClient.mapEnhancementsWorldComponent == null || WatheConfig.disableScreenShake) {
+            return;
+        }
+
+        CameraShakeConfig shakeConfig = WatheClient.mapEnhancementsWorldComponent.getCameraShakeConfig();
+        if (WatheClient.isTrainMoving() && shakeConfig.enabled()) {
             Camera camera = (Camera) (Object) this;
 
             ClientPlayerEntity player = MinecraftClient.getInstance().player;
+            if (player == null) {
+                return;
+            }
             int age = player.age;
-            float v = (1 + (1 - WatheClient.moodComponent.getMood())) * 2.5f;
-            float amplitude = .0025f;
-            float strength = 0.5f;
+            float mood = WatheClient.moodComponent != null ? WatheClient.moodComponent.getMood() : 1.0f;
+            float v = (1 + (1 - mood)) * 2.5f;
+            float amplitude = shakeConfig.amplitudeIndoor();
+            float strength = shakeConfig.strengthIndoor();
 
             float yawOffset = 0;
             float pitchOffset = 0;
 
             if (Wathe.isSkyVisibleAdjacent(player)) {
-                amplitude = .01f;
-                strength = 1f;
+                amplitude = shakeConfig.amplitudeOutdoor();
+                strength = shakeConfig.strengthOutdoor();
 
                 if (Wathe.isExposedToWind(player)) {
                     yawOffset = 1.5f * randomizeOffset(10);
