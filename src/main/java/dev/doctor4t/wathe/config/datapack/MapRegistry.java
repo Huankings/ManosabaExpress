@@ -47,6 +47,14 @@ public final class MapRegistry {
         return maps.size();
     }
 
+    public int getMinimumRequiredPlayers() {
+        int minimum = Integer.MAX_VALUE;
+        for (MapRegistryEntry entry : maps.values()) {
+            minimum = Math.min(minimum, Math.max(0, entry.minPlayers()));
+        }
+        return minimum == Integer.MAX_VALUE ? 0 : minimum;
+    }
+
     public Set<Identifier> getMapIds() {
         return Collections.unmodifiableSet(maps.keySet());
     }

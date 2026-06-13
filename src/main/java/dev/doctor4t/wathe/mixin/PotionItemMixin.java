@@ -1,15 +1,21 @@
 package dev.doctor4t.wathe.mixin;
 
+import dev.doctor4t.wathe.cca.GameWorldComponent;
 import dev.doctor4t.wathe.cca.PlayerMoodComponent;
+import dev.doctor4t.wathe.game.GameFunctions;
 import net.minecraft.entity.LivingEntity;
+import net.minecraft.entity.player.PlayerEntity;
+import net.minecraft.entity.player.PlayerInventory;
 import net.minecraft.item.ItemStack;
 import net.minecraft.item.Items;
 import net.minecraft.item.PotionItem;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.world.World;
 import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 @Mixin(PotionItem.class)
@@ -30,5 +36,33 @@ public class PotionItemMixin {
         }
 
         PlayerMoodComponent.KEY.get(serverPlayer).drinkPotion();
+    }
+
+    @Inject(method = "finishUsing", at = @At("RETURN"), cancellable = true)
+    private void wathe$clearPotionBottleRemainder(ItemStack stack, World world, LivingEntity user, CallbackInfoReturnable<ItemStack> cir) {
+        if (this.wathe$shouldCleanPotionContainer(world, user, stack) && cir.getReturnValue().isOf(Items.GLASS_BOTTLE)) {
+            // 游戏进行中，存活玩家喝完普通药水时直接清掉玻璃瓶，避免背包里堆积空瓶。
+            cir.setReturnValue(ItemStack.EMPTY);
+        }
+    }
+
+    @Redirect(method = "finishUsing", at = @At(value = "INVOKE", target = "Lnet/minecraft/entity/player/PlayerInventory;insertStack(Lnet/minecraft/item/ItemStack;)Z"))
+    private boolean wathe$skipPotionBottleInsert(PlayerInventory inventory, ItemStack remainder, ItemStack stack, World world, LivingEntity user) {
+        if (this.wathe$shouldCleanPotionContainer(world, user, stack) && remainder.isOf(Items.GLASS_BOTTLE)) {
+            // 多瓶堆叠等特殊情况下，原版会尝试把空玻璃瓶插回背包；这里同样拦掉。
+            return true;
+        }
+
+        return inventory.insertStack(remainder);
+    }
+
+    @Unique
+    private boolean wathe$shouldCleanPotionContainer(World world, LivingEntity user, ItemStack stack) {
+        if (!(user instanceof PlayerEntity player) || !stack.isOf(Items.POTION)) {
+            return false;
+        }
+
+        GameWorldComponent gameComponent = GameWorldComponent.KEY.get(world);
+        return gameComponent != null && gameComponent.isRunning() && GameFunctions.isPlayerAliveAndSurvival(player);
     }
 }

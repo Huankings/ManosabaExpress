@@ -26,9 +26,11 @@ import org.ladysnake.cca.api.v3.component.tick.ServerTickingComponent;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -174,6 +176,7 @@ public class MapVotingComponent implements AutoSyncedComponent, ServerTickingCom
             Wathe.LOGGER.info("No Wathe maps registered, skipping map voting");
             return;
         }
+        boolean waitingForMinimumPlayers = isBelowMinimumMapPlayerRequirement(playerCount);
 
         this.votingActive = true;
         this.votingTicksRemaining = VOTING_DURATION_TICKS;
@@ -215,6 +218,13 @@ public class MapVotingComponent implements AutoSyncedComponent, ServerTickingCom
         this.voteCounts = new int[this.availableMaps.size()];
 
         if (this.availableMaps.isEmpty()) {
+            if (waitingForMinimumPlayers) {
+                Wathe.LOGGER.info("Wathe map voting is waiting for players: {}/{} online",
+                        playerCount, MapRegistry.getInstance().getMinimumRequiredPlayers());
+                this.sync();
+                return;
+            }
+
             Wathe.LOGGER.info("No eligible Wathe maps for {} players, map voting cancelled", playerCount);
             this.votingActive = false;
             this.sync();
@@ -257,6 +267,8 @@ public class MapVotingComponent implements AutoSyncedComponent, ServerTickingCom
         if (!votingActive || roulettePhase) return;
         if (mapIndex < 0 || mapIndex >= availableMaps.size()) return;
 
+        cleanupInvalidVotes();
+
         Integer oldVote = playerVotes.get(playerId);
         if (oldVote != null && oldVote >= 0 && oldVote < voteCounts.length) {
             voteCounts[oldVote] = Math.max(0, voteCounts[oldVote] - 1);
@@ -265,10 +277,7 @@ public class MapVotingComponent implements AutoSyncedComponent, ServerTickingCom
         playerVotes.put(playerId, mapIndex);
         voteCounts[mapIndex]++;
 
-        int onlinePlayers = getOnlinePlayerCount();
-        if (onlinePlayers > 0 && playerVotes.size() >= onlinePlayers && votingTicksRemaining > ALL_VOTED_REMAINING_TICKS) {
-            votingTicksRemaining = ALL_VOTED_REMAINING_TICKS;
-        }
+        shortenVotingIfAllRequiredVotersFinished();
 
         this.sync();
     }
@@ -287,8 +296,134 @@ public class MapVotingComponent implements AutoSyncedComponent, ServerTickingCom
         return onlinePlayers;
     }
 
+    private List<ServerPlayerEntity> getOnlinePlayers() {
+        List<ServerPlayerEntity> players = new ArrayList<>();
+        if (server == null) return players;
+        for (ServerWorld world : server.getWorlds()) {
+            players.addAll(world.getPlayers());
+        }
+        return players;
+    }
+
+    private boolean isBelowMinimumMapPlayerRequirement(int playerCount) {
+        int minimumRequiredPlayers = MapRegistry.getInstance().getMinimumRequiredPlayers();
+        return minimumRequiredPlayers > 0 && playerCount < minimumRequiredPlayers;
+    }
+
+    private boolean isPlayerRequiredToVote(ServerPlayerEntity player) {
+        return !onlyOpVoting || isOperator(player);
+    }
+
+    private boolean hasEveryRequiredVoterFinished() {
+        int requiredVoters = 0;
+        for (ServerPlayerEntity player : getOnlinePlayers()) {
+            if (!isPlayerRequiredToVote(player)) {
+                continue;
+            }
+
+            requiredVoters++;
+            if (!playerVotes.containsKey(player.getUuid())) {
+                return false;
+            }
+        }
+        return requiredVoters > 0;
+    }
+
+    private boolean shortenVotingIfAllRequiredVotersFinished() {
+        if (votingTicksRemaining <= ALL_VOTED_REMAINING_TICKS) {
+            return false;
+        }
+
+        if (hasEveryRequiredVoterFinished()) {
+            /*
+             * onlyop=true 时只等待在线 OP 全部投票。
+             * 普通玩家仍可打开界面查看，但不会阻塞“全员已投”的缩时逻辑。
+             */
+            votingTicksRemaining = ALL_VOTED_REMAINING_TICKS;
+            return true;
+        }
+        return false;
+    }
+
+    private boolean cleanupInvalidVotes() {
+        if (server == null || playerVotes.isEmpty()) {
+            return false;
+        }
+
+        Set<UUID> allowedOnlineVoters = new HashSet<>();
+        for (ServerPlayerEntity player : getOnlinePlayers()) {
+            if (isPlayerRequiredToVote(player)) {
+                allowedOnlineVoters.add(player.getUuid());
+            }
+        }
+
+        boolean changed = playerVotes.keySet().removeIf(playerId -> !allowedOnlineVoters.contains(playerId));
+        if (changed) {
+            rebuildVoteCounts();
+        }
+        return changed;
+    }
+
+    private void rebuildVoteCounts() {
+        int[] rebuiltCounts = new int[availableMaps.size()];
+        playerVotes.entrySet().removeIf(entry -> {
+            int mapIndex = entry.getValue();
+            if (mapIndex < 0 || mapIndex >= rebuiltCounts.length) {
+                return true;
+            }
+            rebuiltCounts[mapIndex]++;
+            return false;
+        });
+        this.voteCounts = rebuiltCounts;
+    }
+
+    private boolean restartVotingIfBelowMinimumPlayers(String phase) {
+        int playerCount = getOnlinePlayerCount();
+        if (!isBelowMinimumMapPlayerRequirement(playerCount)) {
+            return false;
+        }
+
+        Wathe.LOGGER.info("Wathe map voting {} is waiting for players: {}/{} online",
+                phase, playerCount, MapRegistry.getInstance().getMinimumRequiredPlayers());
+        restartVoting();
+        return true;
+    }
+
+    private boolean isVotingMapEntryEligible(VotingMapEntry entry, int playerCount) {
+        return playerCount >= entry.minPlayers() && playerCount <= entry.maxPlayers();
+    }
+
+    private boolean areAvailableMapsStillEligible(int playerCount) {
+        if (availableMaps.isEmpty()) {
+            return false;
+        }
+
+        for (VotingMapEntry entry : availableMaps) {
+            if (!isVotingMapEntryEligible(entry, playerCount)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     private void endVoting() {
-        if (server == null || availableMaps.isEmpty()) return;
+        if (server == null) return;
+
+        cleanupInvalidVotes();
+        if (restartVotingIfBelowMinimumPlayers("before selection")) {
+            return;
+        }
+
+        int playerCount = getOnlinePlayerCount();
+        if (!areAvailableMapsStillEligible(playerCount)) {
+            /*
+             * 投票期间玩家可能退出，导致当前候选地图的人数区间已经不再合法。
+             * 这里重新开一轮，让可选地图重新按最新在线人数和 randommapcount 抽取。
+             */
+            Wathe.LOGGER.info("Wathe map voting candidates changed for {} online players, restarting voting", playerCount);
+            restartVoting();
+            return;
+        }
 
         this.selectedMapIndex = selectMapWeighted();
         this.roulettePhase = true;
@@ -334,7 +469,25 @@ public class MapVotingComponent implements AutoSyncedComponent, ServerTickingCom
             return;
         }
 
-        Identifier targetDimensionId = availableMaps.get(selectedMapIndex).dimensionId();
+        cleanupInvalidVotes();
+        if (restartVotingIfBelowMinimumPlayers("after selection")) {
+            return;
+        }
+
+        VotingMapEntry selectedEntry = availableMaps.get(selectedMapIndex);
+        int playerCount = getOnlinePlayerCount();
+        if (!isVotingMapEntryEligible(selectedEntry, playerCount)) {
+            /*
+             * 转盘阶段也可能有人退出。
+             * 如果最终选中的地图已经不满足人数限制，就回到新一轮投票等待。
+             */
+            Wathe.LOGGER.info("Selected Wathe map {} no longer accepts {} players, restarting voting",
+                    selectedEntry.dimensionId(), playerCount);
+            restartVoting();
+            return;
+        }
+
+        Identifier targetDimensionId = selectedEntry.dimensionId();
         this.lastSelectedDimension = targetDimensionId;
         this.votingActive = false;
         this.sync();
@@ -357,7 +510,15 @@ public class MapVotingComponent implements AutoSyncedComponent, ServerTickingCom
 
     public void onPlayerJoin() {
         if (votingActive && !roulettePhase) {
-            this.sync();
+            if (availableMaps.isEmpty() && !isBelowMinimumMapPlayerRequirement(getOnlinePlayerCount())) {
+                /*
+                 * 等人状态下人数刚满足最低地图要求时，立即重新抽取候选地图，
+                 * 不必让玩家再等完上一轮空投票倒计时。
+                 */
+                restartVoting();
+            } else {
+                this.sync();
+            }
         }
     }
 
@@ -383,9 +544,14 @@ public class MapVotingComponent implements AutoSyncedComponent, ServerTickingCom
             return;
         }
 
+        boolean needsSync = cleanupInvalidVotes();
+        if (shortenVotingIfAllRequiredVotersFinished()) {
+            needsSync = true;
+        }
+
         if (--votingTicksRemaining <= 0) {
             endVoting();
-        } else if (votingTicksRemaining % 20 == 0) {
+        } else if (needsSync || votingTicksRemaining % 20 == 0) {
             this.sync();
         }
     }

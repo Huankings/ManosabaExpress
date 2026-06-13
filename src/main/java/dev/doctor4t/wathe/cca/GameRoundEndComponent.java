@@ -1,17 +1,21 @@
 package dev.doctor4t.wathe.cca;
 
 import com.mojang.authlib.GameProfile;
+import com.mojang.authlib.properties.Property;
 import dev.doctor4t.wathe.api.Faction;
 import dev.doctor4t.wathe.api.Role;
 import dev.doctor4t.wathe.Wathe;
-import dev.doctor4t.wathe.api.WatheRoles;
+import dev.doctor4t.wathe.api.WatheGameModes;
 import dev.doctor4t.wathe.client.gui.RoleAnnouncementTexts;
 import dev.doctor4t.wathe.game.GameFunctions;
 import net.minecraft.nbt.NbtCompound;
 import net.minecraft.nbt.NbtElement;
 import net.minecraft.nbt.NbtList;
 import net.minecraft.registry.RegistryWrapper;
+import net.minecraft.scoreboard.Scoreboard;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.network.ServerPlayerEntity;
+import net.minecraft.server.world.ServerWorld;
 import net.minecraft.util.Identifier;
 import net.minecraft.world.World;
 import org.jetbrains.annotations.NotNull;
@@ -28,7 +32,10 @@ import java.util.UUID;
 
 public class GameRoundEndComponent implements AutoSyncedComponent {
     public static final ComponentKey<GameRoundEndComponent> KEY = ComponentRegistry.getOrCreate(Wathe.id("roundend"), GameRoundEndComponent.class);
+    @Nullable
     private final World world;
+    @Nullable
+    private final Scoreboard scoreboard;
     private final List<RoundEndData> players = new ArrayList<>();
     /**
      * 结算页额外显示的“真实职业”信息。
@@ -40,19 +47,45 @@ public class GameRoundEndComponent implements AutoSyncedComponent {
      */
     private final HashMap<UUID, RoundEndRoleDisplay> roleDisplays = new HashMap<>();
     private GameFunctions.WinStatus winStatus = GameFunctions.WinStatus.NONE;
+    private boolean looseEndsRound = false;
+    private boolean discoveryRound = false;
+    @Nullable
+    private UUID looseEndWinner = null;
 
     public GameRoundEndComponent(World world) {
         this.world = world;
+        this.scoreboard = null;
+    }
+
+    public GameRoundEndComponent(Scoreboard scoreboard, @Nullable MinecraftServer server) {
+        this.world = null;
+        this.scoreboard = scoreboard;
     }
 
     public void sync() {
-        KEY.sync(this.world);
+        if (this.scoreboard != null) {
+            KEY.sync(this.scoreboard);
+        } else if (this.world != null) {
+            KEY.sync(this.world);
+        }
     }
 
     public void setRoundEndData(@NotNull List<ServerPlayerEntity> players, GameFunctions.WinStatus winStatus) {
         this.players.clear();
         this.roleDisplays.clear();
-        GameWorldComponent game = GameWorldComponent.KEY.get(this.world);
+        ServerWorld dataWorld = this.world instanceof ServerWorld serverWorld
+                ? serverWorld
+                : players.isEmpty() ? null : players.getFirst().getServerWorld();
+        if (dataWorld == null) {
+            this.winStatus = winStatus;
+            this.sync();
+            return;
+        }
+
+        GameWorldComponent game = GameWorldComponent.KEY.get(dataWorld);
+        this.looseEndsRound = game.getGameMode() == WatheGameModes.LOOSE_ENDS;
+        this.discoveryRound = game.getGameMode() == WatheGameModes.DISCOVERY;
+        this.looseEndWinner = game.getLooseEndWinner();
         for (ServerPlayerEntity player : players) {
             Role roleData = game.getRole(player);
             /*
@@ -77,6 +110,45 @@ public class GameRoundEndComponent implements AutoSyncedComponent {
         }
         this.winStatus = winStatus;
         this.sync();
+        this.copyToGlobalScoreboardComponent();
+    }
+
+    private void copyToGlobalScoreboardComponent() {
+        if (!(this.world instanceof ServerWorld serverWorld)) {
+            return;
+        }
+
+        /*
+         * 结算页需要跨维度保持“上一局最新结果”。
+         * 旧扩展仍可能写 world component，所以这里把 world 组件的数据镜像到
+         * scoreboard component；客户端之后切到任意维度都读同一份全局缓存。
+         */
+        GameRoundEndComponent global = KEY.get(serverWorld.getScoreboard());
+        if (global != this) {
+            global.copyFrom(this);
+            global.sync();
+        }
+    }
+
+    private void copyFrom(@NotNull GameRoundEndComponent source) {
+        this.players.clear();
+        this.players.addAll(source.players);
+        this.roleDisplays.clear();
+        this.roleDisplays.putAll(source.roleDisplays);
+        this.winStatus = source.winStatus;
+        this.looseEndsRound = source.looseEndsRound;
+        this.discoveryRound = source.discoveryRound;
+        this.looseEndWinner = source.looseEndWinner;
+    }
+
+    private @NotNull GameRoundEndComponent getGlobalDelegate() {
+        if (this.scoreboard == null && this.world != null) {
+            GameRoundEndComponent global = KEY.get(this.world.getScoreboard());
+            if (global != this) {
+                return global;
+            }
+        }
+        return this;
     }
 
     /**
@@ -99,10 +171,11 @@ public class GameRoundEndComponent implements AutoSyncedComponent {
     }
 
     public boolean didWin(UUID uuid) {
-        if (GameFunctions.WinStatus.NONE == this.winStatus) return false;
-        for (RoundEndData detail : this.players) {
+        GameFunctions.WinStatus currentWinStatus = this.getWinStatus();
+        if (GameFunctions.WinStatus.NONE == currentWinStatus) return false;
+        for (RoundEndData detail : this.getPlayers()) {
             if (!detail.player.getId().equals(uuid)) continue;
-            return switch (this.winStatus) {
+            return switch (currentWinStatus) {
                 case KILLERS -> detail.role == RoleAnnouncementTexts.KILLER;
                 case PASSENGERS, TIME -> detail.role != RoleAnnouncementTexts.KILLER;
                 default -> false;
@@ -112,15 +185,34 @@ public class GameRoundEndComponent implements AutoSyncedComponent {
     }
 
     public List<RoundEndData> getPlayers() {
-        return this.players;
+        GameRoundEndComponent delegate = getGlobalDelegate();
+        return delegate != this ? delegate.getPlayers() : this.players;
     }
 
     public @NotNull RoundEndRoleDisplay getRoleDisplay(UUID uuid) {
-        return this.roleDisplays.getOrDefault(uuid, RoundEndRoleDisplay.BLANK);
+        GameRoundEndComponent delegate = getGlobalDelegate();
+        return delegate != this ? delegate.getRoleDisplay(uuid) : this.roleDisplays.getOrDefault(uuid, RoundEndRoleDisplay.BLANK);
     }
 
     public GameFunctions.WinStatus getWinStatus() {
-        return this.winStatus;
+        GameRoundEndComponent delegate = getGlobalDelegate();
+        return delegate != this ? delegate.getWinStatus() : this.winStatus;
+    }
+
+    public boolean isLooseEndsRound() {
+        GameRoundEndComponent delegate = getGlobalDelegate();
+        return delegate != this ? delegate.isLooseEndsRound() : this.looseEndsRound;
+    }
+
+    public boolean isDiscoveryRound() {
+        GameRoundEndComponent delegate = getGlobalDelegate();
+        return delegate != this ? delegate.isDiscoveryRound() : this.discoveryRound;
+    }
+
+    @Nullable
+    public UUID getLooseEndWinner() {
+        GameRoundEndComponent delegate = getGlobalDelegate();
+        return delegate != this ? delegate.getLooseEndWinner() : this.looseEndWinner;
     }
 
     @Override
@@ -133,6 +225,11 @@ public class GameRoundEndComponent implements AutoSyncedComponent {
         }
         tag.put("players", list);
         tag.putInt("winstatus", this.winStatus.ordinal());
+        tag.putBoolean("looseEndsRound", this.looseEndsRound);
+        tag.putBoolean("discoveryRound", this.discoveryRound);
+        if (this.looseEndWinner != null) {
+            tag.putUuid("looseEndWinner", this.looseEndWinner);
+        }
     }
 
     @Override
@@ -146,11 +243,14 @@ public class GameRoundEndComponent implements AutoSyncedComponent {
             this.roleDisplays.put(detail.player().getId(), RoundEndRoleDisplay.fromNbt(playerTag, detail.role()));
         }
         this.winStatus = GameFunctions.WinStatus.values()[tag.getInt("winstatus")];
+        this.looseEndsRound = tag.getBoolean("looseEndsRound");
+        this.discoveryRound = tag.getBoolean("discoveryRound");
+        this.looseEndWinner = tag.contains("looseEndWinner") ? tag.getUuid("looseEndWinner") : null;
     }
 
     public record RoundEndData(GameProfile player, RoleAnnouncementTexts.RoleAnnouncementText role, boolean wasDead) {
         public RoundEndData(@NotNull NbtCompound tag) {
-            this(new GameProfile(tag.getUuid("uuid"), tag.getString("name")), RoleAnnouncementTexts.ROLE_ANNOUNCEMENT_TEXTS.get(tag.getInt("role")), tag.getBoolean("wasDead"));
+            this(readGameProfile(tag), RoleAnnouncementTexts.ROLE_ANNOUNCEMENT_TEXTS.get(tag.getInt("role")), tag.getBoolean("wasDead"));
         }
 
         public @NotNull NbtCompound writeToNbt() {
@@ -159,7 +259,39 @@ public class GameRoundEndComponent implements AutoSyncedComponent {
             tag.putString("name", this.player.getName());
             tag.putInt("role", RoleAnnouncementTexts.ROLE_ANNOUNCEMENT_TEXTS.indexOf(this.role));
             tag.putBoolean("wasDead", this.wasDead);
+            writeProfileProperties(tag, this.player);
             return tag;
+        }
+
+        private static @NotNull GameProfile readGameProfile(@NotNull NbtCompound tag) {
+            GameProfile profile = new GameProfile(tag.getUuid("uuid"), tag.getString("name"));
+            if (tag.contains("profileProperties")) {
+                NbtList properties = tag.getList("profileProperties", NbtElement.COMPOUND_TYPE);
+                for (NbtElement element : properties) {
+                    NbtCompound propertyTag = (NbtCompound) element;
+                    String name = propertyTag.getString("name");
+                    String value = propertyTag.getString("value");
+                    Property property = propertyTag.contains("signature")
+                            ? new Property(name, value, propertyTag.getString("signature"))
+                            : new Property(name, value);
+                    profile.getProperties().put(name, property);
+                }
+            }
+            return profile;
+        }
+
+        private static void writeProfileProperties(@NotNull NbtCompound tag, @NotNull GameProfile profile) {
+            NbtList properties = new NbtList();
+            for (Property property : profile.getProperties().values()) {
+                NbtCompound propertyTag = new NbtCompound();
+                propertyTag.putString("name", property.name());
+                propertyTag.putString("value", property.value());
+                if (property.signature() != null) {
+                    propertyTag.putString("signature", property.signature());
+                }
+                properties.add(propertyTag);
+            }
+            tag.put("profileProperties", properties);
         }
     }
 

@@ -25,14 +25,19 @@ import net.minecraft.text.Text;
 import net.minecraft.util.Identifier;
 import net.minecraft.util.Language;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 public class RoundTextRenderer {
     private static final Map<String, Optional<GameProfile>> failCache = new HashMap<>();
+    private static final Map<UUID, SkinTextures> roundEndSkinCache = new HashMap<>();
+    private static final Set<UUID> roundEndSkinRequests = new HashSet<>();
     private static final int WELCOME_DURATION = 200 + GameConstants.FADE_TIME * 2;
     private static final int END_DURATION = 200;
     private static RoleAnnouncementTexts.RoleAnnouncementText role = RoleAnnouncementTexts.CIVILIAN;
@@ -169,7 +174,9 @@ public class RoundTextRenderer {
 
     @SuppressWarnings("IntegerDivisionInFloatingPointContext")
     public static void renderHud(TextRenderer renderer, ClientPlayerEntity player, @NotNull DrawContext context) {
-        boolean isLooseEnds = GameWorldComponent.KEY.get(player.getWorld()).getGameMode() == WatheGameModes.LOOSE_ENDS;
+        GameWorldComponent game = GameWorldComponent.KEY.get(player.getWorld());
+        GameRoundEndComponent roundEnd = getRoundEndComponent(player);
+        boolean isLooseEnds = game.getGameMode() == WatheGameModes.LOOSE_ENDS;
         endHudWidth = context.getScaledWindowWidth();
         endHudHeight = context.getScaledWindowHeight();
 
@@ -200,11 +207,10 @@ public class RoundTextRenderer {
             context.getMatrices().pop();
             context.getMatrices().pop();
         }
-        GameWorldComponent game = GameWorldComponent.KEY.get(player.getWorld());
-        if (endTime > 0 && endTime < END_DURATION - (GameConstants.FADE_TIME * 2) && !game.isRunning() && game.getGameMode() != WatheGameModes.DISCOVERY) {
-            GameRoundEndComponent roundEnd = GameRoundEndComponent.KEY.get(player.getWorld());
+        if (endTime > 0 && endTime < END_DURATION - (GameConstants.FADE_TIME * 2) && !game.isRunning() && !roundEnd.isDiscoveryRound()) {
             if (roundEnd.getWinStatus() == GameFunctions.WinStatus.NONE) return;
-            PlayerEntity winner = player.getWorld().getPlayerByUuid(game.getLooseEndWinner() == null ? UUID.randomUUID() : game.getLooseEndWinner());
+            isLooseEnds = roundEnd.isLooseEndsRound();
+            PlayerEntity winner = player.getWorld().getPlayerByUuid(roundEnd.getLooseEndWinner() == null ? UUID.randomUUID() : roundEnd.getLooseEndWinner());
             Text endText = role.getEndText(roundEnd.getWinStatus(), winner == null ? Text.empty() : winner.getDisplayName());
             if (endText == null) return;
 
@@ -358,7 +364,7 @@ public class RoundTextRenderer {
             if (endTime > 0) {
                 if (endTime == END_DURATION - (GameConstants.FADE_TIME * 2)) {
                     if (player != null)
-                        player.getWorld().playSound(player, player.getX(), player.getY(), player.getZ(), GameRoundEndComponent.KEY.get(player.getWorld()).didWin(player.getUuid()) ? WatheSounds.UI_PIANO_WIN : WatheSounds.UI_PIANO_LOSE, SoundCategory.MASTER, 10f, 1f, player.getRandom().nextLong());
+                            player.getWorld().playSound(player, player.getX(), player.getY(), player.getZ(), getRoundEndComponent(player).didWin(player.getUuid()) ? WatheSounds.UI_PIANO_WIN : WatheSounds.UI_PIANO_LOSE, SoundCategory.MASTER, 10f, 1f, player.getRandom().nextLong());
                 }
                 endTime--;
             }
@@ -410,12 +416,12 @@ public class RoundTextRenderer {
     }
 
     private static void renderRoundEndHead(@NotNull DrawContext context, @NotNull GameRoundEndComponent.RoundEndData entry) {
-        PlayerListEntry playerEntry = WatheClient.PLAYER_ENTRIES_CACHE.get(entry.player().getId());
-        if (playerEntry == null || playerEntry.getSkinTextures().texture() == null) {
+        SkinTextures skinTextures = getRoundEndSkinTextures(entry.player());
+        if (skinTextures == null || skinTextures.texture() == null) {
             return;
         }
 
-        Identifier texture = playerEntry.getSkinTextures().texture();
+        Identifier texture = skinTextures.texture();
         RenderSystem.enableBlend();
         context.getMatrices().push();
         /*
@@ -1131,6 +1137,44 @@ public class RoundTextRenderer {
             return Text.translatable(roleDisplay.translationKey());
         }
         return Text.empty();
+    }
+
+    private static @NotNull GameRoundEndComponent getRoundEndComponent(@NotNull ClientPlayerEntity player) {
+        /*
+         * 这里仍然取当前 world component，而不是直接取 scoreboard component。
+         * 旧扩展的结算 mixin 会 Shadow GameRoundEndComponent.world；
+         * world component 会代理到全局结算数据，同时能保持这些 mixin 拿到非空世界。
+         */
+        return GameRoundEndComponent.KEY.get(player.getWorld());
+    }
+
+    private static @Nullable SkinTextures getRoundEndSkinTextures(@NotNull GameProfile profile) {
+        PlayerListEntry playerEntry = WatheClient.PLAYER_ENTRIES_CACHE.get(profile.getId());
+        if (playerEntry != null && playerEntry.getSkinTextures().texture() != null) {
+            SkinTextures skinTextures = playerEntry.getSkinTextures();
+            roundEndSkinCache.put(profile.getId(), skinTextures);
+            return skinTextures;
+        }
+
+        SkinTextures cached = roundEndSkinCache.get(profile.getId());
+        if (cached != null) {
+            return cached;
+        }
+
+        /*
+         * 结算数据现在会同步玩家 GameProfile 的皮肤 properties。
+         * 晚加入玩家即使没有 tab 列表缓存，也可以用这份 profile 异步请求皮肤，
+         * 请求完成后缓存到本地，后续打开 TAB 结算页就不会一直空头像。
+         */
+        MinecraftClient client = MinecraftClient.getInstance();
+        if (!roundEndSkinRequests.contains(profile.getId())) {
+            roundEndSkinRequests.add(profile.getId());
+            client.getSkinProvider().fetchSkinTextures(profile).thenAccept(skinTextures -> {
+                roundEndSkinCache.put(profile.getId(), skinTextures);
+                roundEndSkinRequests.remove(profile.getId());
+            });
+        }
+        return client.getSkinProvider().getSkinTextures(profile);
     }
 
     private static @NotNull String trimToWidthWithEllipsis(@NotNull TextRenderer renderer, @NotNull String text, int maxWidth) {

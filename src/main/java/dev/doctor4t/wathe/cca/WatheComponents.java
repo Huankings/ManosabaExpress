@@ -54,5 +54,6 @@ public class WatheComponents implements WorldComponentInitializer, EntityCompone
     public void registerScoreboardComponentFactories(@NotNull ScoreboardComponentFactoryRegistry registry) {
         registry.registerScoreboardComponent(ScoreboardRoleSelectorComponent.KEY, ScoreboardRoleSelectorComponent::new);
         registry.registerScoreboardComponent(MapVotingComponent.KEY, MapVotingComponent::new);
+        registry.registerScoreboardComponent(GameRoundEndComponent.KEY, GameRoundEndComponent::new);
     }
 }

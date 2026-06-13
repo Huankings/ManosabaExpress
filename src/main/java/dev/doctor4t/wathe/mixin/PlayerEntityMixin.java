@@ -27,8 +27,11 @@ import net.minecraft.entity.Entity;
 import net.minecraft.entity.EntityType;
 import net.minecraft.entity.LivingEntity;
 import net.minecraft.entity.attribute.EntityAttributes;
+import net.minecraft.entity.damage.DamageSource;
 import net.minecraft.entity.player.PlayerEntity;
+import net.minecraft.entity.player.PlayerInventory;
 import net.minecraft.item.ItemStack;
+import net.minecraft.item.Items;
 import net.minecraft.nbt.NbtCompound;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.sound.SoundCategory;
@@ -42,6 +45,7 @@ import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
@@ -140,8 +144,14 @@ public abstract class PlayerEntityMixin extends LivingEntity {
     @WrapMethod(method = "attack")
     public void attack(Entity target, Operation<Void> original) {
         PlayerEntity self = (PlayerEntity) (Object) this;
+        ItemStack mainHandStack = this.getMainHandStack();
 
-        if (getMainHandStack().isOf(WatheItems.BAT) && target instanceof PlayerEntity playerTarget && this.getAttackCooldownProgress(0.5F) >= 1f) {
+        if (mainHandStack.isOf(WatheItems.KNIFE) && !(target instanceof PlayerEntity)) {
+            // 匕首的左键用途只应该是推玩家，命中画、展示框、盔甲架等装饰实体时直接忽略，避免原版攻击把它们打掉。
+            return;
+        }
+
+        if (mainHandStack.isOf(WatheItems.BAT) && target instanceof PlayerEntity playerTarget && this.getAttackCooldownProgress(0.5F) >= 1f) {
             if (self instanceof ServerPlayerEntity serverPlayer && playerTarget instanceof ServerPlayerEntity serverTarget) {
                 GameRecordManager.recordItemHit(serverPlayer, serverPlayer.getMainHandStack(), GameConstants.DeathReasons.BAT, serverTarget, null);
             }
@@ -153,7 +163,7 @@ public abstract class PlayerEntityMixin extends LivingEntity {
             return;
         }
 
-        if (!GameFunctions.isPlayerAliveAndSurvival(self) || this.getMainHandStack().isOf(WatheItems.KNIFE)
+        if (!GameFunctions.isPlayerAliveAndSurvival(self) || mainHandStack.isOf(WatheItems.KNIFE)
                 || (target instanceof PlayerEntity playerTarget && AllowPlayerPunching.EVENT.invoker().allowPunching(self, playerTarget))) {
             original.call(target);
         }
@@ -252,6 +262,31 @@ public abstract class PlayerEntityMixin extends LivingEntity {
         }
     }
 
+    @Inject(method = "eatFood", at = @At("RETURN"), cancellable = true)
+    private void wathe$clearBowlRemainder(World world, ItemStack stack, FoodComponent foodComponent, @NotNull CallbackInfoReturnable<ItemStack> cir) {
+        if (this.wathe$shouldCleanFoodContainer(world) && cir.getReturnValue().isOf(Items.BOWL)) {
+            // 游戏进行中，存活玩家吃完碗装食物时直接清掉碗，避免背包里堆积空碗。
+            cir.setReturnValue(ItemStack.EMPTY);
+        }
+    }
+
+    @Redirect(method = "eatFood", at = @At(value = "INVOKE", target = "Lnet/minecraft/entity/player/PlayerInventory;insertStack(Lnet/minecraft/item/ItemStack;)Z"))
+    private boolean wathe$skipBowlInsert(PlayerInventory inventory, ItemStack remainder) {
+        if (this.wathe$shouldCleanFoodContainer(this.getWorld()) && remainder.isOf(Items.BOWL)) {
+            // 多份堆叠等特殊情况下，原版会尝试把空碗插回背包；这里同样拦掉。
+            return true;
+        }
+
+        return inventory.insertStack(remainder);
+    }
+
+    @Unique
+    private boolean wathe$shouldCleanFoodContainer(World world) {
+        PlayerEntity self = (PlayerEntity) (Object) this;
+        GameWorldComponent gameComponent = GameWorldComponent.KEY.get(world);
+        return gameComponent != null && gameComponent.isRunning() && GameFunctions.isPlayerAliveAndSurvival(self);
+    }
+
     @Inject(method = "writeCustomDataToNbt", at = @At("TAIL"))
     private void wathe$saveData(NbtCompound nbt, CallbackInfo ci) {
         nbt.putFloat("sprintingTicks", this.sprintingTicks);
@@ -267,5 +302,16 @@ public abstract class PlayerEntityMixin extends LivingEntity {
     @ModifyExpressionValue(method = "tick", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/World;isDay()Z"))
     private boolean wathe$cancelWakingUpPlayers(boolean original) {
         return false;
+    }
+
+    
+    // Layer 1: 游戏进行中跳过 applyDamage（扣血），但让 damage() 正常返回 true
+    // 这样击退、受伤动画、hurtTime 等副作用都保留，只是不实际扣血
+    @Inject(method = "applyDamage", at = @At("HEAD"), cancellable = true)
+    private void wathe$cancelApplyDamage(DamageSource source, float amount, CallbackInfo ci) {
+        ServerPlayerEntity self = (ServerPlayerEntity) (Object) this;
+        if (GameFunctions.isPlayerAliveAndSurvival(self)) {
+            ci.cancel();
+        }
     }
 }
