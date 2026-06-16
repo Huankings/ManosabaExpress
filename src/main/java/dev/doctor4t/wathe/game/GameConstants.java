@@ -26,6 +26,15 @@ public interface GameConstants {
     int FADE_TIME = 40;
     int FADE_PAUSE = 20;
 
+    /**
+     * 普通玩法开局后计时器的默认时长，单位：tick。
+     *
+     * <p>当 /wathe:start 没有手动传入时间、自动开局或喇叭开局时，
+     * Murder / Discovery 等模式会通过 GameMode.defaultStartTime 读取这里。
+     * 想微调默认时长，直接改 getInTicks(分钟, 秒) 的两个参数即可。</p>
+     */
+    int DEFAULT_GAME_START_TIME = getInTicks(8, 30);
+
     // Blocks
     int DOOR_AUTOCLOSE_TIME = getInTicks(0, 5);
 

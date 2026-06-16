@@ -6,7 +6,6 @@ import dev.doctor4t.wathe.api.WatheGameModes;
 import dev.doctor4t.wathe.api.WatheMapEffects;
 import dev.doctor4t.wathe.block.entity.HornBlockEntity;
 import dev.doctor4t.wathe.cca.GameWorldComponent;
-import dev.doctor4t.wathe.game.GameConstants;
 import dev.doctor4t.wathe.game.GameFunctions;
 import dev.doctor4t.wathe.index.WatheBlockEntities;
 import dev.doctor4t.wathe.index.WatheSounds;
@@ -71,7 +70,8 @@ public class HornBlock extends BlockWithEntity {
                 GameWorldComponent gameWorldComponent = GameWorldComponent.KEY.get(serverWorld);
                 if (isOp && !gameWorldComponent.isRunning()) {
                     GameMode gameMode = WatheGameModes.MURDER;
-                    GameFunctions.startGame(serverWorld, gameMode, WatheMapEffects.HARPY_EXPRESS_NIGHT, GameConstants.getInTicks(gameMode.defaultStartTime, 0));
+                    // defaultStartTime 已经是 tick，喇叭开局直接使用模式默认值。
+                    GameFunctions.startGame(serverWorld, gameMode, WatheMapEffects.HARPY_EXPRESS_NIGHT, gameMode.defaultStartTime);
                 }
 
                 hornBlockEntity.pull(1);

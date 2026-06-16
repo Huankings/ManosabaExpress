@@ -4,7 +4,6 @@ import dev.doctor4t.wathe.Wathe;
 import dev.doctor4t.wathe.api.GameMode;
 import dev.doctor4t.wathe.api.WatheGameModes;
 import dev.doctor4t.wathe.api.WatheMapEffects;
-import dev.doctor4t.wathe.game.GameConstants;
 import dev.doctor4t.wathe.game.GameFunctions;
 import net.minecraft.nbt.NbtCompound;
 import net.minecraft.registry.RegistryWrapper;
@@ -69,7 +68,8 @@ public class AutoStartComponent implements AutoSyncedComponent, CommonTickingCom
         if (GameFunctions.getReadyPlayerCount(world) >= gameMode.minPlayerCount) {
             if (this.time-- == 0 && this.world instanceof ServerWorld serverWorld) {
                 if (gameWorldComponent.getGameStatus() == GameWorldComponent.GameStatus.INACTIVE) {
-                    GameFunctions.startGame(serverWorld, gameMode, gameWorldComponent.getMapEffect(), GameConstants.getInTicks(gameMode.defaultStartTime, 0));
+                    // defaultStartTime 已经是 tick，自动开局时不能再按分钟重复换算。
+                    GameFunctions.startGame(serverWorld, gameMode, gameWorldComponent.getMapEffect(), gameMode.defaultStartTime);
                     return;
                 }
             }

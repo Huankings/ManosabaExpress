@@ -75,6 +75,12 @@ public class RoundTextRenderer {
     // 3. 大于等于 1：每一行都从右边开始渲染。
     // 当前按你的要求默认设为 0，让义警 / 杀手从中间开始排，更方便后续调试观感。
     private static final int END_RIGHT_GROUP_RENDER_DIRECTION_MODE = 0;
+    // Loose Ends / 亡命徒阵营的头像起点模式。
+    // 1. 小于等于 -1：每一行都从左边开始渲染；
+    // 2. 等于 0：每一行都以亡命徒阵营区域中线为基准居中渲染；
+    // 3. 大于等于 1：每一行都从右边开始渲染。
+    // 默认 0，让亡命徒结算像谋杀模式一样以整块区域居中排布。
+    private static final int END_LOOSE_END_GROUP_RENDER_DIRECTION_MODE = 0;
 
     // 单个“头像 + 名字 + 职业”结算卡片本身占用的可视宽度。
     // 阵营标题居中、分组宽度、首个头像起点都会基于这个宽度动态推算。
@@ -733,6 +739,19 @@ public class RoundTextRenderer {
     }
 
     /**
+     * 计算 Loose Ends / 亡命徒阵营区域最左边的位置。
+     * 亡命徒只有一个大阵营，所以这里直接把“按配置列数预留的完整区域”放到屏幕中间；
+     * 具体每一行再根据 END_LOOSE_END_GROUP_RENDER_DIRECTION_MODE 决定左、中、右起点。
+     */
+    private static float getLooseEndGroupAreaStartX() {
+        float areaWidth = getConfiguredLooseEndGroupWidth();
+        float centeredStart = -areaWidth / 2f;
+        float minStart = -endHudWidth / 2f + END_LAYOUT_SIDE_PADDING;
+        float maxStart = endHudWidth / 2f - END_LAYOUT_SIDE_PADDING - areaWidth;
+        return clamp(centeredStart, minStart, maxStart);
+    }
+
+    /**
      * 把当前实际阵营宽度居中到一个稳定的“阵营区域”里。
      * 这样阵营内部人数多少可以变化，但左右两大块的秩序感不会乱掉。
      */
@@ -836,7 +855,14 @@ public class RoundTextRenderer {
      * Loose Ends 模式整组头像的中心点横坐标。
      */
     private static float getLooseEndGroupCenterX() {
-        return getLooseEndColumnStartX(0, endLooseEndCount) + getLooseEndGroupWidth(endLooseEndCount) / 2f;
+        float looseEndWidth = getLooseEndGroupWidth(endLooseEndCount);
+        float startX = getAlignedGroupStartX(
+                getLooseEndGroupAreaStartX(),
+                getConfiguredLooseEndGroupWidth(),
+                looseEndWidth,
+                END_LOOSE_END_GROUP_RENDER_DIRECTION_MODE
+        );
+        return startX + looseEndWidth / 2f;
     }
 
     /**
@@ -889,13 +915,14 @@ public class RoundTextRenderer {
      * 获取 Loose Ends 模式某一行的起始横坐标。
      */
     public static float getLooseEndColumnStartX(int index, int total) {
-        float groupWidth = getLooseEndGroupWidth(total);
-        float baseStart = clamp(
-                -groupWidth / 2f,
-                -endHudWidth / 2f + END_LAYOUT_SIDE_PADDING,
-                endHudWidth / 2f - END_LAYOUT_SIDE_PADDING - groupWidth
+        return getAlignedRowStartX(
+                index,
+                total,
+                END_GRID_COLUMNS_LOOSE_END,
+                getLooseEndGroupAreaStartX(),
+                getConfiguredLooseEndGroupWidth(),
+                END_LOOSE_END_GROUP_RENDER_DIRECTION_MODE
         );
-        return getRowAwareColumnStartX(index, total, END_GRID_COLUMNS_LOOSE_END, baseStart);
     }
 
     /**
@@ -994,34 +1021,18 @@ public class RoundTextRenderer {
     }
 
     /**
+     * Loose Ends / 亡命徒区域按当前配置允许的最大宽度。
+     * 和谋杀模式一样，区域宽度不随本局人数变化，避免单人或残行时头像起点漂移。
+     */
+    private static float getConfiguredLooseEndGroupWidth() {
+        return getGroupWidth(END_GRID_COLUMNS_LOOSE_END);
+    }
+
+    /**
      * Loose Ends 当前实际占用宽度。
      */
     private static float getLooseEndGroupWidth(int total) {
         return getGroupWidth(getUsedColumns(total, END_GRID_COLUMNS_LOOSE_END));
-    }
-
-    /**
-     * Loose Ends 仍然沿用“最后一行自动居中”的旧逻辑。
-     * 因为它只有一个大阵营，整体居中观感会更自然，
-     * 所以这里保留这个专用辅助方法，不跟左右阵营的起点模式联动。
-     */
-    private static float getRowAwareColumnStartX(int index, int total, int columns, float baseStartX) {
-        if (columns <= 0) {
-            return baseStartX;
-        }
-        int currentRow = Math.max(0, index / columns);
-        int totalRows = getRowsForCount(total, columns);
-        if (totalRows == 0) {
-            return baseStartX;
-        }
-        int remainder = total % columns;
-        boolean isLastRow = currentRow == totalRows - 1;
-        if (isLastRow && remainder > 0 && remainder < columns) {
-            float fullWidth = getGroupWidth(columns);
-            float lastRowWidth = getGroupWidth(remainder);
-            return baseStartX + (fullWidth - lastRowWidth) / 2f;
-        }
-        return baseStartX;
     }
 
     /**

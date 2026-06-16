@@ -25,8 +25,11 @@ import java.util.UUID;
 
 public class MurderGameMode extends GameMode {
     public MurderGameMode(Identifier identifier) {
-        // 修改点 1: 这里的 1 表示只要有 1 个人就能启动，方便测试
-        super(identifier, 10, 1);
+        /*
+         * 第二个参数是开局后的默认游戏时长（tick），统一放到 GameConstants 里方便后续调整到秒。
+         * 第三个参数 1 表示只要有 1 个人就能启动，方便测试。
+         */
+        super(identifier, GameConstants.DEFAULT_GAME_START_TIME, 1);
     }
 
     private static int assignRolesAndGetKillerCount(@NotNull ServerWorld world, @NotNull List<ServerPlayerEntity> players, GameWorldComponent gameComponent) {

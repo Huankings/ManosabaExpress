@@ -17,7 +17,7 @@ public abstract class GameMode {
 
     /**
      * @param identifier the game mode identifier
-     * @param defaultStartTime the default time at which the timer will be set at the start of the game mode, in minutes
+     * @param defaultStartTime the default time at which the timer will be set at the start of the game mode, in ticks
      * @param minPlayerCount the minimum amount of players required to start the game mode
      */
     public GameMode(Identifier identifier, int defaultStartTime, int minPlayerCount) {

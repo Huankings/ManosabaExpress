@@ -46,10 +46,12 @@ public class StartCommand {
             source.sendError(Text.translatable("game.start_error.game_running"));
             return -1;
         }
+        // 命令手动传入的参数继续按“分钟”处理；未传入时直接使用模式内已经换算好的 tick 默认值。
+        int startTime = minutes >= 0 ? GameConstants.getInTicks(minutes, 0) : gameMode.defaultStartTime;
         if (gameMode == WatheGameModes.LOOSE_ENDS || gameMode == WatheGameModes.DISCOVERY || mapEffect == WatheMapEffects.HARPY_EXPRESS_SUNDOWN || mapEffect == WatheMapEffects.HARPY_EXPRESS_DAY) {
-            return Wathe.executeSupporterCommand(source, () -> GameFunctions.startGame(targetWorld, gameMode, mapEffect, GameConstants.getInTicks(minutes >= 0 ? minutes : gameMode.defaultStartTime, 0)));
+            return Wathe.executeSupporterCommand(source, () -> GameFunctions.startGame(targetWorld, gameMode, mapEffect, startTime));
         } else  {
-            GameFunctions.startGame(targetWorld, gameMode, mapEffect, GameConstants.getInTicks(minutes >= 0 ? minutes : gameMode.defaultStartTime, 0));
+            GameFunctions.startGame(targetWorld, gameMode, mapEffect, startTime);
             return 1;
         }
     }
