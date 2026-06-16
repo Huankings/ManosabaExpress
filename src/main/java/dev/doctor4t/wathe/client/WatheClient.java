@@ -388,15 +388,15 @@ public class WatheClient implements ClientModInitializer {
         taskPointKeybind = KeyBindingHelper.registerKeyBinding(new KeyBinding(
                 "key." + Wathe.MOD_ID + ".task_points",
                 InputUtil.Type.KEYSYM,
-                GLFW.GLFW_KEY_B,
+                GLFW.GLFW_KEY_Y,
                 "category." + Wathe.MOD_ID + ".keybinds"
         ));
 
-        // 地图投票界面开关键：H 打开/关闭，轮盘动画阶段会强制保持打开。
+        // 地图投票界面开关键：默认 U 打开/关闭，轮盘动画阶段会强制保持打开。
         mapVoteKeybind = KeyBindingHelper.registerKeyBinding(new KeyBinding(
                 "key." + Wathe.MOD_ID + ".map_vote",
                 InputUtil.Type.KEYSYM,
-                GLFW.GLFW_KEY_H,
+                GLFW.GLFW_KEY_U,
                 "category." + Wathe.MOD_ID + ".keybinds"
         ));
     }

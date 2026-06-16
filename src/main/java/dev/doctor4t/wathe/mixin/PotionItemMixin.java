@@ -20,6 +20,9 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 @Mixin(PotionItem.class)
 public class PotionItemMixin {
+    @Unique
+    private boolean wathe$cleanPotionContainerForCurrentUse;
+
     /**
      * 原版普通药水喝完后会进入 finishUsing。
      * 这里必须在 HEAD 处理，而不能放在 TAIL：
@@ -31,6 +34,8 @@ public class PotionItemMixin {
      */
     @Inject(method = "finishUsing", at = @At("HEAD"))
     private void wathe$completePotionTask(ItemStack stack, World world, LivingEntity user, CallbackInfoReturnable<ItemStack> cir) {
+        this.wathe$cleanPotionContainerForCurrentUse = this.wathe$shouldCleanPotionContainer(world, user, stack);
+
         if (world.isClient || !(user instanceof ServerPlayerEntity serverPlayer) || !stack.isOf(Items.POTION)) {
             return;
         }
@@ -40,15 +45,19 @@ public class PotionItemMixin {
 
     @Inject(method = "finishUsing", at = @At("RETURN"), cancellable = true)
     private void wathe$clearPotionBottleRemainder(ItemStack stack, World world, LivingEntity user, CallbackInfoReturnable<ItemStack> cir) {
-        if (this.wathe$shouldCleanPotionContainer(world, user, stack) && cir.getReturnValue().isOf(Items.GLASS_BOTTLE)) {
+        boolean shouldCleanContainer = this.wathe$cleanPotionContainerForCurrentUse;
+        this.wathe$cleanPotionContainerForCurrentUse = false;
+
+        if (shouldCleanContainer && cir.getReturnValue().isOf(Items.GLASS_BOTTLE)) {
             // 游戏进行中，存活玩家喝完普通药水时直接清掉玻璃瓶，避免背包里堆积空瓶。
+            // 注意：原版会先消耗传入的药水栈，单瓶药水到 RETURN 时 stack 已经是空栈，所以这里使用 HEAD 保存的判定结果。
             cir.setReturnValue(ItemStack.EMPTY);
         }
     }
 
     @Redirect(method = "finishUsing", at = @At(value = "INVOKE", target = "Lnet/minecraft/entity/player/PlayerInventory;insertStack(Lnet/minecraft/item/ItemStack;)Z"))
     private boolean wathe$skipPotionBottleInsert(PlayerInventory inventory, ItemStack remainder, ItemStack stack, World world, LivingEntity user) {
-        if (this.wathe$shouldCleanPotionContainer(world, user, stack) && remainder.isOf(Items.GLASS_BOTTLE)) {
+        if (this.wathe$cleanPotionContainerForCurrentUse && remainder.isOf(Items.GLASS_BOTTLE)) {
             // 多瓶堆叠等特殊情况下，原版会尝试把空玻璃瓶插回背包；这里同样拦掉。
             return true;
         }
