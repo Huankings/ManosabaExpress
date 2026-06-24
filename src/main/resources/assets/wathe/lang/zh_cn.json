@@ -23,7 +23,7 @@
   "announcement.win.civilian": "乘客胜利",
   "announcement.win.killer": "杀手胜利",
   "announcement.win.loose_end": "%s 获胜！",
-  "announcement.win.vigilante": "乘客胜利！",
+  "announcement.win.vigilante": "乘客胜利",
 
   "block.wathe.acacia_branch": "金合欢枝柱",
   "block.wathe.anthracite_steel": "无烟煤钢",
@@ -280,7 +280,7 @@
   "game.win.passengers": "所有杀手已被击倒",
   "game.win.time": "杀手未能在时限内完成击杀",
 
-  "item.wathe.bat": "球棒",
+  "item.wathe.bat": "仪式剑",
   "item.wathe.blackout": "停电器",
   "item.wathe.blackout.tooltip": "关闭魔女岛所有灯光 15 至 20 秒\n使用直觉（左 Alt）可在黑暗中看见目标\n购买后立即生效，冷却 3 分钟",
 
@@ -321,7 +321,7 @@
   "item.wathe.poison_vial": "毒药瓶",
   "item.wathe.poison_vial.tooltip": "偷偷混入食物或饮品中，使下一个取餐者中毒而亡",
   "item.wathe.psycho_mode": "疯魔模式",
-  "item.wathe.psycho_mode.tooltip": "\"你喜欢伤害别人吗？\"\n隐藏你的身份，让你在 38 秒内举着球棒肆意妄为\n球棒全力挥击可直接击杀，持续期间无法切换其他物品\n购买后立即启用，冷却时间 4 分钟 30 秒",
+  "item.wathe.psycho_mode.tooltip": "\"你喜欢伤害别人吗？\"\n隐藏你的身份，让你在 45 秒内举着仪式剑肆意妄为\n仪式剑全力挥击可直接击杀，持续期间无法切换其他物品\n购买后立即启用，冷却时间 4 分钟 30 秒",
   "item.wathe.revolver": "左轮手枪",
   "item.wathe.revolver.tooltip": "瞄准、右键点击并射击\n若误杀无辜者则会掉落",
   "item.wathe.scorpion": "蝎子",

@@ -3,6 +3,7 @@ package dev.doctor4t.wathe.command;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.BoolArgumentType;
 import dev.doctor4t.wathe.cca.GameWorldComponent;
+import dev.doctor4t.wathe.util.GameWorldResolver;
 import net.minecraft.server.command.CommandManager;
 import net.minecraft.server.command.ServerCommandSource;
 import net.minecraft.text.Text;
@@ -46,7 +47,7 @@ public class PlayerCollisionCommand {
      * 3. 即使当前不在对局中，也可以提前改好，供下一局直接使用。
      */
     private static int execute(ServerCommandSource source, boolean enabled) {
-        GameWorldComponent game = GameWorldComponent.KEY.get(source.getWorld());
+        GameWorldComponent game = GameWorldComponent.KEY.get(GameWorldResolver.resolve(source));
         game.setAlivePlayerCollisionEnabled(enabled);
 
         Text stateText = Text.literal(enabled ? "开启" : "关闭").formatted(Formatting.GOLD);
@@ -61,7 +62,7 @@ public class PlayerCollisionCommand {
      * 查询当前保存的碰撞体积开关状态。
      */
     private static int query(ServerCommandSource source) {
-        GameWorldComponent game = GameWorldComponent.KEY.get(source.getWorld());
+        GameWorldComponent game = GameWorldComponent.KEY.get(GameWorldResolver.resolve(source));
         Text stateText = Text.literal(game.isAlivePlayerCollisionEnabled() ? "开启" : "关闭").formatted(Formatting.GOLD);
 
         source.sendFeedback(

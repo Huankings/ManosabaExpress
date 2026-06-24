@@ -297,6 +297,11 @@ public class GameFunctions {
             teleportPlayersToDefaultPlayArea(areas, players);
         }
 
+        /*
+         * 这里记录本局真正开始进入 ACTIVE 的世界 tick。
+         * 后续“开局多少秒内不启用玩家碰撞体积”的逻辑，就以这个时刻为起点计算。
+         */
+        gameComponent.markAlivePlayersCollisionRoundStart(serverWorld.getTime());
         gameComponent.setGameStatus(GameWorldComponent.GameStatus.ACTIVE);
         gameComponent.sync();
     }
@@ -465,6 +470,7 @@ public class GameFunctions {
         GameTimeComponent.KEY.get(world).reset();
         gameComponent.clearRoleMap();
         gameComponent.setGameStatus(GameWorldComponent.GameStatus.INACTIVE);
+        gameComponent.clearAlivePlayersCollisionRoundStart();
         trainComponent.setTime(0);
         gameComponent.sync();
 

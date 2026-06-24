@@ -159,7 +159,7 @@ public interface GameConstants {
         entries.add(new ShopEntry(WatheItems.LOCKPICK.getDefaultStack(), 50, ShopEntry.Type.TOOL));
         entries.add(new ShopEntry(WatheItems.CROWBAR.getDefaultStack(), 25, ShopEntry.Type.TOOL));
         entries.add(new ShopEntry(WatheItems.BODY_BAG.getDefaultStack(), 70, ShopEntry.Type.TOOL));
-        entries.add(new ShopEntry(WatheItems.BLACKOUT.getDefaultStack(), 200, ShopEntry.Type.TOOL) {
+        entries.add(new ShopEntry(WatheItems.BLACKOUT.getDefaultStack(), 250, ShopEntry.Type.TOOL) {
             @Override
             public boolean onBuy(@NotNull PlayerEntity player) {
                 return PlayerShopComponent.useBlackout(player);
@@ -201,7 +201,7 @@ public interface GameConstants {
     int PSYCHO_MODE_ARMOUR = 1;
 
     // Timers
-    int PSYCHO_TIMER = getInTicks(0, 38);
+    int PSYCHO_TIMER = getInTicks(0, 45);
     int FIRECRACKER_TIMER = getInTicks(0, 15);
     int BLACKOUT_MIN_DURATION = getInTicks(0, 20);
     int BLACKOUT_MAX_DURATION = getInTicks(0, 35);

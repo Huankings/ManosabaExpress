@@ -70,6 +70,21 @@ public int getFixedKillerCount() { return this.fixedKillerCount; }
      * 不再由 Wathe 强制把玩家当作“实体墙”来阻挡彼此。
      */
     private boolean alivePlayersCollisionEnabled = true;
+    /**
+     * 开局后多久才恢复存活玩家之间的碰撞体积，单位：秒。
+     *
+     * <p>这个值只在“碰撞体积开关已经开启”时生效。
+     * 例如设为 30，就表示本局真正进入 ACTIVE 后的前 30 秒内不强制启用玩家碰撞。
+     * 设为 0 则表示开局就直接开始碰撞。
+     */
+    private int alivePlayersCollisionStartDelaySeconds = 30;
+    /**
+     * 记录本局真正进入 ACTIVE 状态时的世界时间（tick）。
+     *
+     * <p>碰撞保护期不是按指令执行时刻算，而是按“本局真正开局的世界时间”算。
+     * 这样即使开局前后改了别的时间相关设置，也不会影响这段免碰撞窗口。
+     */
+    private long alivePlayersCollisionRoundStartTick = -1L;
 
     public void setWeightsEnabled(boolean enabled) {
         this.enableWeights = enabled;
@@ -132,6 +147,72 @@ public int getFixedKillerCount() { return this.fixedKillerCount; }
     public void setAlivePlayerCollisionEnabled(boolean alivePlayersCollisionEnabled) {
         this.alivePlayersCollisionEnabled = alivePlayersCollisionEnabled;
         this.sync();
+    }
+
+    /**
+     * 返回“开局无碰撞”的持续秒数。
+     *
+     * <p>这个值只影响开局保护期，不会改变对局中后段的碰撞逻辑。
+     */
+    public int getAlivePlayersCollisionStartDelaySeconds() {
+        return alivePlayersCollisionStartDelaySeconds;
+    }
+
+    /**
+     * 动态修改“开局无碰撞”的持续秒数。
+     *
+     * <p>只要碰撞体积开关处于开启状态，这个值就会立刻参与后续碰撞判断；
+     * 设为 0 则表示取消开局免碰撞窗口。
+     */
+    public void setAlivePlayersCollisionStartDelaySeconds(int alivePlayersCollisionStartDelaySeconds) {
+        this.alivePlayersCollisionStartDelaySeconds = Math.max(0, alivePlayersCollisionStartDelaySeconds);
+        this.sync();
+    }
+
+    /**
+     * 记录本局真正进入 ACTIVE 的世界 tick。
+     *
+     * <p>这个值由开局流程写入，供“开局无碰撞秒数”计算使用。
+     * 它是运行时标记，不需要单独暴露给命令。
+     */
+    public void markAlivePlayersCollisionRoundStart(long worldTime) {
+        this.alivePlayersCollisionRoundStartTick = worldTime;
+    }
+
+    /**
+     * 清理本局开局 tick 标记。
+     *
+     * <p>对局结束后把旧局起点清掉，避免下一局误读到上一次的起始时间。
+     */
+    public void clearAlivePlayersCollisionRoundStart() {
+        this.alivePlayersCollisionRoundStartTick = -1L;
+    }
+
+    /**
+     * 判断当前是否仍处于“开局无碰撞”保护期。
+     *
+     * <p>这里会同时检查三个条件：
+     * 1. 对局是否真的已经进入 ACTIVE；
+     * 2. 玩家碰撞体积开关是否开启；
+     * 3. 从本局开局到现在是否还没超过配置的秒数。
+     */
+    public boolean isAlivePlayerCollisionStartDelayActive() {
+        if (this.gameStatus != GameStatus.ACTIVE) {
+            return false;
+        }
+        if (!this.alivePlayersCollisionEnabled) {
+            return false;
+        }
+        if (this.alivePlayersCollisionStartDelaySeconds <= 0) {
+            return false;
+        }
+        if (this.alivePlayersCollisionRoundStartTick < 0) {
+            return false;
+        }
+
+        long elapsedTicks = Math.max(0L, this.world.getTime() - this.alivePlayersCollisionRoundStartTick);
+        long startDelayTicks = this.alivePlayersCollisionStartDelaySeconds * 20L;
+        return elapsedTicks < startDelayTicks;
     }
 
     public enum GameStatus {
@@ -574,10 +655,23 @@ this.fixedKillerCount = nbtCompound.contains("FixedKillerCount") ? nbtCompound.g
         this.moodEffectDeathEnabled = !nbtCompound.contains("MoodEffectDeathEnabled") || nbtCompound.getBoolean("MoodEffectDeathEnabled");
         this.allowAlivePlayersJump = !nbtCompound.contains("AllowAlivePlayersJump") || nbtCompound.getBoolean("AllowAlivePlayersJump");
         this.alivePlayersCollisionEnabled = !nbtCompound.contains("AlivePlayersCollisionEnabled") || nbtCompound.getBoolean("AlivePlayersCollisionEnabled");
+        this.alivePlayersCollisionStartDelaySeconds = nbtCompound.contains("AlivePlayersCollisionStartDelaySeconds") ? Math.max(0, nbtCompound.getInt("AlivePlayersCollisionStartDelaySeconds")) : 30;
 
         this.gameMode = WatheGameModes.GAME_MODES.get(Identifier.of(nbtCompound.getString("GameMode")));
         this.mapEffect = WatheMapEffects.MAP_EFFECTS.get(Identifier.of(nbtCompound.getString("MapEffect")));
         this.gameStatus = GameStatus.valueOf(nbtCompound.getString("GameStatus"));
+        if (nbtCompound.contains("AlivePlayersCollisionRoundStartTick")) {
+            this.alivePlayersCollisionRoundStartTick = nbtCompound.getLong("AlivePlayersCollisionRoundStartTick");
+        } else if (this.gameStatus == GameStatus.ACTIVE) {
+            /*
+             * 老存档升级时可能还没有这个字段。
+             * 如果当前世界本来就处于 ACTIVE，就把“当前时间”当作新的起点，
+             * 这样至少不会把旧局的碰撞保护期错误地延长到下一局。
+             */
+            this.alivePlayersCollisionRoundStartTick = this.world.getTime();
+        } else {
+            this.alivePlayersCollisionRoundStartTick = -1L;
+        }
 
         this.fade = nbtCompound.getInt("Fade");
         this.psychosActive = nbtCompound.getInt("PsychosActive");
@@ -637,6 +731,8 @@ this.fixedKillerCount = nbtCompound.contains("FixedKillerCount") ? nbtCompound.g
         nbtCompound.putBoolean("MoodEffectDeathEnabled", moodEffectDeathEnabled);
         nbtCompound.putBoolean("AllowAlivePlayersJump", allowAlivePlayersJump);
         nbtCompound.putBoolean("AlivePlayersCollisionEnabled", alivePlayersCollisionEnabled);
+        nbtCompound.putInt("AlivePlayersCollisionStartDelaySeconds", alivePlayersCollisionStartDelaySeconds);
+        nbtCompound.putLong("AlivePlayersCollisionRoundStartTick", alivePlayersCollisionRoundStartTick);
 
         nbtCompound.putString("GameMode", this.gameMode != null ? this.gameMode.identifier.toString() : "");
         nbtCompound.putString("MapEffect", this.mapEffect != null ? this.mapEffect.identifier.toString() : "");

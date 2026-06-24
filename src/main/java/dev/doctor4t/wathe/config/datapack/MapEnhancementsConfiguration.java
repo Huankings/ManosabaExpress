@@ -77,7 +77,7 @@ public record MapEnhancementsConfiguration(
     }
 
     public record FogConfig(boolean enabled, float start, float endMoving, float endStationary, int nightColor) {
-        public static final FogConfig DEFAULT = new FogConfig(true, 32.0f, 96.0f, 64.0f, 0x0D0D14);
+        public static final FogConfig DEFAULT = new FogConfig(true, 64.0f, 128.0f, 96.0f, 0x0D0D14);
 
         private static final Codec<Integer> NIGHT_COLOR_CODEC = Codec.either(Codec.INT, Codec.STRING)
                 .flatXmap(
@@ -87,9 +87,9 @@ public record MapEnhancementsConfiguration(
 
         public static final Codec<FogConfig> CODEC = RecordCodecBuilder.create(instance -> instance.group(
                 Codec.BOOL.optionalFieldOf("enabled", true).forGetter(FogConfig::enabled),
-                Codec.FLOAT.optionalFieldOf("start", 32.0f).forGetter(FogConfig::start),
-                Codec.FLOAT.optionalFieldOf("end_moving", 96.0f).forGetter(FogConfig::endMoving),
-                Codec.FLOAT.optionalFieldOf("end_stationary", 64.0f).forGetter(FogConfig::endStationary),
+                Codec.FLOAT.optionalFieldOf("start", 64.0f).forGetter(FogConfig::start),
+                Codec.FLOAT.optionalFieldOf("end_moving", 128.0f).forGetter(FogConfig::endMoving),
+                Codec.FLOAT.optionalFieldOf("end_stationary", 96.0f).forGetter(FogConfig::endStationary),
                 NIGHT_COLOR_CODEC.optionalFieldOf("night_color", 0x0D0D14).forGetter(FogConfig::nightColor)
         ).apply(instance, FogConfig::new));
 
