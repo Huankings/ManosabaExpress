@@ -100,6 +100,7 @@ public class Wathe implements ModInitializer {
             PlayerCollisionCommand.register(dispatcher);
             StartNoCollisionCommand.register(dispatcher);
             InstinctCommand.register(dispatcher);
+            GameplayAliveGameModeCommand.register(dispatcher);
             MapVoteCommand.register(dispatcher);
         }));
 

@@ -4,6 +4,7 @@ import com.llamalad7.mixinextras.injector.ModifyExpressionValue;
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
 import com.llamalad7.mixinextras.sugar.Local;
+import dev.doctor4t.wathe.api.PlayerLifeStateApi;
 import dev.doctor4t.wathe.index.WatheItems;
 import dev.doctor4t.wathe.util.BatAttackCooldownPreserver;
 import net.minecraft.registry.RegistryKey;
@@ -11,11 +12,14 @@ import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.text.Text;
 import net.minecraft.util.Hand;
 import net.minecraft.util.math.BlockPos;
+import net.minecraft.world.GameMode;
 import net.minecraft.world.World;
 import org.jetbrains.annotations.Nullable;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
+import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 @Mixin(ServerPlayerEntity.class)
 public class ServerPlayerEntityMixin implements BatAttackCooldownPreserver {
@@ -35,6 +39,21 @@ public class ServerPlayerEntityMixin implements BatAttackCooldownPreserver {
     @ModifyExpressionValue(method = "trySleep", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/World;isDay()Z"))
     public boolean wathe$allowSleepingAtAnyTime(boolean original) {
         return false;
+    }
+
+    @Inject(method = "changeGameMode", at = @At("HEAD"))
+    private void wathe$clearAliveOverrideForNormalGameModeChanges(GameMode gameMode, CallbackInfoReturnable<Boolean> cir) {
+        ServerPlayerEntity self = (ServerPlayerEntity) (Object) this;
+        /*
+         * 普通原版切到旁观 / 创造时，必须撤销 Wathe 的“特殊模式仍存活”授权。
+         *
+         * 只有通过 PlayerLifeStateApi.changeGameModeAsGameplayAlive 发起的切模式才会保留该授权。
+         * 这样 OP 自己执行 /gamemode spectator 或 /gamemode creative 时，仍会回到非存活状态。
+         */
+        if (PlayerLifeStateApi.isNonSurvivalMode(gameMode)
+                && !PlayerLifeStateApi.isGameplayAliveGameModeChangeAllowed(self)) {
+            PlayerLifeStateApi.clearAliveOverride(self);
+        }
     }
 
     @Override

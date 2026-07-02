@@ -48,6 +48,7 @@
 			"wathe:autostart",
 			"wathe:roundend",
 			"wathe:task_points",
+			"wathe:life_state",
 			"wathe:role",
 			"wathe:mood",
 			"wathe:shop",

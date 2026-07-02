@@ -26,6 +26,11 @@ public class WatheComponents implements WorldComponentInitializer, EntityCompone
 
     @Override
     public void registerEntityComponentFactories(@NotNull EntityComponentFactoryRegistry registry) {
+        /*
+         * 玩法生命状态是一局内的临时授权：
+         * 死亡 / 重生后必须清空，避免“特殊旁观仍存活”的标记跨生命残留。
+         */
+        registry.beginRegistration(PlayerEntity.class, PlayerLifeStateComponent.KEY).respawnStrategy(RespawnCopyStrategy.NEVER_COPY).end(PlayerLifeStateComponent::new);
         registry.beginRegistration(PlayerEntity.class, PlayerMoodComponent.KEY).respawnStrategy(RespawnCopyStrategy.NEVER_COPY).end(PlayerMoodComponent::new);
         registry.beginRegistration(PlayerEntity.class, PlayerShopComponent.KEY).respawnStrategy(RespawnCopyStrategy.NEVER_COPY).end(PlayerShopComponent::new);
         registry.beginRegistration(PlayerEntity.class, PlayerPoisonComponent.KEY).respawnStrategy(RespawnCopyStrategy.NEVER_COPY).end(PlayerPoisonComponent::new);

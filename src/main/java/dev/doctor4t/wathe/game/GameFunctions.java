@@ -4,6 +4,7 @@ import com.google.common.collect.Lists;
 import dev.doctor4t.wathe.Wathe;
 import dev.doctor4t.wathe.api.GameMode;
 import dev.doctor4t.wathe.api.MapEffect;
+import dev.doctor4t.wathe.api.PlayerLifeStateApi;
 import dev.doctor4t.wathe.api.event.AllowPlayerDeath;
 import dev.doctor4t.wathe.api.event.GameEvents;
 import dev.doctor4t.wathe.api.event.ShouldDropOnDeath;
@@ -248,6 +249,12 @@ public class GameFunctions {
         // dismount all players as it can cause issues
         for (ServerPlayerEntity player : serverWorld.getPlayers()) {
             player.dismountVehicle();
+            /*
+             * 新局初始化时先清掉上一局或调试留下的特殊存活授权。
+             * 后续真正参与本局的玩家会被切回冒险模式；没有参与本局的玩家会被切到普通旁观，
+             * 两边都不应该继承旧的“旁观/创造仍存活”标记。
+             */
+            PlayerLifeStateApi.clearAliveOverride(player);
         }
 
         for (ServerPlayerEntity player : players) {
@@ -463,6 +470,7 @@ public class GameFunctions {
 
         // reset all players
         for (ServerPlayerEntity player : world.getPlayers()) {
+            PlayerLifeStateApi.clearAliveOverride(player);
             resetPlayer(player);
         }
 
@@ -490,6 +498,7 @@ public class GameFunctions {
         PlayerPoisonComponent.KEY.get(player).reset();
         PlayerPsychoComponent.KEY.get(player).reset();
         PlayerNoteComponent.KEY.get(player).reset();
+        PlayerLifeStateApi.clearAliveOverride(player);
         TrainVoicePlugin.resetPlayer(player.getUuid());
 
         player.changeGameMode(net.minecraft.world.GameMode.ADVENTURE);
@@ -605,7 +614,7 @@ public class GameFunctions {
     }
 
     public static boolean isPlayerEliminated(PlayerEntity player) {
-        return player == null || !player.isAlive() || player.isCreative() || player.isSpectator();
+        return player == null || !player.isAlive() || !isPlayerAliveAndSurvival(player);
     }
 
     @SuppressWarnings("unused")
@@ -647,6 +656,11 @@ public class GameFunctions {
         }
 
         if (victim instanceof ServerPlayerEntity serverPlayerEntity && isPlayerAliveAndSurvival(serverPlayerEntity)) {
+            /*
+             * 真正死亡时必须先清特殊存活授权，再切旁观。
+             * 否则“机制旁观仍存活”的玩家被击杀后，客户端和胜负判定会继续把他当活人。
+             */
+            PlayerLifeStateApi.clearAliveOverride(serverPlayerEntity);
             serverPlayerEntity.changeGameMode(net.minecraft.world.GameMode.SPECTATOR);
 
             NbtCompound pendingExtraDeathData = PENDING_EXTRA_DEATH_DATA.get();
@@ -767,21 +781,40 @@ public class GameFunctions {
     }
 
     /**
-     * Wathe 里“局内存活”的定义。
+     * Wathe 里“局内存活”的统一定义。
      *
      * <p>这里并不是单纯看玩家原版的 {@link PlayerEntity#isAlive()}，
      * 而是看玩家是否还以“局内可操作身份”留在游戏里。
-     * 只要不是 spectator 且不是 creative，就视为仍然存活。</p>
+     * 默认情况下，只要不是 spectator 且不是 creative，就视为仍然存活。</p>
      *
-     * <p>因此玩家被 Wathe 击杀后，虽然客户端仍能看到该玩家切成旁观继续存在，
-     * 但在玩法层面已经算“非存活”；对应的信息承载实体会变成留在场上的尸体。</p>
+     * <p>现在额外支持一种扩展玩法授权：
+     * 如果玩家被职业或调试命令通过 {@link PlayerLifeStateApi} 标记为
+     * “creative / spectator 仍按玩法存活”，那么即使原版模式是旁观或创造，
+     * 胜负、结算、心情、Tab/聊天限制、本能和职业名显示也都会继续走存活玩家分支。</p>
+     *
+     * <p>普通 OP 使用原版 /gamemode 切到 creative 或 spectator 不会获得这个授权；
+     * 这类玩家仍然会被 Wathe 当作非存活处理。</p>
      */
     public static boolean isPlayerAliveAndSurvival(PlayerEntity player) {
-        return player != null && !player.isSpectator() && !player.isCreative();
+        if (player == null) {
+            return false;
+        }
+        if (!player.isSpectator() && !player.isCreative()) {
+            return true;
+        }
+        return PlayerLifeStateApi.hasAliveOverride(player);
     }
 
+    /**
+     * Wathe 里“旁观/创造非存活视角”的统一入口。
+     *
+     * <p>许多客户端显示逻辑会用它决定是否展示全局旁观信息：
+     * 职业名、阵营颜色、本能透视、聊天与玩家列表限制等。
+     * 因此这里必须和 {@link #isPlayerAliveAndSurvival(PlayerEntity)} 保持互补，
+     * 让特殊旁观 / 特殊创造仍然被隐藏成存活玩家视角。</p>
+     */
     public static boolean isPlayerSpectatingOrCreative(PlayerEntity player) {
-        return player != null && (player.isSpectator() || player.isCreative());
+        return player != null && (player.isSpectator() || player.isCreative()) && !PlayerLifeStateApi.hasAliveOverride(player);
     }
 
     record BlockEntityInfo(NbtCompound nbt, ComponentMap components) {

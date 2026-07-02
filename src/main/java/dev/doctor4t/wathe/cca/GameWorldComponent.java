@@ -880,6 +880,11 @@ this.fixedKillerCount = nbtCompound.contains("FixedKillerCount") ? nbtCompound.g
 
                     // put players with no role in spectator mode
                     if (this.getRole(player) == null) {
+                        /*
+                         * 无职业玩家没有参与本局，不能携带“特殊旁观仍存活”标记。
+                         * 这样调试指令或旧状态不会把真正的旁观者计入胜负和存活列表。
+                         */
+                        PlayerLifeStateApi.clearAliveOverride(player);
                         player.changeGameMode(net.minecraft.world.GameMode.SPECTATOR);
                     }
                 }
