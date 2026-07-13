@@ -7,6 +7,7 @@ import dev.doctor4t.ratatouille.client.util.ambience.BackgroundAmbience;
 import dev.doctor4t.wathe.Wathe;
 import dev.doctor4t.wathe.WatheConfig;
 import dev.doctor4t.wathe.api.Role;
+import dev.doctor4t.wathe.api.instinct.InstinctApi;
 import dev.doctor4t.wathe.cca.GameWorldComponent;
 import dev.doctor4t.wathe.cca.MapEnhancementsWorldComponent;
 import dev.doctor4t.wathe.cca.MapVotingComponent;
@@ -100,6 +101,7 @@ public class WatheClient implements ClientModInitializer {
     private static boolean instinctToggleActive = false;
     private static boolean hasAutoOpenedVotingScreen = false;
     private static boolean wasVotingActive = false;
+    private static boolean defaultInstinctHandlersRegistered = false;
 
     public static boolean shouldDisableHudAndDebug() {
         MinecraftClient client = MinecraftClient.getInstance();
@@ -110,6 +112,7 @@ public class WatheClient implements ClientModInitializer {
     public void onInitializeClient() {
         // Load config
         WatheConfig.init(Wathe.MOD_ID, WatheConfig.class);
+        ensureDefaultInstinctHandlersRegistered();
 
         // Initialize ScreenParticle
         handParticleManager = new HandParticleManager();
@@ -516,6 +519,87 @@ public class WatheClient implements ClientModInitializer {
         return gameComponent != null && gameComponent.canUseKillerFeatures(MinecraftClient.getInstance().player);
     }
 
+    private static void ensureDefaultInstinctHandlersRegistered() {
+        if (defaultInstinctHandlersRegistered) {
+            return;
+        }
+        defaultInstinctHandlersRegistered = true;
+
+        /*
+         * Wathe 原生本能资格：杀手活着且本能键激活，或旁观/创造视角且本能键激活。
+         *
+         * 这里作为 priority 0 的“默认 handler”注册进公开 API。
+         * 扩展职业如果也用 priority 0 注册，会在同优先级下排到这个默认逻辑前面；
+         * 这样 Jester 一类非杀手本能不需要用更高优先级硬压 Wathe，只要正常返回 ENABLE 即可。
+         */
+        InstinctApi.registerDefaultAvailability(Wathe.id("default_instinct_availability"), InstinctApi.DEFAULT_PRIORITY, viewer -> {
+            if (!isInstinctInputActive()) {
+                return InstinctApi.AvailabilityResult.PASS;
+            }
+
+            GameWorldComponent component = GameWorldComponent.KEY.get(viewer.getWorld());
+            boolean canUseKillerInstinct = component.canUseKillerFeatures(viewer)
+                    && GameFunctions.isPlayerAliveAndSurvival(viewer);
+            boolean canUseObserverInstinct = GameFunctions.isPlayerSpectatingOrCreative(viewer);
+            return canUseKillerInstinct || canUseObserverInstinct
+                    ? InstinctApi.AvailabilityResult.ENABLE
+                    : InstinctApi.AvailabilityResult.PASS;
+        });
+
+        /*
+         * Wathe 原生本能高亮 fallback。
+         *
+         * 注意：这里不再由 getInstinctHighlight 在最外层统一判断 isInstinctEnabled()。
+         * 只有“依赖本能开启”的 handler 自己调用 isInstinctEnabled()；
+         * 不依赖本能键的职业能力标记可以继续通过 highlight API 显示，
+         * 因此 Convener 的本能压制只会关掉本能链路，不会误伤那些独立能力描边。
+         */
+        InstinctApi.registerDefaultHighlight(Wathe.id("default_instinct_highlight"), InstinctApi.DEFAULT_PRIORITY, (viewer, target) -> {
+            if (!isInstinctEnabled()) {
+                return InstinctApi.HighlightResult.pass();
+            }
+
+            GameWorldComponent component = GameWorldComponent.KEY.get(viewer.getWorld());
+
+            // 尸体职业色只开放给“自己已经不在局内存活状态”的观察视角使用。
+            if (target instanceof PlayerBodyEntity body) {
+                return GameFunctions.isPlayerSpectatingOrCreative(viewer)
+                        ? colorOrPass(getInstinctRoleHighlight(body.getPlayerUuid()))
+                        : InstinctApi.HighlightResult.pass();
+            }
+
+            if (target instanceof ItemEntity || target instanceof NoteEntity || target instanceof FirecrackerEntity) {
+                return InstinctApi.HighlightResult.color(0xDB9D00);
+            }
+            if (target instanceof PlayerEntity player) {
+                if (GameFunctions.isPlayerSpectatingOrCreative(player)) {
+                    return InstinctApi.HighlightResult.pass();
+                }
+                if (component.canUseKillerFeatures(viewer) && component.canUseKillerFeatures(player)) {
+                    return InstinctApi.HighlightResult.color(MathHelper.hsvToRgb(0F, 1.0F, 0.6F));
+                }
+                if (component.isInnocent(player)) {
+                    float mood = PlayerMoodComponent.KEY.get(player).getMood();
+                    if (mood < GameConstants.DEPRESSIVE_MOOD_THRESHOLD) {
+                        return InstinctApi.HighlightResult.color(0x171DC6);
+                    } else if (mood < GameConstants.MID_MOOD_THRESHOLD) {
+                        return InstinctApi.HighlightResult.color(0x1FAFAF);
+                    } else {
+                        return InstinctApi.HighlightResult.color(0x4EDD35);
+                    }
+                }
+                if (GameFunctions.isPlayerSpectatingOrCreative(viewer)) {
+                    return InstinctApi.HighlightResult.color(0xFFFFFF);
+                }
+            }
+            return InstinctApi.HighlightResult.pass();
+        });
+    }
+
+    private static InstinctApi.HighlightResult colorOrPass(int color) {
+        return color == -1 ? InstinctApi.HighlightResult.pass() : InstinctApi.HighlightResult.color(color);
+    }
+
     /**
      * 每 tick 统一处理本能键的“按下事件”。
      *
@@ -594,43 +678,23 @@ public class WatheClient implements ClientModInitializer {
     }
 
     public static int getInstinctHighlight(Entity target) {
-        if (!isInstinctEnabled()) return -1;
-
-        // 尸体职业色只开放给“自己已经不在局内存活状态”的观察视角使用，
-        // 也就是 spectator / creative 这两种 Wathe 里的“非存活玩家透视”。
-        // 这样可以避免存活杀手或其他存活职业，额外看到本不该看到的尸体职业信息。
-        if (target instanceof PlayerBodyEntity body) {
-            if (isPlayerSpectatingOrCreative()) {
-                return getInstinctRoleHighlight(body.getPlayerUuid());
-            }
+        ensureDefaultInstinctHandlersRegistered();
+        ClientPlayerEntity player = MinecraftClient.getInstance().player;
+        if (player == null) {
             return -1;
         }
 
-        if (target instanceof ItemEntity || target instanceof NoteEntity || target instanceof FirecrackerEntity)
-            return 0xDB9D00;
-        if (target instanceof PlayerEntity player) {
-            if (GameFunctions.isPlayerSpectatingOrCreative(player)) return -1;
-            if (isKiller() && gameComponent.canUseKillerFeatures(player)) return MathHelper.hsvToRgb(0F, 1.0F, 0.6F);
-            if (gameComponent.isInnocent(player)) {
-                float mood = PlayerMoodComponent.KEY.get(target).getMood();
-                if (mood < GameConstants.DEPRESSIVE_MOOD_THRESHOLD) {
-                    return 0x171DC6;
-                } else if (mood < GameConstants.MID_MOOD_THRESHOLD) {
-                    return 0x1FAFAF;
-                } else {
-                    return 0x4EDD35;
-                }
-            }
-            if (isPlayerSpectatingOrCreative()) return 0xFFFFFF;
-        }
-        return -1;
+        InstinctApi.HighlightResult result = InstinctApi.resolveHighlight(player, target);
+        return result.action() == InstinctApi.HighlightResult.Action.COLOR ? result.color() : -1;
     }
 
     public static boolean isInstinctEnabled() {
-        if (MinecraftClient.getInstance().player == null) {
+        ensureDefaultInstinctHandlersRegistered();
+        ClientPlayerEntity player = MinecraftClient.getInstance().player;
+        if (player == null) {
             return false;
         }
-        return isInstinctInputActive() && ((isKiller() && isPlayerAliveAndInSurvival()) || isPlayerSpectatingOrCreative());
+        return InstinctApi.resolveAvailability(player) == InstinctApi.AvailabilityResult.ENABLE;
     }
 
     public static int getLockedRenderDistance(boolean ultraPerfMode) {

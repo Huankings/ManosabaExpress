@@ -22,6 +22,8 @@ public class CooldownRenderer {
     private static final int GAP_ABOVE_HOTBAR = 1;
 
     public static void renderHud(TextRenderer renderer, @NotNull ClientPlayerEntity player, DrawContext context, RenderTickCounter tickCounter) {
+        if (player.isSpectator()) return;
+
         int selectedSlot = player.getInventory().selectedSlot;
         ItemStack heldStack = player.getInventory().main.get(selectedSlot);
         if (heldStack.isEmpty()) return;
