@@ -102,6 +102,7 @@ public class WatheLangGen extends FabricLanguageProvider {
         builder.add("tip.grenade.throw_mode.charged", "Charged");
 
         builder.add("tip.cooldown", "On cooldown: %s");
+        builder.add("shop.purchase_failed", "Purchase Failed");
         builder.add(TextUtils.getItemTranslationKey(WatheItems.KNIFE) + ".tooltip", "Right-click, hold for a second and get close to your victim\nAfter a kill, cannot be used for 1 minute\nAttack to knock back / push a player (no cooldown)");
         builder.add(TextUtils.getItemTranslationKey(WatheItems.REVOLVER) + ".tooltip", "Point, right-click and shoot\nDrops if you kill an innocent");
         builder.add(TextUtils.getItemTranslationKey(WatheItems.DERRINGER) + ".tooltip", "Point, right-click and shoot\nCan only be shot once, so make it count!\nShot is replenished after a kill");

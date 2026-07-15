@@ -1,8 +1,8 @@
 package dev.doctor4t.wathe.util;
 
 import dev.doctor4t.wathe.Wathe;
+import dev.doctor4t.wathe.api.shop.ShopApi;
 import dev.doctor4t.wathe.cca.PlayerShopComponent;
-import dev.doctor4t.wathe.game.GameConstants;
 import dev.doctor4t.wathe.record.GameRecordManager;
 import dev.doctor4t.wathe.record.ShopPurchaseTracker;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
@@ -11,6 +11,8 @@ import net.minecraft.network.codec.PacketCodec;
 import net.minecraft.network.codec.PacketCodecs;
 import net.minecraft.network.packet.CustomPayload;
 import org.jetbrains.annotations.NotNull;
+
+import java.util.List;
 
 public record StoreBuyPayload(int index) implements CustomPayload {
     public static final Id<StoreBuyPayload> ID = new Id<>(Wathe.id("storebuy"));
@@ -26,6 +28,7 @@ public record StoreBuyPayload(int index) implements CustomPayload {
         public void receive(@NotNull StoreBuyPayload payload, ServerPlayNetworking.@NotNull Context context) {
             PlayerShopComponent component = PlayerShopComponent.KEY.get(context.player());
             int before = component.balance;
+            List<ShopEntry> entriesBeforePurchase = ShopApi.getEntriesForPlayer(context.player());
             ShopPurchaseTracker.clear(context.player());
             component.tryBuy(payload.index());
 
@@ -43,10 +46,10 @@ public record StoreBuyPayload(int index) implements CustomPayload {
                     return;
                 }
 
-                if (payload.index() >= 0 && payload.index() < GameConstants.SHOP_ENTRIES.size()) {
+                if (payload.index() >= 0 && payload.index() < entriesBeforePurchase.size()) {
                     GameRecordManager.recordShopPurchase(
                             context.player(),
-                            GameConstants.SHOP_ENTRIES.get(payload.index()),
+                            entriesBeforePurchase.get(payload.index()),
                             payload.index(),
                             before - component.balance
                     );

@@ -361,6 +361,7 @@
   "task.fish": "去钓鱼。",
   "task.sleep": "去睡一会儿。",
   "tip.cooldown": "冷却中：%s",
+  "shop.purchase_failed": "购买失败",
   "tip.grenade.switch_throw_mode": "当前手雷投掷方式切换为:%s",
   "tip.grenade.current_throw_mode": "当前手雷投掷方式:%s",
   "tip.grenade.throw_mode.direct": "直投",

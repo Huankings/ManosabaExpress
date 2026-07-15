@@ -1,6 +1,7 @@
 package dev.doctor4t.wathe.client.gui;
 
 import dev.doctor4t.wathe.api.economy.EconomyApi;
+import dev.doctor4t.wathe.api.shop.ShopApi;
 import dev.doctor4t.wathe.cca.PlayerShopComponent;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.font.TextRenderer;
@@ -21,7 +22,7 @@ public class StoreRenderer {
          * 金币 HUD 的显示资格统一交给 EconomyApi。
          * 这样扩展职业只需要注册“我使用金币系统”，不再需要 mixin 到这里复制整段渲染代码。
          */
-        if (!EconomyApi.shouldRenderBalanceHud(player)) return;
+        if (!EconomyApi.shouldRenderBalanceHud(player) && !ShopApi.hasShop(player)) return;
         int balance = PlayerShopComponent.KEY.get(player).balance;
         if (view.getTarget() != balance) {
             offsetDelta = balance > view.getTarget() ? .6f : -.6f;

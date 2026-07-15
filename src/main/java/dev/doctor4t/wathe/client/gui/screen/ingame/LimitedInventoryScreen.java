@@ -1,9 +1,8 @@
 package dev.doctor4t.wathe.client.gui.screen.ingame;
 
 import dev.doctor4t.wathe.Wathe;
-import dev.doctor4t.wathe.cca.GameWorldComponent;
+import dev.doctor4t.wathe.api.shop.ShopApi;
 import dev.doctor4t.wathe.client.gui.StoreRenderer;
-import dev.doctor4t.wathe.game.GameConstants;
 import dev.doctor4t.wathe.util.ShopEntry;
 import dev.doctor4t.wathe.util.StoreBuyPayload;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
@@ -33,8 +32,13 @@ public class LimitedInventoryScreen extends LimitedHandledScreen<PlayerScreenHan
     @Override
     protected void init() {
         super.init();
-        if (!GameWorldComponent.KEY.get(this.player.getWorld()).canUseKillerFeatures(player)) return;
-        List<ShopEntry> entries = GameConstants.SHOP_ENTRIES;
+        /*
+         * 商店显示统一从 ShopApi 解析。
+         * 这里不再只判断 canUseKillerFeatures：工程师、初学者、技术员等非杀手职业
+         * 只要注册了职业商店，也会自然显示自己的商品按钮。
+         */
+        List<ShopEntry> entries = ShopApi.getEntriesForPlayer(this.player);
+        if (entries.isEmpty()) return;
         int apart = 38;
         int x = this.width / 2 - entries.size() * apart / 2 + 9;
         int y = this.y - 46;

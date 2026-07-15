@@ -1,21 +1,17 @@
 package dev.doctor4t.wathe.cca;
 
 import dev.doctor4t.wathe.Wathe;
+import dev.doctor4t.wathe.api.shop.ShopApi;
+import dev.doctor4t.wathe.api.shop.ShopPurchaseContext;
+import dev.doctor4t.wathe.api.shop.ShopPurchaseResult;
 import dev.doctor4t.wathe.game.GameConstants;
 import dev.doctor4t.wathe.index.WatheItems;
-import dev.doctor4t.wathe.index.WatheSounds;
 import dev.doctor4t.wathe.record.ShopPurchaseTracker;
 import dev.doctor4t.wathe.util.ShopEntry;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.nbt.NbtCompound;
-import net.minecraft.network.packet.s2c.play.PlaySoundS2CPacket;
-import net.minecraft.registry.Registries;
 import net.minecraft.registry.RegistryWrapper;
-import net.minecraft.server.network.ServerPlayerEntity;
-import net.minecraft.sound.SoundCategory;
-import net.minecraft.text.Text;
-import net.minecraft.util.Formatting;
 import org.jetbrains.annotations.NotNull;
 import org.ladysnake.cca.api.v3.component.ComponentKey;
 import org.ladysnake.cca.api.v3.component.ComponentRegistry;
@@ -51,26 +47,41 @@ public class PlayerShopComponent implements AutoSyncedComponent, ServerTickingCo
     }
 
     public void tryBuy(int index) {
-        if (index < 0 || index >= GameConstants.SHOP_ENTRIES.size()) return;
-        ShopEntry entry = GameConstants.SHOP_ENTRIES.get(index);
+        ShopApi.ResolvedShop shop = ShopApi.resolveShop(this.player);
+        if (index < 0 || index >= shop.entries().size()) return;
+
+        ShopEntry entry = shop.entries().get(index);
         if (FabricLoader.getInstance().isDevelopmentEnvironment() && this.balance < entry.price())
             this.balance = entry.price() * 10;
-        if (this.balance >= entry.price() && !this.player.getItemCooldownManager().isCoolingDown(entry.stack().getItem()) && entry.onBuy(this.player)) {
+
+        ShopPurchaseContext context = new ShopPurchaseContext(
+                this.player,
+                this,
+                entry,
+                index,
+                shop.gameWorld(),
+                shop.role(),
+                shop.roleSpecificShop()
+        );
+        ShopPurchaseResult result = shop.provider().purchase(context);
+        if (result == null) {
+            result = ShopPurchaseResult.FAIL_SHOW_MESSAGE;
+        }
+
+        if (result.successful()) {
             /*
-             * 原版固定商店在这里就已经知道“本次真正买到的是哪个 ShopEntry”。
-             * 先把它记进追踪器，后续 StoreBuyPayload 记录回放时就不会再按格子号反查，
-             * 从而也为扩展职业模组的自定义商店留下统一对接方式。
+             * 不论商品来自 Wathe 原版列表，还是来自扩展职业注册的动态商店，
+             * 成功后都在这里统一回填真实商品。StoreBuyPayload 记录回放时会优先消费这条记录，
+             * 避免“客户端看见扩展商品，回放却按原版格子号显示匕首/左轮”的错位。
              */
             ShopPurchaseTracker.captureSuccessfulPurchase(this.player, entry, index, entry.price());
             this.balance -= entry.price();
-            if (this.player instanceof ServerPlayerEntity player) {
-                player.networkHandler.sendPacket(new PlaySoundS2CPacket(Registries.SOUND_EVENT.getEntry(WatheSounds.UI_SHOP_BUY), SoundCategory.PLAYERS, player.getX(), player.getY(), player.getZ(), 1.0f, 0.9f + this.player.getRandom().nextFloat() * 0.2f, player.getRandom().nextLong()));
-            }
+            ShopApi.playBuySound(this.player);
         } else {
-            this.player.sendMessage(Text.literal("Purchase Failed").formatted(Formatting.DARK_RED), true);
-            if (this.player instanceof ServerPlayerEntity player) {
-                player.networkHandler.sendPacket(new PlaySoundS2CPacket(Registries.SOUND_EVENT.getEntry(WatheSounds.UI_SHOP_BUY_FAIL), SoundCategory.PLAYERS, player.getX(), player.getY(), player.getZ(), 1.0f, 0.9f + this.player.getRandom().nextFloat() * 0.2f, player.getRandom().nextLong()));
+            if (result.shouldNotifyFailure() && entry.shouldShowPurchaseFailedMessage(this.player)) {
+                ShopApi.sendPurchaseFailedMessage(this.player);
             }
+            ShopApi.playFailSound(this.player);
         }
         this.sync();
     }
