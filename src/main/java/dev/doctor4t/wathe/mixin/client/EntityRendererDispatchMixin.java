@@ -2,10 +2,9 @@ package dev.doctor4t.wathe.mixin.client;
 
 import com.google.common.collect.ImmutableMap;
 import com.llamalad7.mixinextras.sugar.Local;
-import dev.doctor4t.wathe.client.WatheClient;
+import dev.doctor4t.wathe.api.client.appearance.PlayerAppearanceApi;
 import dev.doctor4t.wathe.client.render.entity.PlayerBodyEntityRenderer;
 import dev.doctor4t.wathe.entity.PlayerBodyEntity;
-import net.minecraft.client.network.PlayerListEntry;
 import net.minecraft.client.render.entity.EntityRenderDispatcher;
 import net.minecraft.client.render.entity.EntityRenderer;
 import net.minecraft.client.render.entity.EntityRendererFactory;
@@ -43,14 +42,15 @@ public class EntityRendererDispatchMixin {
     @Inject(method = "getRenderer", at = @At("HEAD"), cancellable = true)
     public <T extends Entity> void wathe$addPlayerBodyRenderer(T entity, CallbackInfoReturnable<EntityRenderer<? super T>> cir) {
         if (entity instanceof PlayerBodyEntity body) {
-            PlayerListEntry playerListEntry = WatheClient.PLAYER_ENTRIES_CACHE.get(body.getPlayerUuid());
-            if (playerListEntry == null) {
-                cir.setReturnValue((EntityRenderer<? super T>) this.bodyModelRenderers.get(SkinTextures.Model.WIDE));
-            } else {
-                SkinTextures.Model model = playerListEntry.getSkinTextures().model();
-                EntityRenderer<? extends PlayerBodyEntity> entityRenderer = this.bodyModelRenderers.get(model);
-                cir.setReturnValue((EntityRenderer<? super T>) (entityRenderer != null ? entityRenderer : (EntityRenderer) this.bodyModelRenderers.get(SkinTextures.Model.WIDE)));
-            }
+            /*
+             * 尸体 renderer 的宽/细模型必须跟“最终显示皮肤”保持一致。
+             * 这里不再只看真实死者 UUID，而是走 PlayerAppearanceApi：
+             * - 服务端保存的 appearance UUID 会生效；
+             * - 灵术师出窍这类只影响本地客户端的高优先级覆盖也会生效。
+             */
+            SkinTextures.Model model = PlayerAppearanceApi.resolveBodySkin(body).model();
+            EntityRenderer<? extends PlayerBodyEntity> entityRenderer = this.bodyModelRenderers.get(model);
+            cir.setReturnValue((EntityRenderer<? super T>) (entityRenderer != null ? entityRenderer : (EntityRenderer) this.bodyModelRenderers.get(SkinTextures.Model.WIDE)));
         }
     }
 

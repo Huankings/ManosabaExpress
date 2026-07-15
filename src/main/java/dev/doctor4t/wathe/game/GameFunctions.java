@@ -5,6 +5,7 @@ import dev.doctor4t.wathe.Wathe;
 import dev.doctor4t.wathe.api.GameMode;
 import dev.doctor4t.wathe.api.MapEffect;
 import dev.doctor4t.wathe.api.PlayerLifeStateApi;
+import dev.doctor4t.wathe.api.appearance.BodyAppearanceApi;
 import dev.doctor4t.wathe.api.event.AllowPlayerDeath;
 import dev.doctor4t.wathe.api.event.GameEvents;
 import dev.doctor4t.wathe.api.event.ShouldDropOnDeath;
@@ -723,6 +724,14 @@ public class GameFunctions {
             PlayerBodyEntity body = WatheEntities.PLAYER_BODY.create(victim.getWorld());
             if (body != null) {
                 body.setPlayerUuid(victim.getUuid());
+                UUID appearanceUuid = BodyAppearanceApi.resolveAppearanceUuid(victim, killer, deathReason);
+                if (appearanceUuid != null) {
+                    /*
+                     * 这里只写“尸体看起来像谁”，不改 body.setPlayerUuid(...) 里的真实死者。
+                     * 这样双重人格等视觉伪装不会影响尸袋、验尸、回放等继续追踪真正死亡玩家的逻辑。
+                     */
+                    body.setAppearanceUuid(appearanceUuid);
+                }
                 Vec3d spawnPos = victim.getPos().add(victim.getRotationVector().normalize().multiply(1));
                 body.refreshPositionAndAngles(spawnPos.getX(), victim.getY(), spawnPos.getZ(), victim.getHeadYaw(), 0f);
                 body.setYaw(victim.getHeadYaw());

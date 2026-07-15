@@ -1,5 +1,6 @@
 package dev.doctor4t.wathe.client.gui;
 
+import dev.doctor4t.wathe.api.client.gui.RoleNameHudApi;
 import dev.doctor4t.wathe.cca.GameWorldComponent;
 import dev.doctor4t.wathe.cca.PlayerPsychoComponent;
 import dev.doctor4t.wathe.entity.NoteEntity;
@@ -8,6 +9,7 @@ import net.minecraft.client.font.TextRenderer;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.client.render.RenderTickCounter;
+import net.minecraft.entity.Entity;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.entity.projectile.ProjectileUtil;
 import net.minecraft.text.MutableText;
@@ -25,16 +27,29 @@ public class RoleNameRenderer {
     private static float noteAlpha = 0f;
     private static Text nametag = Text.empty();
     private static final Text[] note = new Text[]{Text.empty(), Text.empty(), Text.empty(), Text.empty()};
+    private static PlayerEntity targetPlayer = null;
+    private static PlayerEntity displayedTargetPlayer = null;
 
     public static void renderHud(TextRenderer renderer, @NotNull ClientPlayerEntity player, DrawContext context, RenderTickCounter tickCounter) {
         GameWorldComponent component = GameWorldComponent.KEY.get(player.getWorld());
+        if (!RoleNameHudApi.shouldRenderHud(player)) {
+            nametagAlpha = 0f;
+            noteAlpha = 0f;
+            targetPlayer = null;
+            displayedTargetPlayer = null;
+            return;
+        }
         if (player.getWorld().getLightLevel(LightType.BLOCK, BlockPos.ofFloored(player.getEyePos())) < 3 && player.getWorld().getLightLevel(LightType.SKY, BlockPos.ofFloored(player.getEyePos())) < 10)
             return;
         float range = GameFunctions.isPlayerSpectatingOrCreative(player) ? 8f : 2f;
-        if (ProjectileUtil.getCollision(player, entity -> entity instanceof PlayerEntity, range) instanceof EntityHitResult entityHitResult && entityHitResult.getEntity() instanceof PlayerEntity target) {
+        Entity raycastSource = RoleNameHudApi.resolveRaycastSource(player);
+        if (ProjectileUtil.getCollision(raycastSource, entity -> entity instanceof PlayerEntity target && RoleNameHudApi.shouldIncludePlayerTarget(player, target), range) instanceof EntityHitResult entityHitResult && entityHitResult.getEntity() instanceof PlayerEntity target) {
+            targetPlayer = target;
+            displayedTargetPlayer = target;
             nametagAlpha = MathHelper.lerp(tickCounter.getTickDelta(true) / 4, nametagAlpha, 1f);
-            nametag = target.getDisplayName();
-            if (component.canUseKillerFeatures(target)) {
+            Text originalName = target.getDisplayName();
+            nametag = RoleNameHudApi.resolveName(player, target, originalName);
+            if (RoleNameHudApi.countsAsCohort(player, target, component.canUseKillerFeatures(target))) {
                 targetRole = TrainRole.KILLER;
             } else {
                 targetRole = TrainRole.BYSTANDER;
@@ -42,7 +57,11 @@ public class RoleNameRenderer {
             boolean shouldObfuscate = PlayerPsychoComponent.KEY.get(target).getPsychoTicks() > 0;
             nametag = shouldObfuscate ? Text.literal("urscrewed" + "X".repeat(player.getRandom().nextInt(8))).styled(style -> style.withFormatting(Formatting.OBFUSCATED, Formatting.DARK_RED)) : nametag;
         } else {
+            targetPlayer = null;
             nametagAlpha = MathHelper.lerp(tickCounter.getTickDelta(true) / 4, nametagAlpha, 0f);
+            if (nametagAlpha <= 0.05f) {
+                displayedTargetPlayer = null;
+            }
         }
         if (nametagAlpha > 0.05f) {
             context.getMatrices().push();
@@ -52,8 +71,11 @@ public class RoleNameRenderer {
             context.drawTextWithShadow(renderer, nametag, -nameWidth / 2, 16, MathHelper.packRgb(1f, 1f, 1f) | ((int) (nametagAlpha * 255) << 24));
             if (component.isRunning()) {
                 TrainRole playerRole = TrainRole.BYSTANDER;
-                if (component.canUseKillerFeatures(player)) playerRole = TrainRole.KILLER;
-                if (playerRole == TrainRole.KILLER && targetRole == TrainRole.KILLER) {
+                if (RoleNameHudApi.countsAsCohort(player, player, component.canUseKillerFeatures(player))) playerRole = TrainRole.KILLER;
+                if (displayedTargetPlayer != null
+                        && playerRole == TrainRole.KILLER
+                        && targetRole == TrainRole.KILLER
+                        && RoleNameHudApi.shouldShowCohortHint(player, displayedTargetPlayer, true)) {
                     context.getMatrices().translate(0, 20 + renderer.fontHeight, 0);
                     MutableText roleText = Text.translatable("game.tip.cohort");
                     int roleWidth = renderer.getWidth(roleText);
@@ -62,7 +84,7 @@ public class RoleNameRenderer {
             }
             context.getMatrices().pop();
         }
-        if (ProjectileUtil.getCollision(player, entity -> entity instanceof NoteEntity, range) instanceof EntityHitResult entityHitResult && entityHitResult.getEntity() instanceof NoteEntity note) {
+        if (ProjectileUtil.getCollision(raycastSource, entity -> entity instanceof NoteEntity, range) instanceof EntityHitResult entityHitResult && entityHitResult.getEntity() instanceof NoteEntity note) {
             noteAlpha = MathHelper.lerp(tickCounter.getTickDelta(true) / 4, noteAlpha, 1f);
             nametagAlpha = MathHelper.lerp(tickCounter.getTickDelta(true), nametagAlpha, 0f);
             RoleNameRenderer.note[0] = Text.literal(note.getLines()[0]);
@@ -83,6 +105,26 @@ public class RoleNameRenderer {
             }
             context.getMatrices().pop();
         }
+        /*
+         * 扩展职业的准心提示统一放到最后渲染。
+         * 这样它们可以复用 Wathe 已经算好的目标玩家、淡入淡出透明度和射线距离，
+         * 不需要再 mixin 到 getDisplayName()/getCollision() 这些脆弱调用点。
+         */
+        RoleNameHudApi.renderExtraHud(new RoleNameHudApi.Context(
+                renderer,
+                player,
+                context,
+                tickCounter,
+                range,
+                targetPlayer,
+                nametag,
+                nametagAlpha,
+                noteAlpha
+        ));
+    }
+
+    public static PlayerEntity getTargetPlayer() {
+        return targetPlayer;
     }
 
     private enum TrainRole {

@@ -2,6 +2,7 @@ package dev.doctor4t.wathe.client.render.entity;
 
 import dev.doctor4t.ratatouille.client.lib.render.helpers.Easing;
 import dev.doctor4t.wathe.Wathe;
+import dev.doctor4t.wathe.api.client.appearance.PlayerAppearanceApi;
 import dev.doctor4t.wathe.cca.PlayerMoodComponent;
 import dev.doctor4t.wathe.client.WatheClient;
 import dev.doctor4t.wathe.client.model.WatheModelLayers;
@@ -9,7 +10,6 @@ import dev.doctor4t.wathe.client.model.entity.PlayerSkeletonEntityModel;
 import dev.doctor4t.wathe.entity.PlayerBodyEntity;
 import dev.doctor4t.wathe.game.GameConstants;
 import net.minecraft.client.MinecraftClient;
-import net.minecraft.client.network.PlayerListEntry;
 import net.minecraft.client.render.RenderLayer;
 import net.minecraft.client.render.VertexConsumer;
 import net.minecraft.client.render.VertexConsumerProvider;
@@ -169,12 +169,7 @@ public class PlayerBodyEntityRenderer<T extends LivingEntity, M extends EntityMo
 
     @Override
     public Identifier getTexture(PlayerBodyEntity playerBodyEntity) {
-        PlayerListEntry playerListEntry = WatheClient.PLAYER_ENTRIES_CACHE.get(playerBodyEntity.getPlayerUuid());
-        if (playerListEntry != null) {
-            return playerListEntry.getSkinTextures().texture();
-        } else {
-            return DEFAULT_TEXTURE;
-        }
+        return PlayerAppearanceApi.resolveBodySkin(playerBodyEntity).texture();
     }
 
 

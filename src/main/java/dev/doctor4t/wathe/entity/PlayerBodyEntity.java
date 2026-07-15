@@ -22,7 +22,9 @@ import java.util.Optional;
 import java.util.UUID;
 
 public class PlayerBodyEntity extends LivingEntity {
+    public static final UUID FALLBACK_PLAYER_UUID = UUID.fromString("25adae11-cd98-48f4-990b-9fe1b2ee0886");
     private static final TrackedData<Optional<UUID>> PLAYER = DataTracker.registerData(PlayerBodyEntity.class, TrackedDataHandlerRegistry.OPTIONAL_UUID);
+    private static final TrackedData<Optional<UUID>> APPEARANCE_PLAYER = DataTracker.registerData(PlayerBodyEntity.class, TrackedDataHandlerRegistry.OPTIONAL_UUID);
 
     public PlayerBodyEntity(EntityType<? extends LivingEntity> entityType, World world) {
         super(entityType, world);
@@ -32,6 +34,7 @@ public class PlayerBodyEntity extends LivingEntity {
     protected void initDataTracker(DataTracker.Builder builder) {
         super.initDataTracker(builder);
         builder.add(PLAYER, Optional.empty());
+        builder.add(APPEARANCE_PLAYER, Optional.empty());
     }
 
     @Override
@@ -60,7 +63,29 @@ public class PlayerBodyEntity extends LivingEntity {
 
     public UUID getPlayerUuid() {
         Optional<UUID> optional = this.dataTracker.get(PLAYER);
-        return optional.orElseGet(() -> UUID.fromString("25adae11-cd98-48f4-990b-9fe1b2ee0886")); // Folly default because that's lowkey funny
+        return optional.orElse(FALLBACK_PLAYER_UUID); // Folly default because that's lowkey funny
+    }
+
+    /**
+     * 设置尸体的视觉外观 UUID。
+     *
+     * <p>这个值只表示“客户端应该按谁的皮肤渲染尸体”，不会改变尸体真实 owner。
+     * 因此验尸、尸袋、回放等玩法逻辑仍然应该继续读取 {@link #getPlayerUuid()}。</p>
+     */
+    public void setAppearanceUuid(UUID playerUuid) {
+        this.dataTracker.set(APPEARANCE_PLAYER, Optional.of(playerUuid));
+    }
+
+    public void clearAppearanceUuid() {
+        this.dataTracker.set(APPEARANCE_PLAYER, Optional.empty());
+    }
+
+    public Optional<UUID> getExplicitAppearanceUuid() {
+        return this.dataTracker.get(APPEARANCE_PLAYER);
+    }
+
+    public UUID getAppearanceUuid() {
+        return this.getExplicitAppearanceUuid().orElseGet(this::getPlayerUuid);
     }
 
     @Override
@@ -91,6 +116,7 @@ public class PlayerBodyEntity extends LivingEntity {
         if (this.getPlayerUuid() != null) {
             nbt.putUuid("Player", this.getPlayerUuid());
         }
+        this.getExplicitAppearanceUuid().ifPresent(uuid -> nbt.putUuid("AppearancePlayer", uuid));
     }
 
     @Override
@@ -106,6 +132,12 @@ public class PlayerBodyEntity extends LivingEntity {
 
         if (uUID != null) {
             this.setPlayerUuid(uUID);
+        }
+
+        if (nbt.containsUuid("AppearancePlayer")) {
+            this.setAppearanceUuid(nbt.getUuid("AppearancePlayer"));
+        } else {
+            this.clearAppearanceUuid();
         }
     }
 
