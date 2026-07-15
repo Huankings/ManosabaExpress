@@ -2,6 +2,7 @@ package dev.doctor4t.wathe.cca;
 
 import dev.doctor4t.wathe.Wathe;
 import dev.doctor4t.wathe.api.Role;
+import dev.doctor4t.wathe.api.task.TaskCompletionApi;
 import dev.doctor4t.wathe.block.entity.SeatEntity;
 import dev.doctor4t.wathe.client.WatheClient;
 import dev.doctor4t.wathe.game.GameConstants;
@@ -411,6 +412,13 @@ public class PlayerMoodComponent implements AutoSyncedComponent, ServerTickingCo
         if (this.player instanceof ServerPlayerEntity serverPlayer) {
             ServerPlayNetworking.send(serverPlayer, new TaskCompletePayload());
             GameRecordManager.recordTaskComplete(serverPlayer, taskType.name().toLowerCase());
+            /*
+             * 这是 Wathe 对外公开的“真实任务完成”事件点。
+             * 旧扩展常用 setMood 注入或监听 TaskCompletePayload 来推断任务完成，
+             * 但这两种方式都不是稳定语义：setMood 会被非任务来源触发，网络包监听又依赖内部同步细节。
+             * 因此这里在任务已经移除、提示与回放都记录完之后统一分发 API 事件。
+             */
+            TaskCompletionApi.handleTaskCompleted(serverPlayer, GameWorldComponent.KEY.get(serverPlayer.getWorld()), taskType, rewardMood);
         }
 
         this.incrementStuckTaskCounters();

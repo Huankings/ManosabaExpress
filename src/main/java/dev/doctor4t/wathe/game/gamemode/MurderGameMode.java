@@ -5,6 +5,7 @@ import dev.doctor4t.wathe.api.Faction;
 import dev.doctor4t.wathe.api.GameMode;
 import dev.doctor4t.wathe.api.WatheRoles;
 import dev.doctor4t.wathe.api.Role;
+import dev.doctor4t.wathe.api.economy.EconomyApi;
 import dev.doctor4t.wathe.cca.GameWorldComponent;
 import dev.doctor4t.wathe.cca.GameTimeComponent;
 import dev.doctor4t.wathe.cca.PlayerShopComponent;
@@ -77,24 +78,16 @@ public class MurderGameMode extends GameMode {
 
         boolean civilianAlive = false;
         for (ServerPlayerEntity player : serverWorld.getPlayers()) {
-            // passive money
-            if (gameWorldComponent.canUseKillerFeatures(player)) {
+            /*
+             * 通用被动收入统一从 EconomyApi 结算。
+             * 这样扩展职业可以声明自己拥有/禁止被动收入，也可以像“富豪”一样修改本次收入数值，
+             * 不再需要 mixin 到 canUseKillerFeatures(...) 这个内部判断点。
+             */
+            int basePassiveIncome = GameConstants.PASSIVE_MONEY_TICKER.apply(serverWorld.getTime());
+            int balanceToAdd = EconomyApi.calculatePassiveIncome(serverWorld, gameWorldComponent, player, basePassiveIncome);
+            if (balanceToAdd > 0) {
                 PlayerShopComponent playerShop = PlayerShopComponent.KEY.get(player);
-                Role role = gameWorldComponent.getRole(player);
-                /*
-                 * 被动收入现在统一按“当前阵营 -> 对应上限 -> 本次最多可补多少差额”来结算：
-                 * 1. 杀手 / 中立 / 好人阵营各自拥有独立上限；
-                 * 2. 当常量被配置为负数时，该阵营会关闭上限限制；
-                 * 3. 若本次收益会超过上限，则只补足到上限，不会溢出。
-                 *
-                 * 这样一来，只要扩展职业最终正确映射到了自己的阵营，
-                 * 即使它们是通过 mixin 把自己接入主模组被动收入链路，也会自动遵守同一套上限规则。
-                 */
-                int basePassiveIncome = GameConstants.PASSIVE_MONEY_TICKER.apply(serverWorld.getTime());
-                int balanceToAdd = GameConstants.getPassiveMoneyAmount(role == null ? null : role.getFaction(), playerShop.balance, basePassiveIncome);
-                if (balanceToAdd > 0) {
-                    playerShop.addToBalance(balanceToAdd);
-                }
+                playerShop.addToBalance(balanceToAdd);
             }
 
             // check if some civilians are still alive
