@@ -1,8 +1,11 @@
 package dev.doctor4t.wathe.client.gui;
 
 import dev.doctor4t.wathe.Wathe;
+import dev.doctor4t.wathe.api.client.mood.MoodHudApi;
+import dev.doctor4t.wathe.api.client.mood.MoodHudContext;
+import dev.doctor4t.wathe.api.client.mood.MoodHudStyle;
+import dev.doctor4t.wathe.api.client.mood.PsychoMoodHudStyle;
 import dev.doctor4t.wathe.api.Role;
-import dev.doctor4t.wathe.api.WatheGameModes;
 import dev.doctor4t.wathe.cca.GameWorldComponent;
 import dev.doctor4t.wathe.cca.PlayerMoodComponent;
 import dev.doctor4t.wathe.cca.PlayerPsychoComponent;
@@ -23,6 +26,7 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Random;
 
@@ -55,11 +59,22 @@ public class MoodRenderer {
     private static float currentWarningProgress = 0f;
     private static float currentShakeX = 0f;
     private static float currentShakeY = 0f;
+    private static MoodHudContext currentMoodHudContext = null;
+
+    private static final MoodHudStyle DEFAULT_REAL_STYLE = MoodHudStyle
+            .builder(MoodRenderer::getDefaultRealMoodSprite)
+            .arrows()
+            .hsvMoodBar()
+            .build();
+    private static final MoodHudStyle DEFAULT_FAKE_STYLE = MoodHudStyle
+            .builder(MOOD_KILLER)
+            .barColor(MathHelper.hsvToRgb(0F, 1.0F, 0.6F))
+            .build();
 
     @Environment(EnvType.CLIENT)
     public static void renderHud(@NotNull PlayerEntity player, TextRenderer textRenderer, DrawContext context, RenderTickCounter tickCounter) {
         GameWorldComponent gameWorldComponent = GameWorldComponent.KEY.get(player.getWorld());
-        if (!gameWorldComponent.isRunning() || !WatheClient.isPlayerAliveAndInSurvival() || gameWorldComponent.getGameMode() != WatheGameModes.MURDER) {
+        if (!gameWorldComponent.isRunning() || !WatheClient.isPlayerAliveAndInSurvival() || !MoodHudApi.shouldRenderInGameMode(gameWorldComponent.getGameMode())) {
             return;
         }
 
@@ -82,8 +97,31 @@ public class MoodRenderer {
                 (renderers.isEmpty() && warningProgress <= 0f) ? 0f : 1f
         );
 
+        /*
+         * 从这里开始，本帧的 HUD 状态已经全部算好。
+         * 新 API 只把这些状态作为只读上下文交给扩展职业，由 Wathe 继续统一处理位置、
+         * 透明度、警告抖动和箭头动画，避免扩展再 shadow 私有字段或复制整段渲染逻辑。
+         */
+        currentMoodHudContext = new MoodHudContext(
+                player,
+                textRenderer,
+                context,
+                tickCounter,
+                gameWorldComponent,
+                component,
+                role,
+                oldMood,
+                moodRender,
+                moodAlpha,
+                moodOffset,
+                moodTextWidth,
+                currentWarningProgress,
+                currentShakeX,
+                currentShakeY
+        );
+
         if (psycho.getPsychoTicks() > 0) {
-            renderPsycho(player, textRenderer, context, psycho, tickCounter);
+            renderPsycho(player, textRenderer, context, psycho, tickCounter, currentMoodHudContext);
             return;
         }
 
@@ -134,6 +172,24 @@ public class MoodRenderer {
             moodTextWidth = MathHelper.lerp(tickCounter.getTickDelta(true) / 32, moodTextWidth, 100f);
         }
 
+        currentMoodHudContext = new MoodHudContext(
+                player,
+                textRenderer,
+                context,
+                tickCounter,
+                gameWorldComponent,
+                component,
+                role,
+                oldMood,
+                moodRender,
+                moodAlpha,
+                moodOffset,
+                moodTextWidth,
+                currentWarningProgress,
+                currentShakeX,
+                currentShakeY
+        );
+
         for (TaskRenderer renderer : renderers.values()) {
             context.getMatrices().push();
             context.getMatrices().translate(currentShakeX, currentShakeY, 0);
@@ -149,7 +205,10 @@ public class MoodRenderer {
         }
 
         if (role != null) {
-            if (isFakeMood) {
+            MoodHudStyle customStyle = MoodHudApi.resolveMoodStyle(currentMoodHudContext);
+            if (customStyle != null) {
+                renderMoodStyle(currentMoodHudContext, customStyle);
+            } else if (isFakeMood) {
                 renderKiller(textRenderer, context);
             } else if (isRealMood) {
                 // 这里继续保留旧签名调用，专门兼容 starryexpress 对 renderHud 的精确注入。
@@ -158,6 +217,16 @@ public class MoodRenderer {
         }
 
         arrowProgress = MathHelper.lerp(tickCounter.getTickDelta(true) / 24, arrowProgress, 0f);
+    }
+
+    private static Identifier getDefaultRealMoodSprite(MoodHudContext context) {
+        if (context.moodRender() < GameConstants.DEPRESSIVE_MOOD_THRESHOLD) {
+            return MOOD_DEPRESSIVE;
+        }
+        if (context.moodRender() < GameConstants.MID_MOOD_THRESHOLD) {
+            return MOOD_MID;
+        }
+        return MOOD_HAPPY;
     }
 
     /**
@@ -206,6 +275,11 @@ public class MoodRenderer {
      * 新增的 warningProgress 等状态则通过当前帧缓存字段读取。
      */
     private static void renderCivilian(@NotNull TextRenderer textRenderer, @NotNull DrawContext context, float prevMood) {
+        if (currentMoodHudContext != null) {
+            renderMoodStyle(currentMoodHudContext, DEFAULT_REAL_STYLE);
+            return;
+        }
+
         context.getMatrices().push();
         context.getMatrices().translate(currentShakeX, currentShakeY, 0);
         context.getMatrices().translate(0, 3 * moodOffset, 0);
@@ -285,6 +359,11 @@ public class MoodRenderer {
     }
 
     private static void renderKiller(@NotNull TextRenderer textRenderer, @NotNull DrawContext context) {
+        if (currentMoodHudContext != null) {
+            renderMoodStyle(currentMoodHudContext, DEFAULT_FAKE_STYLE);
+            return;
+        }
+
         context.getMatrices().push();
         context.getMatrices().translate(currentShakeX, currentShakeY, 0);
         context.getMatrices().translate(0, 3 * moodOffset, 0);
@@ -300,11 +379,116 @@ public class MoodRenderer {
         context.getMatrices().pop();
     }
 
-    private static void renderPsycho(@NotNull PlayerEntity player, @NotNull TextRenderer renderer, @NotNull DrawContext context, PlayerPsychoComponent component, @NotNull RenderTickCounter tickCounter) {
+    private static void renderMoodStyle(@NotNull MoodHudContext moodContext, @NotNull MoodHudStyle style) {
+        DrawContext context = moodContext.drawContext();
+        TextRenderer textRenderer = moodContext.textRenderer();
+
+        context.getMatrices().push();
+        context.getMatrices().translate(moodContext.shakeX(), moodContext.shakeY(), 0);
+        context.getMatrices().translate(0, 3 * moodContext.moodOffset(), 0);
+
+        /*
+         * REAL 心情的“跌破阈值向下箭头”仍由 Wathe 判断。
+         * 扩展职业只负责提供箭头 sprite，因此 Rememberer/Starstruck 这类自定义箭头不需要复制逻辑。
+         */
+        if (style.renderArrows() && arrowProgress < 0.1f) {
+            if (moodContext.previousMood() >= GameConstants.DEPRESSIVE_MOOD_THRESHOLD && moodContext.moodRender() < GameConstants.DEPRESSIVE_MOOD_THRESHOLD) {
+                arrowProgress = -1f;
+            } else if (moodContext.previousMood() >= GameConstants.MID_MOOD_THRESHOLD && moodContext.moodRender() < GameConstants.MID_MOOD_THRESHOLD) {
+                arrowProgress = -1f;
+            }
+        }
+
+        MoodHudStyle.IconRenderer iconRenderer = style.iconRenderer();
+        if (iconRenderer != null) {
+            /*
+             * 少数职业需要“一次性、按事件起点播放”的图标动画。
+             * 这种动画不能交给 GUI sprite atlas 的全局循环计时器，所以开放自定义图标绘制器。
+             */
+            iconRenderer.render(moodContext);
+        } else {
+            Identifier mood = style.sprite(moodContext);
+            /*
+             * 这里使用 GUI sprite id，而不是直接纹理路径。
+             * 因此扩展模组只要提供 textures/gui/sprites/...png 和可选 .png.mcmeta，
+             * 动态帧动画就会由 Minecraft 的 sprite atlas 自动播放。
+             */
+            if (mood != null) {
+                context.drawGuiTexture(mood, 5, 6, 14, 17);
+            }
+        }
+
+        if (style.renderArrows()) {
+            renderMoodArrow(context, moodContext, style);
+        }
+
+        List<Identifier> overlays = style.overlays(moodContext);
+        for (Identifier overlay : overlays) {
+            if (overlay != null) {
+                context.drawGuiTexture(overlay, 5, 6, 14, 17);
+            }
+        }
+        context.getMatrices().pop();
+
+        if (style.shouldRenderBar(moodContext)) {
+            MoodHudStyle.BarRenderer barRenderer = style.barRenderer();
+            if (barRenderer != null) {
+                context.getMatrices().push();
+                context.getMatrices().translate(moodContext.shakeX(), moodContext.shakeY(), 0);
+                context.getMatrices().translate(0, 10 * moodContext.moodOffset(), 0);
+                context.getMatrices().translate(26, 8 + textRenderer.fontHeight, 0);
+                barRenderer.render(moodContext, moodContext.moodBarWidth(), moodContext.moodAlpha());
+                context.getMatrices().pop();
+            }
+        }
+
+        if (moodContext.warningProgress() > 0f && style.renderWarningText()) {
+            renderWarningText(textRenderer, context, moodContext);
+        }
+    }
+
+    private static void renderMoodArrow(@NotNull DrawContext context, @NotNull MoodHudContext moodContext, @NotNull MoodHudStyle style) {
+        if (Math.abs(arrowProgress) <= 0.01f) {
+            return;
+        }
+
+        boolean up = arrowProgress > 0;
+        Identifier arrow = up ? style.arrowUp(moodContext) : style.arrowDown(moodContext);
+        if (arrow == null) {
+            return;
+        }
+
+        context.getMatrices().push();
+        if (!up) {
+            context.getMatrices().translate(0, 4, 0);
+        }
+        context.getMatrices().translate(0, arrowProgress * 4, 0);
+        context.drawSprite(7, 6, 0, 10, 13, context.guiAtlasManager.getSprite(arrow), 1f, 1f, 1f, (float) Math.sin(Math.abs(arrowProgress) * Math.PI));
+        context.getMatrices().pop();
+    }
+
+    private static void renderWarningText(@NotNull TextRenderer textRenderer, @NotNull DrawContext context, @NotNull MoodHudContext moodContext) {
+        int pulseColour = getWarningColour(moodContext.warningProgress());
+        int warningTextY = 12 + textRenderer.fontHeight;
+        context.getMatrices().push();
+        context.getMatrices().translate(moodContext.shakeX(), moodContext.shakeY(), 0);
+        context.getMatrices().translate(0, 10 * moodContext.moodOffset(), 0);
+        context.drawTextWithShadow(
+                textRenderer,
+                Text.translatable("hud.mood.breakdown_warning"),
+                22,
+                warningTextY,
+                pulseColour | ((int) (moodContext.moodAlpha() * 255) << 24)
+        );
+        context.getMatrices().pop();
+    }
+
+    private static void renderPsycho(@NotNull PlayerEntity player, @NotNull TextRenderer renderer, @NotNull DrawContext context, PlayerPsychoComponent component, @NotNull RenderTickCounter tickCounter, @NotNull MoodHudContext moodContext) {
         int colour = MathHelper.hsvToRgb(0F, 1.0F, 0.5F);
         MutableText text = Text.translatable("game.psycho_mode.text").withColor(colour);
         int width = renderer.getWidth(text);
         random.setSeed(System.currentTimeMillis());
+        PsychoMoodHudStyle psychoStyle = MoodHudApi.resolvePsychoStyle(moodContext, component);
 
         context.getMatrices().push();
         context.getMatrices().translate(random.nextGaussian() / 3, random.nextGaussian() / 3, 0);
@@ -347,13 +531,19 @@ public class MoodRenderer {
                     (random.nextFloat() - random.nextFloat()) * moodScale * i,
                     -i * 3
             );
-            context.drawSprite(5, 6, 0, 14, 17, context.guiAtlasManager.getSprite(component.armour == GameConstants.PSYCHO_MODE_ARMOUR ? MOOD_PSYCHO : MOOD_PSYCHO_HIT), 1f, 1f, 1f, alpha);
+            Identifier bodySprite = component.armour == GameConstants.PSYCHO_MODE_ARMOUR ? psychoStyle.body(moodContext, component) : psychoStyle.hitBody(moodContext, component);
+            if (bodySprite != null) {
+                context.drawSprite(5, 6, 0, 14, 17, context.guiAtlasManager.getSprite(bodySprite), 1f, 1f, 1f, alpha);
+            }
             context.getMatrices().translate(
                     (random.nextFloat() - random.nextFloat()) * eyeScale * i,
                     (random.nextFloat() - random.nextFloat()) * eyeScale * i,
                     1
             );
-            context.drawSprite(5, 6, 0, 14, 17, context.guiAtlasManager.getSprite(MOOD_PSYCHO_EYES), 1f, 1f, 1f, alpha);
+            Identifier eyesSprite = psychoStyle.eyes(moodContext, component);
+            if (eyesSprite != null) {
+                context.drawSprite(5, 6, 0, 14, 17, context.guiAtlasManager.getSprite(eyesSprite), 1f, 1f, 1f, alpha);
+            }
             context.getMatrices().pop();
         }
         context.getMatrices().pop();
