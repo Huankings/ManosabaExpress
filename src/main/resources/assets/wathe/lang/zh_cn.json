@@ -361,6 +361,7 @@
   "task.fish": "去钓鱼。",
   "task.sleep": "去睡一会儿。",
   "tip.cooldown": "冷却中：%s",
+  "tip.wathe.held_item_invisible_to_others": "手持该物品时对其他玩家不可见",
   "shop.purchase_failed": "购买失败",
   "tip.grenade.switch_throw_mode": "当前手雷投掷方式切换为:%s",
   "tip.grenade.current_throw_mode": "当前手雷投掷方式:%s",

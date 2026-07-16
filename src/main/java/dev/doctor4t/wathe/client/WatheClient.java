@@ -7,6 +7,7 @@ import dev.doctor4t.ratatouille.client.util.ambience.BackgroundAmbience;
 import dev.doctor4t.wathe.Wathe;
 import dev.doctor4t.wathe.WatheConfig;
 import dev.doctor4t.wathe.api.Role;
+import dev.doctor4t.wathe.api.client.invisibility.HeldItemInvisibilityApi;
 import dev.doctor4t.wathe.api.instinct.InstinctApi;
 import dev.doctor4t.wathe.cca.GameWorldComponent;
 import dev.doctor4t.wathe.cca.MapEnhancementsWorldComponent;
@@ -101,6 +102,7 @@ public class WatheClient implements ClientModInitializer {
     private static boolean instinctToggleActive = false;
     private static boolean hasAutoOpenedVotingScreen = false;
     private static boolean wasVotingActive = false;
+    private static boolean wasHoldingInvisibleHeldItem = false;
     private static boolean defaultInstinctHandlersRegistered = false;
 
     public static boolean shouldDisableHudAndDebug() {
@@ -345,6 +347,12 @@ public class WatheClient implements ClientModInitializer {
             RoundTextRenderer.tick();
             handleInstinctKeybind(client);
 
+            if (client.player != null) {
+                maybeShowHeldItemInvisibilityNotice(client.player);
+            } else {
+                wasHoldingInvisibleHeldItem = false;
+            }
+
             /*
              * 左键松开后再解除“本次按住已处理”的锁。
              *
@@ -376,6 +384,7 @@ public class WatheClient implements ClientModInitializer {
         ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
             TaskPointClientState.clear();
             instinctToggleActive = false;
+            wasHoldingInvisibleHeldItem = false;
         });
         WorldRenderEvents.AFTER_TRANSLUCENT.register(TaskPointOverlayRenderer::render);
 
@@ -718,6 +727,26 @@ public class WatheClient implements ClientModInitializer {
         } else if (!isHoldingGrenade) {
             lastGrenadeSelectedSlot = -1;
         }
+    }
+
+    /**
+     * 当本地玩家刚拿出“会对其他局内存活玩家不可见”的物品时，给一次 actionbar 提示。
+     *
+     * <p>这里故意做成“状态边沿触发”：
+     * 1. 第一次拿出隐藏物品时提示；
+     * 2. 一直拿着时不重复刷屏；
+     * 3. 收起后再次拿出，会重新提示。</p>
+     */
+    private static void maybeShowHeldItemInvisibilityNotice(@NotNull ClientPlayerEntity player) {
+        boolean holdingInvisibleItem = gameComponent != null
+                && gameComponent.isRunning()
+                && GameFunctions.isPlayerAliveAndSurvival(player)
+                && HeldItemInvisibilityApi.hasActiveHiddenHeldItem(player);
+
+        if (holdingInvisibleItem && !wasHoldingInvisibleHeldItem) {
+            player.sendMessage(Text.translatable("tip.wathe.held_item_invisible_to_others").formatted(Formatting.GRAY), true);
+        }
+        wasHoldingInvisibleHeldItem = holdingInvisibleItem;
     }
 
     public static void showGrenadeThrowModeSwitchMessage(@NotNull PlayerEntity player) {

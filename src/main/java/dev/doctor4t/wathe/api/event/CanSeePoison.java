@@ -8,7 +8,7 @@ import static net.fabricmc.fabric.api.event.EventFactory.createArrayBacked;
 public interface CanSeePoison {
 
     /**
-     * Callback for determining whether a player can see poison particles on beverage plate.
+     * 用于判断玩家是否能看到饮料盘上的毒素颗粒的回调。
      */
     Event<CanSeePoison> EVENT = createArrayBacked(CanSeePoison.class, listeners -> player -> {
         for (CanSeePoison listener : listeners) {

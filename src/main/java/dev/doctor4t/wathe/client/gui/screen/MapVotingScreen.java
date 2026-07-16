@@ -24,25 +24,38 @@ import java.util.Random;
  * <p>非 OP 在 onlyop=true 时仍可打开界面查看候选地图，但点击不会发送投票包。</p>
  */
 public class MapVotingScreen extends Screen {
+
+    // --- 风格配色方案 (列车谋杀案风格) ---
+    // 背景：深色红木/皮革
     private static final int BG_TOP = 0xEE1A0505;
     private static final int BG_BOTTOM = 0xEE0F0202;
+
+    // 装饰线条：做旧黄铜/金
     private static final int BRASS_COLOR = 0xFFD4AF37;
     private static final int BRASS_DIM = 0xFF8B735B;
-    private static final int TICKET_BG = 0xFFFDF5E6;
+
+    // 卡片/车票颜色
+    private static final int TICKET_BG = 0xFFFDF5E6; // 旧纸张色
     private static final int TICKET_BG_DARK = 0xFFE0D5C0;
     private static final int TICKET_BG_SELECTED = 0xFFFFF8F0;
-    private static final int TEXT_INK = 0xFF2F1B1B;
-    private static final int TEXT_DIM = 0xFF6B5A5A;
-    private static final int TEXT_RED = 0xFFA00000;
-    private static final int BAR_BG = 0xFF4A3520;
-    private static final int BAR_FILL = 0xFFA00000;
 
+    // 文本颜色
+    private static final int TEXT_INK = 0xFF2F1B1B; // 墨水色
+    private static final int TEXT_DIM = 0xFF6B5A5A;
+    private static final int TEXT_RED = 0xFFA00000; // 重要信息红
+
+    // 进度条
+    private static final int BAR_BG = 0xFF4A3520;
+    private static final int BAR_FILL = 0xFFA00000; // 天鹅绒红
+
+    // 尺寸 (基础值，实际值由 computeLayout 计算)
     private static final int BASE_CARD_WIDTH = 140;
     private static final int BASE_CARD_HEIGHT = 125;
     private static final int BASE_CARD_GAP = 12;
     private static final int TARGET_COLS = 5;
     private static final int TARGET_ROWS = 2;
 
+    // 计算后的布局参数
     private int cardWidth = BASE_CARD_WIDTH;
     private int cardHeight = BASE_CARD_HEIGHT;
     private int cardGap = BASE_CARD_GAP;
@@ -55,20 +68,24 @@ public class MapVotingScreen extends Screen {
     private static final int STRIP_CARD_HEIGHT = 80;
     private static final int STRIP_TOTAL_CARDS = 40;
     private static final int STRIP_LANDING_POS = STRIP_TOTAL_CARDS - 8;
+    // 滚动时间 7 秒，展示结果 1 秒（服务端总计 8 秒）
     private static final int ROULETTE_SCROLL_TICKS = 7 * 20;
 
+    // 动画状态
     private float slideProgress = 0f;
     private float prevSlideProgress = 0f;
-    private static final float SLIDE_SPEED = 0.08f;
+    private static final float SLIDE_SPEED = 0.08f; // 稍微调慢一点显现速度
 
+    // 滚动/翻页状态
     private int scrollRow = 0;
     private int maxScrollRow = 0;
 
+    // 轮盘状态
     private int[] rouletteSequence;
     private int rouletteAnimTick = 0;
     private boolean rouletteStripInitialized = false;
     private boolean rouletteResultSoundPlayed = false;
-    private int lastRouletteTickIndex = -1;
+    private int lastRouletteTickIndex = -1; // 上一次经过指针的卡片索引，用于触发滚动音效
 
     public MapVotingScreen() {
         super(Text.translatable("gui.wathe.map_voting.title"));
@@ -82,32 +99,34 @@ public class MapVotingScreen extends Screen {
 
     private void computeLayout() {
         layoutPadding = 30;
-        layoutTopY = 55;
+        layoutTopY = 55; // 标题和顶部装饰条下方
 
-        int bottomY = height - 45;
+        int bottomY = height - 45; // 底部装饰条上方
         int availableWidth = width - layoutPadding * 2;
         int availableHeight = bottomY - layoutTopY;
 
+        // 先尝试目标列数，逐步减少直到卡片不会太窄
         layoutCols = TARGET_COLS;
         while (layoutCols > 1) {
             int testWidth = (availableWidth - (layoutCols - 1) * BASE_CARD_GAP) / layoutCols;
-            if (testWidth >= 100) break;
+            if (testWidth >= 100) break; // 最小卡片宽度100
             layoutCols--;
         }
 
         cardGap = BASE_CARD_GAP;
         cardWidth = (availableWidth - (layoutCols - 1) * cardGap) / layoutCols;
-        cardWidth = Math.min(cardWidth, 180);
+        cardWidth = Math.min(cardWidth, 180); // 上限
 
+        // 计算行数：可以容纳的行数
         layoutRows = TARGET_ROWS;
         while (layoutRows > 1) {
             int testHeight = (availableHeight - (layoutRows - 1) * cardGap) / layoutRows;
-            if (testHeight >= 90) break;
+            if (testHeight >= 90) break; // 最小卡片高度90
             layoutRows--;
         }
 
         cardHeight = (availableHeight - (layoutRows - 1) * cardGap) / layoutRows;
-        cardHeight = Math.min(cardHeight, 150);
+        cardHeight = Math.min(cardHeight, 150); // 上限
         scrollRow = 0;
     }
 
@@ -146,7 +165,9 @@ public class MapVotingScreen extends Screen {
     @Override
     public void tick() {
         super.tick();
+        // 记录上一帧状态用于插值
         prevSlideProgress = slideProgress;
+
         if (slideProgress < 1f) {
             slideProgress = Math.min(1f, slideProgress + SLIDE_SPEED);
         }
@@ -172,12 +193,15 @@ public class MapVotingScreen extends Screen {
         rouletteSequence = new int[STRIP_TOTAL_CARDS];
         Random random = new Random();
 
+        // 生成更有随机感的序列，但保证每张图都出现
         for (int i = 0; i < STRIP_TOTAL_CARDS; i++) {
             if (i == STRIP_LANDING_POS) {
                 rouletteSequence[i] = selectedMapIndex;
             } else if (i > STRIP_LANDING_POS && i < STRIP_LANDING_POS + 3) {
+                // 结果后面几张随机
                 rouletteSequence[i] = random.nextInt(mapCount);
             } else {
+                // 确保结果不会在着陆点前立刻出现，增加悬念
                 int next = i % mapCount;
                 if (i == STRIP_LANDING_POS - 1 && next == selectedMapIndex) {
                     next = (next + 1) % mapCount;
@@ -196,21 +220,28 @@ public class MapVotingScreen extends Screen {
         MapVotingComponent voting = getVoting();
         if (voting == null || !voting.isVotingActive()) return;
 
+        // 计算插值后的平滑动画进度
         float smoothedSlide = MathHelper.lerp(delta, prevSlideProgress, slideProgress);
-        float ease = easeOutBack(smoothedSlide);
+        float ease = easeOutBack(smoothedSlide);// 使用带回弹的缓动效果，更生动
         int yOffset = (int) ((1f - ease) * 100);
 
+        // 背景：深色渐变 + 晕影效果
         context.fillGradient(0, 0, this.width, this.height, BG_TOP, BG_BOTTOM);
+        // 绘制顶部和底部的装饰条 (Art Deco 风格)
         renderDecoBars(context, yOffset);
 
         List<VotingMapEntry> maps = voting.getAvailableMaps();
         if (voting.isRoulettePhase()) {
+            // 轮盘阶段
             renderRouletteStrip(context, maps, delta, yOffset);
+            // 标题
             drawTitle(context, Text.translatable("gui.wathe.map_voting.selecting"), 20 - yOffset, 1.5f);
         } else {
+            // 投票阶段
             renderVotingCards(context, voting, maps, mouseX, mouseY, yOffset);
+            // 标题
             drawTitle(context, Text.translatable("gui.wathe.map_voting.title"), 16 - yOffset, 1.2f);
-
+            // 倒计时
             int ticksLeft = voting.getVotingTicksRemaining();
             String timeStr = String.format("%d", Math.max(0, ticksLeft / 20));
             int color = ticksLeft < 100 ? 0xFFFF5555 : BRASS_COLOR;
@@ -220,8 +251,10 @@ public class MapVotingScreen extends Screen {
     }
 
     private void renderDecoBars(DrawContext context, int yOffset) {
+        // 顶部线条
         context.fill(0, 45 - yOffset, width, 46 - yOffset, BRASS_COLOR);
         context.fill(0, 48 - yOffset, width, 49 - yOffset, BRASS_COLOR);
+        // 底部线条
         context.fill(0, height - 40 + yOffset, width, height - 39 + yOffset, BRASS_COLOR);
         context.fill(0, height - 43 + yOffset, width, height - 42 + yOffset, BRASS_COLOR);
     }
@@ -241,6 +274,7 @@ public class MapVotingScreen extends Screen {
         int totalCards = maps.size() + unavailableMaps.size();
         updateMaxScroll(totalCards);
 
+        // 网格布局居中
         int gridWidth = layoutCols * cardWidth + (layoutCols - 1) * cardGap;
         int startX = (this.width - gridWidth) / 2;
         int baseY = layoutTopY - yOffset;
@@ -249,6 +283,7 @@ public class MapVotingScreen extends Screen {
         for (int count : voteCounts) totalVotes += count;
         int myVote = (client.player != null) ? voting.getVotedMapIndex(client.player.getUuid()) : -1;
 
+        // 计算加权概率（与服务端逻辑一致：无人投票=等概率，有人投票=只算有票的）
         boolean hasAnyVotes = false;
         for (int count : voteCounts) {
             if (count > 0) {
@@ -264,6 +299,7 @@ public class MapVotingScreen extends Screen {
             totalWeight += weights[i];
         }
 
+        // 遍历所有卡片，先可选后不可选
         int firstVisibleIndex = scrollRow * layoutCols;
         int lastVisibleIndex = firstVisibleIndex + layoutRows * layoutCols;
 
@@ -276,6 +312,7 @@ public class MapVotingScreen extends Screen {
             int y = baseY + row * (cardHeight + cardGap);
 
             if (index < maps.size()) {
+                // 可选地图
                 VotingMapEntry map = maps.get(index);
                 boolean isHovered = mouseX >= x && mouseX <= x + cardWidth && mouseY >= y && mouseY <= y + cardHeight;
                 boolean isMyVote = index == myVote;
@@ -285,10 +322,12 @@ public class MapVotingScreen extends Screen {
                 drawTicketCard(context, x, y + hoverOffset, map, true, isMyVote, isHovered,
                         index < voteCounts.length ? voteCounts[index] : 0, totalVotes, probability);
             } else {
+                // 不可选地图
                 int unavailableIndex = index - maps.size();
                 UnavailableMapEntry unavailableMap = unavailableMaps.get(unavailableIndex);
                 drawTicketCard(context, x, y, new VotingMapEntry(unavailableMap.dimensionId(), unavailableMap.displayName(), "", 0, 0),
                         false, false, false, 0, 0, 0f);
+                // 不可用原因覆盖层
                 context.fill(x + 5, y + 5, x + cardWidth - 5, y + cardHeight - 5, 0xAA000000);
                 context.drawBorder(x + 5, y + 5, cardWidth - 10, cardHeight - 10, 0x55FFFFFF);
                 drawCenteredText(context, parseUnavailableReason(unavailableMap.reason()), x + cardWidth / 2, y + cardHeight / 2 - 4, 0xFFAAAAAA);

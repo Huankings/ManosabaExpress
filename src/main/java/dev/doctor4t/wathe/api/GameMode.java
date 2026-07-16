@@ -16,9 +16,9 @@ public abstract class GameMode {
     public final int minPlayerCount;
 
     /**
-     * @param identifier the game mode identifier
-     * @param defaultStartTime the default time at which the timer will be set at the start of the game mode, in ticks
-     * @param minPlayerCount the minimum amount of players required to start the game mode
+     * @param identifier 游戏模式标识
+     * @param defaultStartTime 游戏模式开始时计时器的默认时间，以ticks为单位
+     * @param minPlayerCount 开始游戏模式所需的最少玩家数量
      */
     public GameMode(Identifier identifier, int defaultStartTime, int minPlayerCount) {
         this.identifier = identifier;

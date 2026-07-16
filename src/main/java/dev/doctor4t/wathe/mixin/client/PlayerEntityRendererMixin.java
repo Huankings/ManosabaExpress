@@ -1,8 +1,10 @@
 package dev.doctor4t.wathe.mixin.client;
 
 import com.llamalad7.mixinextras.injector.ModifyExpressionValue;
+import dev.doctor4t.wathe.api.client.invisibility.HeldItemInvisibilityApi;
 import dev.doctor4t.wathe.client.WatheClient;
 import dev.doctor4t.wathe.index.WatheItems;
+import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.network.AbstractClientPlayerEntity;
 import net.minecraft.client.render.entity.PlayerEntityRenderer;
 import net.minecraft.client.render.entity.model.BipedEntityModel;
@@ -27,11 +29,21 @@ public class PlayerEntityRendererMixin {
 
     @ModifyExpressionValue(method = "getArmPose", at = @At(value = "INVOKE", target = "Lnet/minecraft/client/network/AbstractClientPlayerEntity;getStackInHand(Lnet/minecraft/util/Hand;)Lnet/minecraft/item/ItemStack;"))
     private static ItemStack wathe$changeNoteAndPsychosisItemsArmPos(ItemStack original, AbstractClientPlayerEntity player, Hand hand) {
-        if (hand.equals(Hand.MAIN_HAND)) {
-            if (original.isOf(WatheItems.NOTE)) {
-                return ItemStack.EMPTY;
-            }
+        ItemStack stack = original;
 
+        if (hand.equals(Hand.MAIN_HAND)) {
+            if (stack.isOf(WatheItems.NOTE)) {
+                stack = ItemStack.EMPTY;
+            }
+        }
+
+        /*
+         * 手持物真正被隐藏时，手臂姿势也要按“空手”处理。
+         * 否则其他玩家虽然看不到物品，却仍会看到拿物品/使用物品的手臂动作。
+         */
+        stack = HeldItemInvisibilityApi.applyInvisibility(MinecraftClient.getInstance().player, player, hand, stack);
+
+        if (hand.equals(Hand.MAIN_HAND)) {
             if (WatheClient.moodComponent != null && WatheClient.moodComponent.isLowerThanMid()) { // make sure it's only the main hand item that's being replaced
                 HashMap<UUID, ItemStack> psychosisItems = WatheClient.moodComponent.getPsychosisItems();
                 UUID uuid = player.getUuid();
@@ -41,6 +53,6 @@ public class PlayerEntityRendererMixin {
             }
         }
 
-        return original;
+        return stack;
     }
 }

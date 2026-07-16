@@ -396,6 +396,7 @@
   "tip.skin": "Skin: ",
   "tip.change_skin": " [Right-click to change (supporter only)]",
   "tip.cooldown": "On cooldown: %s",
+  "tip.wathe.held_item_invisible_to_others": "Invisible to other players while held",
   "shop.purchase_failed": "Purchase Failed",
   "tip.grenade.switch_throw_mode": "Current grenade throw mode switched to: %s",
   "tip.grenade.current_throw_mode": "Current grenade throw mode: %s",

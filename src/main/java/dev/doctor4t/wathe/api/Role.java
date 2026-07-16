@@ -24,13 +24,13 @@ public final class Role {
     }
 
     /**
-     * @param identifier    the mod id and name of the role
-     * @param color         the role announcement color
-     * @param isInnocent    whether the gun drops when a person with this role is shot and is considered a civilian to the win conditions
-     * @param canUseKiller  can see and use the killer features
-     * @param moodType      the mood type a role has
-     * @param maxSprintTime the maximum sprint time in ticks
-     * @param canSeeTime    if the role can see the game timer
+     * @param identifier    角色的mod ID和名称
+     * @param color         角色职业颜色
+     * @param isInnocent    当拥有这个角色的人被射击并且在胜利条件中被视为平民时，枪是否会掉落（是则掉落，不是则不掉落）
+     * @param canUseKiller  可以看到并且使用杀手功能
+     * @param moodType      角色的心情类型（真或假）
+     * @param maxSprintTime 最大冲刺时间（以ticks为单位）
+     * @param canSeeTime    角色是否可以看到时间
      */
     public Role(Identifier identifier, int color, boolean isInnocent, boolean canUseKiller, MoodType moodType, int maxSprintTime, boolean canSeeTime) {
         this.identifier = identifier;

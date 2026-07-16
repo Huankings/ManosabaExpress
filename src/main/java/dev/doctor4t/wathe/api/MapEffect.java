@@ -10,7 +10,7 @@ public abstract class MapEffect {
     public final Identifier identifier;
 
     /**
-     * @param identifier the map effect identifier
+     * @param identifier 地图效果标识
      */
     public MapEffect(Identifier identifier) {
         this.identifier = identifier;

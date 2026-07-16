@@ -9,7 +9,7 @@ import static net.fabricmc.fabric.api.event.EventFactory.createArrayBacked;
 public interface ShouldDropOnDeath {
 
     /**
-     * Callback for determining whether an {@link ItemStack} should drop when player died
+     * 用于判断玩家死亡时{@link ItemStack}是否应该掉落的回调
      */
     Event<ShouldDropOnDeath> EVENT = createArrayBacked(ShouldDropOnDeath.class, listeners -> (stack, victim) -> {
         for (ShouldDropOnDeath listener : listeners) {

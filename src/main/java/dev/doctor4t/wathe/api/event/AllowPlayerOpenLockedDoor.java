@@ -8,7 +8,7 @@ import static net.fabricmc.fabric.api.event.EventFactory.createArrayBacked;
 public interface AllowPlayerOpenLockedDoor {
 
     /**
-     * Callback for determining whether a player can open locked door.
+     * 回调函数，用于判断玩家是否能开锁着的门。
      */
     Event<AllowPlayerOpenLockedDoor> EVENT = createArrayBacked(AllowPlayerOpenLockedDoor.class, listeners -> player -> {
         for (AllowPlayerOpenLockedDoor listener : listeners) {
