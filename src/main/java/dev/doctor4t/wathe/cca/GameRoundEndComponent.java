@@ -165,7 +165,12 @@ public class GameRoundEndComponent implements AutoSyncedComponent {
         return switch (faction) {
             case KILLER -> RoleAnnouncementTexts.KILLER;
             case VIGILANTE -> RoleAnnouncementTexts.VIGILANTE;
-            case NEUTRAL -> RoleAnnouncementTexts.LOOSE_END;
+            /*
+             * 普通谋杀模式里的中立职业不再借用 Loose Ends 的“孤行者”标签。
+             * Loose Ends 仍然通过 looseEndsRound 单独走整屏孤行者布局；这里的 NEUTRAL
+             * 只表示扩展职业在常规对局结算页里的“中立”阵营分组。
+             */
+            case NEUTRAL -> RoleAnnouncementTexts.NEUTRAL;
             case CIVILIAN -> RoleAnnouncementTexts.CIVILIAN;
         };
     }
@@ -336,6 +341,9 @@ public class GameRoundEndComponent implements AutoSyncedComponent {
             }
             if (teamRole == RoleAnnouncementTexts.LOOSE_END) {
                 return new RoundEndRoleDisplay("announcement.title.loose_end", "Loose End", teamRole.colour);
+            }
+            if (teamRole == RoleAnnouncementTexts.NEUTRAL) {
+                return new RoundEndRoleDisplay("announcement.title.neutral", "Neutral", teamRole.colour);
             }
             return new RoundEndRoleDisplay("announcement.title.civilian", "Civilian", teamRole.colour);
         }

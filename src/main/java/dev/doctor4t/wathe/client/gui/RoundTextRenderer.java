@@ -166,15 +166,16 @@ public class RoundTextRenderer {
     // 主要用于限制结算块整体不要压到屏幕下方和物品栏附近。
     private static float endHudHeight = 180f;
     // 当前这一帧结算里各阵营的人数缓存。
-    // 这样像 KinsWathe 这类扩展模组在注入同一帧渲染时，
+    // 这样扩展模组在注入同一帧渲染时，
     // 也能拿到已经算好的动态布局结果，而不是只能猜一个固定坐标。
     private static int endCivilianCount = 0;
     private static int endVigilanteCount = 0;
     private static int endKillerCount = 0;
+    private static int endNeutralCount = 0;
     private static int endLooseEndCount = 0;
-    // 左侧额外阵营（例如 KinsWathe 的中立阵营）的人数与列数缓存。
-    // 主模组本身不关心额外阵营是谁，但需要知道它会占多高，
-    // 才能把整个结算块提前往上挪，避免和物品栏或其他阵营重叠。
+    // 左侧外部额外阵营的人数与列数缓存。
+    // Wathe 自己的中立板块已经单独由 endNeutralCount 管理；这里保留给未来扩展
+    // 挂载更多左侧分区时使用，避免它们和原生中立或物品栏重叠。
     private static int endExternalLeftExtraCount = 0;
     private static int endExternalLeftExtraColumns = END_GRID_COLUMNS_CIVILIAN;
 
@@ -223,6 +224,7 @@ public class RoundTextRenderer {
             int civilianTotal = 0;
             int vigilanteTotal = 0;
             int killerTotal = 0;
+            int neutralTotal = 0;
             int looseEndTotal = 0;
             if (isLooseEnds) {
                 looseEndTotal = roundEnd.getPlayers().size();
@@ -231,8 +233,19 @@ public class RoundTextRenderer {
                     if (entry.role() == RoleAnnouncementTexts.VIGILANTE) vigilanteTotal += 1;
                     else if (entry.role() == RoleAnnouncementTexts.CIVILIAN) civilianTotal += 1;
                     else if (entry.role() == RoleAnnouncementTexts.KILLER) killerTotal += 1;
+                    else if (entry.role() == RoleAnnouncementTexts.NEUTRAL) neutralTotal += 1;
                 }
             }
+            /*
+             * 这些缓存必须在计算根坐标前就写好。
+             * 下面的动态列数和整体上移量都会读取当前帧的阵营总人数；
+             * 如果等到真正绘制分组时才更新，中立板块就可能被排进布局之外。
+             */
+            endCivilianCount = isLooseEnds ? 0 : civilianTotal;
+            endVigilanteCount = isLooseEnds ? 0 : vigilanteTotal;
+            endKillerCount = isLooseEnds ? 0 : killerTotal;
+            endNeutralCount = isLooseEnds ? 0 : neutralTotal;
+            endLooseEndCount = isLooseEnds ? looseEndTotal : 0;
 
             context.getMatrices().push();
             context.getMatrices().translate(
@@ -250,10 +263,6 @@ public class RoundTextRenderer {
             context.drawTextWithShadow(renderer, winMessage, -renderer.getWidth(winMessage) / 2, -4, 0xFFFFFF);
             context.getMatrices().pop();
             if (isLooseEnds) {
-                endCivilianCount = 0;
-                endVigilanteCount = 0;
-                endKillerCount = 0;
-                endLooseEndCount = looseEndTotal;
                 context.drawTextWithShadow(
                         renderer,
                         RoleAnnouncementTexts.LOOSE_END.titleText,
@@ -275,13 +284,10 @@ public class RoundTextRenderer {
                 }
                 context.getMatrices().pop();
             } else {
-                endLooseEndCount = 0;
-                endCivilianCount = civilianTotal;
-                endVigilanteCount = vigilanteTotal;
-                endKillerCount = killerTotal;
                 int roundTotalForColumns = getEndRoundTotalCount(civilianTotal, vigilanteTotal, killerTotal);
                 int civilianColumns = getEndGridColumnsCivilian(roundTotalForColumns);
                 int rightColumns = getEndGridColumnsDouble(roundTotalForColumns);
+                int neutralColumns = getEndGridColumnsCivilian(roundTotalForColumns);
                 context.drawTextWithShadow(
                         renderer,
                         RoleAnnouncementTexts.CIVILIAN.titleText,
@@ -303,9 +309,24 @@ public class RoundTextRenderer {
                         (int) getKillerHeaderY(vigilanteTotal, civilianTotal, killerTotal),
                         0xFFFFFF
                 );
+                if (neutralTotal > 0) {
+                    /*
+                     * 中立板块转正后固定挂在左侧平民板块下方。
+                     * 横向继续复用左侧阵营的对齐规则，纵向则按平民实际行数往下推，
+                     * 这样人数少时不会空出大块区域，人数多时也能随动态扩列一起收缩高度。
+                     */
+                    context.drawTextWithShadow(
+                            renderer,
+                            RoleAnnouncementTexts.NEUTRAL.titleText,
+                            (int) (-renderer.getWidth(RoleAnnouncementTexts.NEUTRAL.titleText) / 2f + getNeutralGroupCenterX(neutralTotal, neutralColumns, civilianTotal, vigilanteTotal, killerTotal)),
+                            (int) getNeutralHeaderY(civilianTotal, roundTotalForColumns),
+                            0xFFFFFF
+                    );
+                }
                 int civilians = 0;
                 int vigilantes = 0;
                 int killers = 0;
+                int neutrals = 0;
                 for (GameRoundEndComponent.RoundEndData entry : roundEnd.getPlayers()) {
                     context.getMatrices().push();
                     if (entry.role() == RoleAnnouncementTexts.CIVILIAN) {
@@ -329,6 +350,20 @@ public class RoundTextRenderer {
                                 0
                         );
                         killers++;
+                    } else if (entry.role() == RoleAnnouncementTexts.NEUTRAL) {
+                        context.getMatrices().translate(
+                                getNeutralColumnStartX(neutrals, neutralTotal, neutralColumns, civilianTotal, vigilanteTotal, killerTotal) + (neutrals % neutralColumns) * END_SLOT_STEP_X,
+                                getNeutralGridStartY(civilianTotal, roundTotalForColumns) + (neutrals / neutralColumns) * END_SLOT_STEP_Y,
+                                0
+                        );
+                        neutrals++;
+                    } else {
+                        /*
+                         * 理论上 setRoundEndData 已经会过滤掉没有职业的旁观/中途加入玩家。
+                         * 这里再兜底一次，避免未来扩展写入未知阵营后被画在矩阵原点。
+                         */
+                        context.getMatrices().pop();
+                        continue;
                     }
 
                     renderRoundEndPlayer(renderer, context, roundEnd, entry);
@@ -519,7 +554,7 @@ public class RoundTextRenderer {
      * 2. 在 6 人基础上每多 12 人，就额外多一列；
      * 3. 例如 6~17 人时仍是基础列数，18~29 人时多 1 列。
      * 这里的 total 应当传“本局结算的服务器总人数”，
-     * 包括平民、义警、杀手，以及像 KinsWathe 中立这类额外阵营。
+     * 包括平民、义警、杀手，以及 Wathe 原生中立和外部额外阵营。
      */
     public static int getEndGridColumnsCivilian(int total) {
         return getDynamicColumns(total, END_GRID_COLUMNS_CIVILIAN, END_DYNAMIC_COLUMNS_LEFT_STEP);
@@ -574,11 +609,28 @@ public class RoundTextRenderer {
     }
 
     public static float getExtraSectionHeaderY(int previousCount, int columns) {
-        return getTeamGridStartY() + getRowsForCount(previousCount, columns) * END_SLOT_STEP_Y + END_EXTRA_HEADER_OFFSET_Y;
+        return getStackedSectionHeaderY(getTeamGridStartY(), previousCount, columns);
     }
 
     public static float getExtraSectionGridStartY(int previousCount, int columns) {
         return getExtraSectionHeaderY(previousCount, columns) + END_SECTION_GAP_Y;
+    }
+
+    /**
+     * 根据上一段头像网格的起点与行数，计算下一段阵营标题的位置。
+     * 原来的额外分区只需要接在平民下面，所以用 getTeamGridStartY() 就够了；
+     * 现在 Wathe 自己有“平民 -> 中立 -> 未来扩展分区”的纵向堆叠，因此抽出
+     * 这个通用版本，避免后续再出现固定 Y 坐标互相覆盖。
+     */
+    private static float getStackedSectionHeaderY(float previousGridStartY, int previousCount, int columns) {
+        return previousGridStartY + getRowsForCount(previousCount, columns) * END_SLOT_STEP_Y + END_EXTRA_HEADER_OFFSET_Y;
+    }
+
+    /**
+     * getStackedSectionHeaderY 的网格起点版本，给连续堆叠的左侧阵营使用。
+     */
+    private static float getStackedSectionGridStartY(float previousGridStartY, int previousCount, int columns) {
+        return getStackedSectionHeaderY(previousGridStartY, previousCount, columns) + END_SECTION_GAP_Y;
     }
 
     /**
@@ -605,8 +657,8 @@ public class RoundTextRenderer {
 
     /**
      * 供扩展模组登记“左侧额外阵营”的布局信息。
-     * 例如 KinsWathe 会把中立阵营的人数和列数告诉主渲染器，
-     * 这样主渲染器在决定整块结算区域要往上挪多少时，就能把中立阵营也一起算进去。
+     * Wathe 原生中立已经不需要走这个入口；它保留给后续扩展继续挂载
+     * “平民区下方的额外分组”，并参与整块结算区域的上移计算。
      */
     public static void setExternalLeftExtraSection(int count, int columns) {
         endExternalLeftExtraCount = Math.max(0, count);
@@ -653,20 +705,33 @@ public class RoundTextRenderer {
     }
 
     /**
-     * 左侧平民 + 左侧额外阵营（如中立阵营）合并后的最低点。
+     * 左侧平民 + 原生中立 + 左侧外部额外阵营合并后的最低点。
      */
     private static float getLeftCombinedSectionBottomY(int civilianTotal, int vigilanteTotal, int killerTotal) {
         int roundTotal = getEndRoundTotalCount(civilianTotal, vigilanteTotal, killerTotal);
-        float civilianBottom = getSectionBottomY(civilianTotal, getEndGridColumnsCivilian(roundTotal), getTeamGridStartY());
+        int civilianColumns = getEndGridColumnsCivilian(roundTotal);
+        int neutralColumns = getEndGridColumnsCivilian(roundTotal);
+        float civilianBottom = getSectionBottomY(civilianTotal, civilianColumns, getTeamGridStartY());
+        float neutralGridStartY = getNeutralGridStartY(civilianTotal, roundTotal);
+        float nativeNeutralBottom = endNeutralCount <= 0
+                ? civilianBottom
+                : getSectionBottomY(endNeutralCount, neutralColumns, neutralGridStartY);
         if (endExternalLeftExtraCount <= 0) {
-            return civilianBottom;
+            return Math.max(civilianBottom, nativeNeutralBottom);
         }
+        /*
+         * 兼容仍然使用旧公开 API 的扩展：Wathe 原生中立占掉第一段左侧额外区域后，
+         * 外部额外分区继续往下堆，而不是继续贴在平民下面导致互相覆盖。
+         */
+        float externalGridStartY = endNeutralCount <= 0
+                ? getExtraSectionGridStartY(civilianTotal, civilianColumns)
+                : getStackedSectionGridStartY(neutralGridStartY, endNeutralCount, neutralColumns);
         return Math.max(
-                civilianBottom,
+                Math.max(civilianBottom, nativeNeutralBottom),
                 getSectionBottomY(
                         endExternalLeftExtraCount,
                         endExternalLeftExtraColumns,
-                        getExtraSectionGridStartY(civilianTotal, getEndGridColumnsCivilian(roundTotal))
+                        externalGridStartY
                 )
         );
     }
@@ -814,7 +879,7 @@ public class RoundTextRenderer {
 
     /**
      * 暴露给扩展模组使用的“当前帧平民分组中心点”。
-     * 适合给 KinsWathe 的中立阵营标题直接复用，让标题稳定显示在所属阵营正上方。
+     * 适合给外部额外分组标题直接复用，让标题稳定显示在所属阵营正上方。
      */
     public static float getCivilianGroupCenterX() {
         return getCivilianGroupCenterX(endCivilianCount, endVigilanteCount, endKillerCount);
@@ -926,8 +991,44 @@ public class RoundTextRenderer {
     }
 
     /**
+     * 原生中立阵营标题中心点。
+     *
+     * <p>中立板块视觉上属于左侧阵营堆叠，所以这里直接复用“平民额外分区”
+     * 的横向规则。这样后续如果调整左侧分组为左对齐/居中/右对齐，中立标题
+     * 和头像也会一起跟着变，不需要再维护第二套坐标。</p>
+     */
+    private static float getNeutralGroupCenterX(int neutralTotal, int neutralColumns, int civilianTotal, int vigilanteTotal, int killerTotal) {
+        return getCivilianExtraSectionGroupCenterX(neutralTotal, neutralColumns, civilianTotal, vigilanteTotal, killerTotal);
+    }
+
+    /**
+     * 原生中立阵营某一行的起始横坐标。
+     *
+     * <p>这里保留 index/total/columns 三个参数，是为了让最后一行不足整行时
+     * 仍然能按当前左侧阵营对齐模式自动居中或贴边，避免单个中立玩家看起来
+     * 漂到标题外面。</p>
+     */
+    private static float getNeutralColumnStartX(int index, int neutralTotal, int neutralColumns, int civilianTotal, int vigilanteTotal, int killerTotal) {
+        return getCivilianExtraSectionColumnStartX(index, neutralTotal, neutralColumns, civilianTotal, vigilanteTotal, killerTotal);
+    }
+
+    /**
+     * 中立标题的纵向位置：固定接在平民头像区域之后。
+     */
+    private static float getNeutralHeaderY(int civilianTotal, int roundTotal) {
+        return getExtraSectionHeaderY(civilianTotal, getEndGridColumnsCivilian(roundTotal));
+    }
+
+    /**
+     * 中立头像网格的纵向起点：固定接在中立标题之后。
+     */
+    private static float getNeutralGridStartY(int civilianTotal, int roundTotal) {
+        return getExtraSectionGridStartY(civilianTotal, getEndGridColumnsCivilian(roundTotal));
+    }
+
+    /**
      * 给“挂在平民列下面的额外阵营”使用的动态起点。
-     * 例如 KinsWathe 的中立阵营可以复用这里。
+     * 原生中立已经由 Wathe 自己绘制；这个入口继续留给其他外部左侧分组复用。
      * 它会和左侧平民阵营使用同一套“左 / 中 / 右起点模式”。
      */
     public static float getCivilianExtraSectionColumnStartX(int index, int total, int columns) {
@@ -952,7 +1053,7 @@ public class RoundTextRenderer {
 
     /**
      * 给扩展模组使用的“左侧额外阵营标题中心点”。
-     * 例如 KinsWathe 的中立阵营标题可以直接复用它，保证标题在本阵营头像正上方。
+     * 原生中立已经由 Wathe 自己绘制；这个入口继续留给其他外部左侧分组标题复用。
      * 同时它也会跟随左侧阵营的起点模式常量一起变化。
      */
     public static float getCivilianExtraSectionGroupCenterX(int total, int columns, int civilianTotal, int vigilanteTotal, int killerTotal) {
@@ -1086,6 +1187,7 @@ public class RoundTextRenderer {
         return Math.max(0, civilianTotal)
                 + Math.max(0, vigilanteTotal)
                 + Math.max(0, killerTotal)
+                + Math.max(0, endNeutralCount)
                 + Math.max(0, endExternalLeftExtraCount);
     }
 

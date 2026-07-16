@@ -20,6 +20,7 @@ public class RoleAnnouncementTexts {
     public static final RoleAnnouncementText CIVILIAN = registerRoleAnnouncementText(new RoleAnnouncementText("civilian", 0x36E51B));
     public static final RoleAnnouncementText VIGILANTE = registerRoleAnnouncementText(new RoleAnnouncementText("vigilante", 0x1B8AE5));
     public static final RoleAnnouncementText KILLER = registerRoleAnnouncementText(new RoleAnnouncementText("killer", 0xC13838));
+    public static final RoleAnnouncementText NEUTRAL = registerRoleAnnouncementText(new RoleAnnouncementText("neutral", 0xCC6600));
     public static final RoleAnnouncementText LOOSE_END = registerRoleAnnouncementText(new RoleAnnouncementText("loose_end", 0x9F0000));
 
     public static class RoleAnnouncementText {
@@ -50,7 +51,12 @@ public class RoleAnnouncementTexts {
         public @Nullable Text getEndText(GameFunctions.@NotNull WinStatus status, Text winner) {
             return switch (status) {
                 case NONE -> null;
-                case PASSENGERS, TIME -> this == KILLER ? this.getLoseText() : this.winText;
+                /*
+                 * 中立在普通谋杀模式里只是一个结算分组，不代表它会跟着“乘客胜利”
+                 * 宣称成“中立胜利”。这里沿用原来 KinsWathe 的语义：中立玩家看到的
+                 * 仍然是本局实际获胜阵营文案，独立胜利则交给扩展自己的 CustomWinner 逻辑。
+                 */
+                case PASSENGERS, TIME -> this == KILLER ? this.getLoseText() : this == NEUTRAL ? CIVILIAN.winText : this.winText;
                 case KILLERS -> this == KILLER ? this.winText : this.getLoseText();
                 case LOOSE_END ->
                         Text.translatable("announcement.win." + LOOSE_END.name.toLowerCase(), winner).withColor(LOOSE_END.colour);
