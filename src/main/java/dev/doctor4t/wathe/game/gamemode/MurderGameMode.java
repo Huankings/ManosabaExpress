@@ -90,18 +90,18 @@ public class MurderGameMode extends GameMode {
                 playerShop.addToBalance(balanceToAdd);
             }
 
-            // check if some civilians are still alive
+            // 检查平民是否还存活
             if (gameWorldComponent.isInnocent(player) && !GameFunctions.isPlayerEliminated(player)) {
                 civilianAlive = true;
             }
         }
 
-        // check killer win condition (killed all civilians)
+        // 检查杀手胜利条件（杀死所有平民）
         if (!civilianAlive) {
             winStatus = GameFunctions.WinStatus.KILLERS;
         }
 
-        // check passenger win condition (all killers are dead)
+        // 检查乘客获胜条件（所有杀手都死了）
         if (winStatus == GameFunctions.WinStatus.NONE) {
             winStatus = GameFunctions.WinStatus.PASSENGERS;
             for (UUID player : gameWorldComponent.getAllKillerTeamPlayers()) {
@@ -111,7 +111,7 @@ public class MurderGameMode extends GameMode {
             }
         }
 
-        // game end on win and display
+        // 游戏胜利结束并显示
         if (winStatus != GameFunctions.WinStatus.NONE && gameWorldComponent.getGameStatus() == GameWorldComponent.GameStatus.ACTIVE) {
             GameRoundEndComponent.KEY.get(serverWorld).setRoundEndData(serverWorld.getPlayers(), winStatus);
 
