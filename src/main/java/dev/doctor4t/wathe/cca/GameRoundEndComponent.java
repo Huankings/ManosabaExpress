@@ -6,10 +6,12 @@ import dev.doctor4t.wathe.api.Faction;
 import dev.doctor4t.wathe.api.Role;
 import dev.doctor4t.wathe.Wathe;
 import dev.doctor4t.wathe.api.WatheGameModes;
+import dev.doctor4t.wathe.api.win.CustomVictory;
 import dev.doctor4t.wathe.client.gui.RoleAnnouncementTexts;
 import dev.doctor4t.wathe.game.GameFunctions;
 import net.minecraft.nbt.NbtCompound;
 import net.minecraft.nbt.NbtElement;
+import net.minecraft.nbt.NbtHelper;
 import net.minecraft.nbt.NbtList;
 import net.minecraft.registry.RegistryWrapper;
 import net.minecraft.scoreboard.Scoreboard;
@@ -25,9 +27,12 @@ import org.ladysnake.cca.api.v3.component.ComponentRegistry;
 import org.ladysnake.cca.api.v3.component.sync.AutoSyncedComponent;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.UUID;
 
 public class GameRoundEndComponent implements AutoSyncedComponent {
@@ -47,6 +52,16 @@ public class GameRoundEndComponent implements AutoSyncedComponent {
      */
     private final HashMap<UUID, RoundEndRoleDisplay> roleDisplays = new HashMap<>();
     private GameFunctions.WinStatus winStatus = GameFunctions.WinStatus.NONE;
+    @Nullable
+    private CustomVictory customVictory = null;
+    /*
+     * 普通阵营结算时的“额外赢家”。
+     *
+     * 恋人 / 双重人格这类词条在配置允许共胜时，结算顶部仍然可以显示杀手或乘客胜利，
+     * 但带词条的玩家也必须在 didWin(...) 里被当作真正赢家。
+     * 因此这里单独保存 UUID，而不是把他们强行改到某个原版阵营。
+     */
+    private final Set<UUID> extraWinnerUuids = new HashSet<>();
     private boolean looseEndsRound = false;
     private boolean discoveryRound = false;
     @Nullable
@@ -71,8 +86,20 @@ public class GameRoundEndComponent implements AutoSyncedComponent {
     }
 
     public void setRoundEndData(@NotNull List<ServerPlayerEntity> players, GameFunctions.WinStatus winStatus) {
+        this.setRoundEndData(players, winStatus, null, List.of());
+    }
+
+    public void setRoundEndData(
+            @NotNull List<ServerPlayerEntity> players,
+            GameFunctions.WinStatus winStatus,
+            @Nullable CustomVictory customVictory,
+            @NotNull Collection<UUID> extraWinnerUuids
+    ) {
         this.players.clear();
         this.roleDisplays.clear();
+        this.extraWinnerUuids.clear();
+        this.extraWinnerUuids.addAll(extraWinnerUuids);
+        this.customVictory = customVictory;
         ServerWorld dataWorld = this.world instanceof ServerWorld serverWorld
                 ? serverWorld
                 : players.isEmpty() ? null : players.getFirst().getServerWorld();
@@ -136,6 +163,9 @@ public class GameRoundEndComponent implements AutoSyncedComponent {
         this.roleDisplays.clear();
         this.roleDisplays.putAll(source.roleDisplays);
         this.winStatus = source.winStatus;
+        this.customVictory = source.customVictory;
+        this.extraWinnerUuids.clear();
+        this.extraWinnerUuids.addAll(source.extraWinnerUuids);
         this.looseEndsRound = source.looseEndsRound;
         this.discoveryRound = source.discoveryRound;
         this.looseEndWinner = source.looseEndWinner;
@@ -176,6 +206,13 @@ public class GameRoundEndComponent implements AutoSyncedComponent {
     }
 
     public boolean didWin(UUID uuid) {
+        CustomVictory currentCustomVictory = this.getCustomVictory();
+        if (currentCustomVictory != null) {
+            return currentCustomVictory.isWinner(uuid);
+        }
+        if (this.getExtraWinnerUuids().contains(uuid)) {
+            return true;
+        }
         GameFunctions.WinStatus currentWinStatus = this.getWinStatus();
         if (GameFunctions.WinStatus.NONE == currentWinStatus) return false;
         for (RoundEndData detail : this.getPlayers()) {
@@ -187,6 +224,20 @@ public class GameRoundEndComponent implements AutoSyncedComponent {
             };
         }
         return false;
+    }
+
+    public @Nullable CustomVictory getCustomVictory() {
+        GameRoundEndComponent delegate = getGlobalDelegate();
+        return delegate != this ? delegate.getCustomVictory() : this.customVictory;
+    }
+
+    public boolean hasCustomVictory() {
+        return this.getCustomVictory() != null;
+    }
+
+    public @NotNull Set<UUID> getExtraWinnerUuids() {
+        GameRoundEndComponent delegate = getGlobalDelegate();
+        return delegate != this ? delegate.getExtraWinnerUuids() : Set.copyOf(this.extraWinnerUuids);
     }
 
     public List<RoundEndData> getPlayers() {
@@ -230,6 +281,14 @@ public class GameRoundEndComponent implements AutoSyncedComponent {
         }
         tag.put("players", list);
         tag.putInt("winstatus", this.winStatus.ordinal());
+        if (this.customVictory != null) {
+            tag.put("customVictory", this.customVictory.writeToNbt());
+        }
+        NbtList extraWinners = new NbtList();
+        for (UUID uuid : this.extraWinnerUuids) {
+            extraWinners.add(NbtHelper.fromUuid(uuid));
+        }
+        tag.put("extraWinners", extraWinners);
         tag.putBoolean("looseEndsRound", this.looseEndsRound);
         tag.putBoolean("discoveryRound", this.discoveryRound);
         if (this.looseEndWinner != null) {
@@ -248,6 +307,13 @@ public class GameRoundEndComponent implements AutoSyncedComponent {
             this.roleDisplays.put(detail.player().getId(), RoundEndRoleDisplay.fromNbt(playerTag, detail.role()));
         }
         this.winStatus = GameFunctions.WinStatus.values()[tag.getInt("winstatus")];
+        this.customVictory = tag.contains("customVictory")
+                ? CustomVictory.fromNbt(tag.getCompound("customVictory"))
+                : null;
+        this.extraWinnerUuids.clear();
+        for (NbtElement element : tag.getList("extraWinners", NbtElement.INT_ARRAY_TYPE)) {
+            this.extraWinnerUuids.add(NbtHelper.toUuid(element));
+        }
         this.looseEndsRound = tag.getBoolean("looseEndsRound");
         this.discoveryRound = tag.getBoolean("discoveryRound");
         this.looseEndWinner = tag.contains("looseEndWinner") ? tag.getUuid("looseEndWinner") : null;

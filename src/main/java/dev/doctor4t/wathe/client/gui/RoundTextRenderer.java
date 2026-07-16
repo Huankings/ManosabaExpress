@@ -3,6 +3,8 @@ package dev.doctor4t.wathe.client.gui;
 import com.mojang.authlib.GameProfile;
 import com.mojang.blaze3d.systems.RenderSystem;
 import dev.doctor4t.wathe.api.WatheGameModes;
+import dev.doctor4t.wathe.api.win.CustomVictory;
+import dev.doctor4t.wathe.api.win.CustomVictoryGroup;
 import dev.doctor4t.wathe.cca.GameRoundEndComponent;
 import dev.doctor4t.wathe.cca.GameRoundEndComponent.RoundEndRoleDisplay;
 import dev.doctor4t.wathe.cca.GameWorldComponent;
@@ -218,8 +220,16 @@ public class RoundTextRenderer {
             if (roundEnd.getWinStatus() == GameFunctions.WinStatus.NONE) return;
             isLooseEnds = roundEnd.isLooseEndsRound();
             PlayerEntity winner = player.getWorld().getPlayerByUuid(roundEnd.getLooseEndWinner() == null ? UUID.randomUUID() : roundEnd.getLooseEndWinner());
-            Text endText = role.getEndText(roundEnd.getWinStatus(), winner == null ? Text.empty() : winner.getDisplayName());
+            CustomVictory customVictory = roundEnd.getCustomVictory();
+            Text endText = customVictory == null
+                    ? role.getEndText(roundEnd.getWinStatus(), winner == null ? Text.empty() : winner.getDisplayName())
+                    : getCustomVictoryAnnouncementText(customVictory);
             if (endText == null) return;
+
+            if (customVictory != null) {
+                renderCustomVictoryEnd(renderer, context, roundEnd, customVictory, endText);
+                return;
+            }
 
             int civilianTotal = 0;
             int vigilanteTotal = 0;
@@ -443,6 +453,105 @@ public class RoundTextRenderer {
         endTime = 0;
     }
 
+    private static void renderCustomVictoryEnd(
+            @NotNull TextRenderer renderer,
+            @NotNull DrawContext context,
+            @NotNull GameRoundEndComponent roundEnd,
+            @NotNull CustomVictory customVictory,
+            @NotNull Text endText
+    ) {
+        CustomVictoryGroup winnerGroup = customVictory.winnerGroup();
+        int otherTotal = 0;
+        int winnerTotal = 0;
+        for (GameRoundEndComponent.RoundEndData entry : roundEnd.getPlayers()) {
+            if (winnerGroup.contains(entry.player().getId())) {
+                winnerTotal++;
+            } else {
+                otherTotal++;
+            }
+        }
+
+        /*
+         * 自定义胜利结算固定使用“两块”布局：
+         * 左侧把所有非独立赢家归为“其他”，右侧把扩展声明的 UUID 归入“独立胜利阵营”。
+         * 这里复用 Wathe 原本的左 / 右动态列宽算法，这样人数变多时仍会自动扩列和上移。
+         */
+        clearExternalLeftExtraSection();
+        endCivilianCount = otherTotal;
+        endVigilanteCount = winnerTotal;
+        endKillerCount = 0;
+        endNeutralCount = 0;
+        endLooseEndCount = 0;
+
+        int roundTotalForColumns = getEndRoundTotalCount(otherTotal, winnerTotal, 0);
+        int otherColumns = getEndGridColumnsCivilian(roundTotalForColumns);
+        int winnerColumns = getEndGridColumnsDouble(roundTotalForColumns);
+
+        context.getMatrices().push();
+        context.getMatrices().translate(
+                context.getScaledWindowWidth() / 2f + END_ROOT_OFFSET_X,
+                getEndRootTranslateY(false, otherTotal, winnerTotal, 0, 0),
+                0
+        );
+        context.getMatrices().push();
+        context.getMatrices().scale(2.6f, 2.6f, 1f);
+        context.drawTextWithShadow(renderer, endText, -renderer.getWidth(endText) / 2, -12, 0xFFFFFF);
+        context.getMatrices().pop();
+
+        context.getMatrices().push();
+        context.getMatrices().scale(1.2f, 1.2f, 1f);
+        Text winMessage = getCustomVictoryDetailText(customVictory);
+        context.drawTextWithShadow(renderer, winMessage, -renderer.getWidth(winMessage) / 2, -4, 0xFFFFFF);
+        context.getMatrices().pop();
+
+        Text otherTitle = getTranslatedOrLiteral("announcement.title.wathe.other", "Other");
+        if (otherTotal > 0) {
+            context.drawTextWithShadow(
+                    renderer,
+                    otherTitle,
+                    (int) (-renderer.getWidth(otherTitle) / 2f + getCivilianGroupCenterX(otherTotal, winnerTotal, 0)),
+                    (int) END_HEADER_Y,
+                    0x808080
+            );
+        }
+
+        Text winnerTitle = getCustomVictoryGroupTitle(winnerGroup);
+        if (winnerTotal > 0) {
+            context.drawTextWithShadow(
+                    renderer,
+                    winnerTitle,
+                    (int) (-renderer.getWidth(winnerTitle) / 2f + getVigilanteGroupCenterX(otherTotal, winnerTotal, 0)),
+                    (int) END_HEADER_Y,
+                    winnerGroup.color()
+            );
+        }
+
+        int others = 0;
+        int winners = 0;
+        for (GameRoundEndComponent.RoundEndData entry : roundEnd.getPlayers()) {
+            boolean isWinner = winnerGroup.contains(entry.player().getId());
+            context.getMatrices().push();
+            if (isWinner) {
+                context.getMatrices().translate(
+                        getVigilanteColumnStartX(winners, otherTotal, winnerTotal, 0) + (winners % winnerColumns) * END_SLOT_STEP_X,
+                        getTeamGridStartY() + (winners / winnerColumns) * END_SLOT_STEP_Y,
+                        0
+                );
+                winners++;
+            } else {
+                context.getMatrices().translate(
+                        getCivilianColumnStartX(others, otherTotal, winnerTotal, 0) + (others % otherColumns) * END_SLOT_STEP_X,
+                        getTeamGridStartY() + (others / otherColumns) * END_SLOT_STEP_Y,
+                        0
+                );
+                others++;
+            }
+            renderRoundEndPlayer(renderer, context, roundEnd, entry);
+            context.getMatrices().pop();
+        }
+        context.getMatrices().pop();
+    }
+
     private static void renderRoundEndPlayer(
             @NotNull TextRenderer renderer,
             @NotNull DrawContext context,
@@ -541,6 +650,27 @@ public class RoundTextRenderer {
         }
 
         context.getMatrices().pop();
+    }
+
+    private static @NotNull Text getCustomVictoryAnnouncementText(@NotNull CustomVictory victory) {
+        return getTranslatedOrLiteral(victory.announcementTranslationKey(), victory.fallbackTitle() + " Wins").copy()
+                .withColor(victory.color());
+    }
+
+    private static @NotNull Text getCustomVictoryDetailText(@NotNull CustomVictory victory) {
+        return getTranslatedOrLiteral(victory.detailTranslationKey(), victory.fallbackTitle() + " achieved an independent victory");
+    }
+
+    private static @NotNull Text getCustomVictoryGroupTitle(@NotNull CustomVictoryGroup group) {
+        return getTranslatedOrLiteral(group.titleTranslationKey(), group.fallbackTitle()).copy()
+                .withColor(group.color());
+    }
+
+    private static @NotNull MutableText getTranslatedOrLiteral(@NotNull String translationKey, @NotNull String fallback) {
+        if (!translationKey.isEmpty() && Language.getInstance().hasTranslation(translationKey)) {
+            return Text.translatable(translationKey);
+        }
+        return Text.literal(fallback);
     }
 
     public static int getEndGridColumnsCivilian() {

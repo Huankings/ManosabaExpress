@@ -6,6 +6,7 @@ import dev.doctor4t.wathe.api.GameMode;
 import dev.doctor4t.wathe.api.WatheRoles;
 import dev.doctor4t.wathe.api.Role;
 import dev.doctor4t.wathe.api.economy.EconomyApi;
+import dev.doctor4t.wathe.api.win.VictoryApi;
 import dev.doctor4t.wathe.cca.GameWorldComponent;
 import dev.doctor4t.wathe.cca.GameTimeComponent;
 import dev.doctor4t.wathe.cca.PlayerShopComponent;
@@ -107,6 +108,38 @@ public class MurderGameMode extends GameMode {
             for (UUID player : gameWorldComponent.getAllKillerTeamPlayers()) {
                 if (!GameFunctions.isPlayerEliminated(serverWorld.getPlayerByUuid(player))) {
                     winStatus = GameFunctions.WinStatus.NONE;
+                }
+            }
+        }
+
+        if (gameWorldComponent.getGameStatus() == GameWorldComponent.GameStatus.ACTIVE) {
+            /*
+             * 原版胜利状态已经算完后，统一交给公开胜利 API 做最后仲裁：
+             * 1. 独立胜利职业 / 词条可以在这里直接写入自定义结算并结束；
+             * 2. “活着时游戏不结束”的职业可以拦住普通杀手 / 乘客胜利；
+             * 3. 允许共胜的词条可以在普通阵营胜利时追加真正赢家 UUID。
+             *
+             * 这样扩展模组不再需要 mixin 到本方法的局部变量或字节码字段位置。
+             */
+            VictoryApi.VictoryResult victoryResult = VictoryApi.evaluate(serverWorld, gameWorldComponent, winStatus);
+            switch (victoryResult.action()) {
+                case CUSTOM_WIN -> {
+                    if (victoryResult.customVictory() != null) {
+                        VictoryApi.endGameWithCustomVictory(serverWorld, victoryResult.customVictory());
+                    }
+                    return;
+                }
+                case KEEP_RUNNING -> {
+                    return;
+                }
+                case VANILLA_WIN -> {
+                    if (victoryResult.winStatus() != null) {
+                        VictoryApi.endGameWithVanillaWin(serverWorld, victoryResult.winStatus(), victoryResult.extraWinnerUuids());
+                        return;
+                    }
+                }
+                case PASS -> {
+                    // 没有扩展规则接管时，继续走 Wathe 原本的结算流程。
                 }
             }
         }
