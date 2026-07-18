@@ -1,6 +1,7 @@
 package dev.doctor4t.wathe.cca;
 
 import dev.doctor4t.wathe.Wathe;
+import dev.doctor4t.wathe.api.PlayerLifeStateApi;
 import dev.doctor4t.wathe.api.Role;
 import dev.doctor4t.wathe.api.task.TaskCompletionApi;
 import dev.doctor4t.wathe.block.entity.SeatEntity;
@@ -759,9 +760,28 @@ public class PlayerMoodComponent implements AutoSyncedComponent, ServerTickingCo
      * 判断玩家附近一定半径内是否存在其他仍在局内的存活玩家。
      */
     private static boolean hasNearbyAlivePlayer(@NotNull PlayerEntity player, float range) {
+        return hasNearbyAlivePlayer(player, range, false);
+    }
+
+    private static boolean hasNearbyAlivePlayer(
+            @NotNull PlayerEntity player,
+            float range,
+            boolean ignoreSpectatorAliveOverride
+    ) {
         double rangeSquared = range * range;
         for (PlayerEntity other : player.getWorld().getPlayers()) {
             if (other.equals(player) || !GameFunctions.isPlayerAliveAndSurvival(other)) {
+                continue;
+            }
+            /*
+             * 这里只在 AWAY 任务里额外忽略“spectator 但仍被标记为玩法存活”的玩家。
+             *
+             * 这样不会改动 Wathe 的全局存活定义，也不会影响胜负、结算、任务刷新等其它系统；
+             * 只是让这一个任务不再把双重人格的休眠人格当作阻止独处的近邻。
+             */
+            if (ignoreSpectatorAliveOverride
+                    && other.isSpectator()
+                    && PlayerLifeStateApi.hasAliveOverride(other)) {
                 continue;
             }
             if (other.squaredDistanceTo(player) <= rangeSquared) {
@@ -1168,7 +1188,14 @@ public class PlayerMoodComponent implements AutoSyncedComponent, ServerTickingCo
 
         @Override
         protected boolean shouldCount(@NotNull PlayerEntity player) {
-            return !hasNearbyAlivePlayer(player, GameConstants.AWAY_TASK_RANGE);
+            /*
+             * 这里要额外忽略“双重人格休眠人格”这类：
+             * 客户端表现为旁观，但 Wathe 的特殊存活状态仍把他算作局内存活玩家。
+             *
+             * 如果不在这里单独跳过这类目标，活跃人格身边只要还挂着自己的休眠人格，
+             * “离人远一点”就会永远算不到空旷状态。
+             */
+            return !hasNearbyAlivePlayer(player, GameConstants.AWAY_TASK_RANGE, true);
         }
 
         @Override
