@@ -112,30 +112,36 @@ public class WatheClient implements ClientModInitializer {
 
     @Override
     public void onInitializeClient() {
-        // Load config
+        // 加载 config
         WatheConfig.init(Wathe.MOD_ID, WatheConfig.class);
         ensureDefaultInstinctHandlersRegistered();
 
         // Initialize ScreenParticle
+        // 初始化屏幕粒子
         handParticleManager = new HandParticleManager();
         particleMap = new HashMap<>();
 
         // Register particle factories
+        // 实体工厂注册
         WatheParticles.registerFactories();
 
         // Entity renderer registration
+        // 实体渲染器注册
         EntityRendererRegistry.register(WatheEntities.SEAT, EmptyEntityRenderer::new);
         EntityRendererRegistry.register(WatheEntities.FIRECRACKER, FirecrackerEntityRenderer::new);
         EntityRendererRegistry.register(WatheEntities.GRENADE, FlyingItemEntityRenderer::new);
         EntityRendererRegistry.register(WatheEntities.NOTE, NoteEntityRenderer::new);
 
         // Register entity model layers
+        // 注册实体模型层
         WatheModelLayers.initialize();
 
         // Custom Baked Models
+        // 定制Baked模型
         ModelLoadingPlugin.register(new KnifeModelLoadingPlugin());
 
         // Block render layers
+        // 方块渲染层
         BlockRenderLayerMap.INSTANCE.putBlocks(RenderLayer.getCutout(),
                 WatheBlocks.STAINLESS_STEEL_VENT_HATCH,
                 WatheBlocks.DARK_STEEL_VENT_HATCH,
@@ -184,10 +190,12 @@ public class WatheClient implements ClientModInitializer {
         );
 
         // Custom block models
+        // 自定义方块模型
         CustomModelProvider customModelProvider = new CustomModelProvider();
         ModelLoadingPlugin.register(customModelProvider);
 
         // Block Entity Renderers
+        // 方块实体渲染
         BlockEntityRendererFactories.register(
                 WatheBlockEntities.SMALL_GLASS_DOOR,
                 ctx -> new SmallDoorBlockEntityRenderer(Wathe.id("textures/entity/small_glass_door.png"), ctx)
@@ -231,12 +239,14 @@ public class WatheClient implements ClientModInitializer {
         BlockEntityRendererFactories.register(WatheBlockEntities.HORN, HornBlockEntityRenderer::new);
 
         // Ambience
+        // 氛围
         AmbienceUtil.registerBackgroundAmbience(new BackgroundAmbience(WatheSounds.AMBIENT_TRAIN_INSIDE, player -> isTrainMoving() && !Wathe.isSkyVisibleAdjacent(player), 20));
         AmbienceUtil.registerBackgroundAmbience(new BackgroundAmbience(WatheSounds.AMBIENT_TRAIN_OUTSIDE, player -> isTrainMoving() && Wathe.isSkyVisibleAdjacent(player), 20));
         AmbienceUtil.registerBackgroundAmbience(new BackgroundAmbience(WatheSounds.AMBIENT_PSYCHO_DRONE, player -> gameComponent.isPsychoActive(), 20));
 //        AmbienceUtil.registerBlockEntityAmbience(WatheBlockEntities.SPRINKLER, new BlockEntityAmbience(WatheSounds.BLOCK_SPRINKLER_RUN, 0.5f, blockEntity -> blockEntity instanceof SprinklerBlockEntity sprinklerBlockEntity && sprinklerBlockEntity.isPowered(), 20));
 
         // Caching components
+        // 缓存组件
         ClientTickEvents.START_WORLD_TICK.register(clientWorld -> {
             gameComponent = GameWorldComponent.KEY.get(clientWorld);
             trainComponent = TrainWorldComponent.KEY.get(clientWorld);
@@ -246,6 +256,7 @@ public class WatheClient implements ClientModInitializer {
         });
 
         // Lock options
+        // 选项锁
         OptionLocker.overrideOption("gamma", 0d);
         OptionLocker.overrideOption("renderDistance", getLockedRenderDistance(WatheConfig.ultraPerfMode)); // mfw 15 fps on a 3050 - Cup // haha 🫵 brokie - RAT // buy me a better one then - Cup // okay nvm I fixed it I was actually rendering a lot of empty chunks we didn't need my bad LMAO - RAT
         OptionLocker.overrideOption("showSubtitles", false);
