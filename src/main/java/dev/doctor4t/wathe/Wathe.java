@@ -90,6 +90,7 @@ public class Wathe implements ModInitializer {
 //            UpdateDoorsCommand.register(dispatcher);
             SetTimerCommand.register(dispatcher);
             SetMoneyCommand.register(dispatcher);
+            SetTaskMoneyCommand.register(dispatcher);
             LockToSupportersCommand.register(dispatcher);
             SetKillerCountCommand.register(dispatcher);
             SetGameModeCommand.register(dispatcher);

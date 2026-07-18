@@ -1,5 +1,6 @@
 package dev.doctor4t.wathe.api.economy;
 
+import dev.doctor4t.wathe.Wathe;
 import dev.doctor4t.wathe.api.Role;
 import dev.doctor4t.wathe.cca.GameWorldComponent;
 import dev.doctor4t.wathe.cca.PlayerShopComponent;
@@ -7,6 +8,8 @@ import dev.doctor4t.wathe.game.GameConstants;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.server.world.ServerWorld;
+import net.minecraft.text.MutableText;
+import net.minecraft.text.Text;
 import net.minecraft.util.Identifier;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -15,7 +18,9 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 
@@ -33,6 +38,10 @@ import java.util.Set;
  */
 public final class EconomyApi {
     public static final int DEFAULT_PRIORITY = 0;
+    public static final Identifier MONEY = Wathe.id("money");
+    public static final Identifier TASK_MONEY = Wathe.id("task_money");
+    public static final String MONEY_ICON = "\uE781";
+    public static final String TASK_MONEY_ICON = "\uE782";
 
     private static final Comparator<PrioritizedBalanceHudPredicate> BALANCE_HUD_COMPARATOR =
             Comparator.<PrioritizedBalanceHudPredicate>comparingInt(PrioritizedBalanceHudPredicate::priority)
@@ -49,12 +58,127 @@ public final class EconomyApi {
 
     private static final Set<Role> BALANCE_HUD_ROLES = new HashSet<>();
     private static final Set<Role> PASSIVE_INCOME_ROLES = new HashSet<>();
+    private static final Map<Identifier, CurrencyDefinition> CURRENCIES = new LinkedHashMap<>();
     private static final List<PrioritizedBalanceHudPredicate> BALANCE_HUD_PREDICATES = new ArrayList<>();
     private static final List<PrioritizedPassiveIncomeRule> PASSIVE_INCOME_RULES = new ArrayList<>();
     private static final List<PrioritizedPassiveIncomeModifier> PASSIVE_INCOME_MODIFIERS = new ArrayList<>();
     private static long nextOrder = 0L;
+    private static long nextCurrencyOrder = 0L;
+
+    static {
+        /*
+         * 金币保留旧 EconomyApi 的显示规则：杀手能力角色默认可见，注册了金币 HUD 的扩展职业也可见。
+         * 具体渲染时仍会额外要求数量 > 0，所以开局前或余额为 0 时不会显示空图标。
+         */
+        registerCurrency(
+                MONEY,
+                MONEY_ICON,
+                "currency.wathe.money",
+                context -> shouldRenderBalanceHud(context.gameWorld(), context.player())
+        );
+
+        /*
+         * 任务币 HUD 暂时暂停注册。
+         *
+         * 任务币作为杀手商店货币目前仍处于实验性阶段；默认杀手商店已经先恢复为纯金币价格，
+         * 完成任务和击杀获得任务币的常量也暂时设为 0。因此这里不再把任务币注册进 HUD，
+         * 避免杀手界面出现当前玩法用不到的货币板块。
+         *
+         * 后续如果重新启用任务币商店和任务币收益，可以恢复下面这段注册逻辑：
+         *
+         * registerCurrency(
+         *         TASK_MONEY,
+         *         TASK_MONEY_ICON,
+         *         "currency.wathe.task_money",
+         *         context -> context.gameWorld().canUseKillerFeatures(context.player())
+         * );
+         */
+    }
 
     private EconomyApi() {
+    }
+
+    public static synchronized @NotNull CurrencyDefinition registerCurrency(
+            @NotNull Identifier id,
+            @NotNull String icon,
+            @NotNull String translationKey,
+            @NotNull CurrencyHudPredicate hudPredicate
+    ) {
+        Objects.requireNonNull(id, "id");
+        Objects.requireNonNull(icon, "icon");
+        Objects.requireNonNull(translationKey, "translationKey");
+        Objects.requireNonNull(hudPredicate, "hudPredicate");
+
+        CurrencyDefinition definition = new CurrencyDefinition(id, icon, translationKey, nextCurrencyOrder++, hudPredicate);
+        CURRENCIES.put(id, definition);
+        return definition;
+    }
+
+    public static synchronized @Nullable CurrencyDefinition getCurrency(@NotNull Identifier id) {
+        return CURRENCIES.get(id);
+    }
+
+    public static synchronized @NotNull List<CurrencyDefinition> currencySnapshot() {
+        return List.copyOf(CURRENCIES.values());
+    }
+
+    public static @NotNull CurrencyDefinition getCurrencyOrFallback(@NotNull Identifier id) {
+        CurrencyDefinition registered = getCurrency(id);
+        if (registered != null) {
+            return registered;
+        }
+
+        /*
+         * 回放或扩展调试时可能遇到“记录里有货币 ID，但当前客户端没有注册对应定义”。
+         * 这里提供一个只用于显示的兜底定义，避免文本直接崩掉。
+         */
+        String fallbackKey = "currency." + id.getNamespace() + "." + id.getPath();
+        return new CurrencyDefinition(id, "", fallbackKey, Long.MAX_VALUE, context -> false);
+    }
+
+    public static @NotNull MutableText formatCurrencyAmount(@NotNull CurrencyAmount amount, boolean useIcon) {
+        CurrencyDefinition definition = getCurrencyOrFallback(amount.currency());
+        MutableText text = Text.literal(String.valueOf(amount.amount()));
+        if (useIcon && !definition.icon().isEmpty()) {
+            return text.append(definition.icon());
+        }
+        return text.append(" ").append(Text.translatable(definition.translationKey()));
+    }
+
+    public static @NotNull List<CurrencyBalance> getVisibleCurrencyBalances(@NotNull PlayerEntity player, boolean shopGoldFallback) {
+        GameWorldComponent gameWorld = GameWorldComponent.KEY.get(player.getWorld());
+        Role role = gameWorld.getRole(player);
+        PlayerShopComponent shop = PlayerShopComponent.KEY.get(player);
+        List<CurrencyBalance> balances = new ArrayList<>();
+
+        for (CurrencyDefinition currency : currencySnapshot()) {
+            int amount = shop.getCurrencyAmount(currency.id());
+            if (amount <= 0) {
+                continue;
+            }
+
+            CurrencyHudContext context = new CurrencyHudContext(gameWorld, player, role, currency, amount);
+            boolean shouldRender = currency.hudPredicate().shouldRender(context);
+
+            /*
+             * 兼容旧职业商店：某些扩展只注册了商店，没有额外注册金币 HUD 规则。
+             * 这类纯金币商店仍然应该在玩家有金币时显示金币板块。
+             */
+            if (!shouldRender && shopGoldFallback && currency.id().equals(MONEY)) {
+                shouldRender = true;
+            }
+
+            if (shouldRender) {
+                balances.add(new CurrencyBalance(currency, amount));
+            }
+        }
+
+        balances.sort(
+                Comparator.<CurrencyBalance>comparingInt(CurrencyBalance::amount)
+                        .reversed()
+                        .thenComparingLong(balance -> balance.currency().order())
+        );
+        return balances;
     }
 
     public static synchronized void registerBalanceHudRole(@NotNull Role role) {
@@ -220,7 +344,7 @@ public final class EconomyApi {
          * 所有扩展只负责表达“这次收入应该是多少”，最终仍由 Wathe 统一按阵营上限裁剪。
          * 这样 Magnate 这类倍增效果不会在金币接近上限时造成溢出。
          */
-        int currentBalance = PlayerShopComponent.KEY.get(player).balance;
+        int currentBalance = PlayerShopComponent.KEY.get(player).getCurrencyAmount(MONEY);
         return GameConstants.getPassiveMoneyAmount(role == null ? null : role.getFaction(), currentBalance, modifiedIncome);
     }
 
@@ -239,6 +363,11 @@ public final class EconomyApi {
     @FunctionalInterface
     public interface BalanceHudPredicate {
         boolean shouldRender(@NotNull GameWorldComponent gameWorld, @NotNull PlayerEntity player, @Nullable Role role);
+    }
+
+    @FunctionalInterface
+    public interface CurrencyHudPredicate {
+        boolean shouldRender(@NotNull CurrencyHudContext context);
     }
 
     @FunctionalInterface
@@ -271,6 +400,21 @@ public final class EconomyApi {
             @NotNull ServerPlayerEntity player,
             @Nullable Role role,
             int baseIncome
+    ) {
+    }
+
+    public record CurrencyHudContext(
+            @NotNull GameWorldComponent gameWorld,
+            @NotNull PlayerEntity player,
+            @Nullable Role role,
+            @NotNull CurrencyDefinition currency,
+            int amount
+    ) {
+    }
+
+    public record CurrencyBalance(
+            @NotNull CurrencyDefinition currency,
+            int amount
     ) {
     }
 

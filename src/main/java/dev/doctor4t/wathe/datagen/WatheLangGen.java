@@ -102,7 +102,11 @@ public class WatheLangGen extends FabricLanguageProvider {
         builder.add("tip.grenade.throw_mode.charged", "Charged");
 
         builder.add("tip.cooldown", "On cooldown: %s");
+        builder.add("currency.wathe.money", "Coins");
+        builder.add("currency.wathe.task_money", "Task Coins");
         builder.add("shop.purchase_failed", "Purchase Failed");
+        builder.add("shop.price.or", "or");
+        builder.add("shop.price.free", "Free");
         builder.add(TextUtils.getItemTranslationKey(WatheItems.KNIFE) + ".tooltip", "Right-click, hold for a second and get close to your victim\nAfter a kill, cannot be used for 1 minute\nAttack to knock back / push a player (no cooldown)");
         builder.add(TextUtils.getItemTranslationKey(WatheItems.REVOLVER) + ".tooltip", "Point, right-click and shoot\nDrops if you kill an innocent");
         builder.add(TextUtils.getItemTranslationKey(WatheItems.DERRINGER) + ".tooltip", "Point, right-click and shoot\nCan only be shot once, so make it count!\nShot is replenished after a kill");
@@ -176,6 +180,7 @@ public class WatheLangGen extends FabricLanguageProvider {
         builder.add("replay.role.unknown", "Unknown Role");
         builder.add("replay.item.unknown", "Unknown Item");
         builder.add("replay.shop_purchase", "%s bought %s for %s coins");
+        builder.add("replay.shop_purchase.multi_currency", "%s bought %s for %s");
         builder.add("replay.item_pickup", "%s picked up %s");
         builder.add("replay.item_pickup.multiple", "%s picked up %s x%s");
         builder.add("replay.platter_take", "%s took %s from the platter");

@@ -1,9 +1,13 @@
 package dev.doctor4t.wathe.record.replay;
 
 import dev.doctor4t.wathe.Wathe;
+import dev.doctor4t.wathe.api.economy.CurrencyAmount;
+import dev.doctor4t.wathe.api.economy.EconomyApi;
 import dev.doctor4t.wathe.record.GameRecordEvent;
 import dev.doctor4t.wathe.record.GameRecordManager;
 import net.minecraft.nbt.NbtCompound;
+import net.minecraft.nbt.NbtElement;
+import net.minecraft.nbt.NbtList;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.util.Formatting;
 import net.minecraft.text.MutableText;
@@ -11,6 +15,7 @@ import net.minecraft.text.Style;
 import net.minecraft.text.Text;
 import net.minecraft.text.TextColor;
 import net.minecraft.util.Identifier;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.Map;
@@ -82,7 +87,42 @@ public final class DefaultReplayFormatters {
             return null;
         }
         Text itemName = ReplayGenerator.formatItemName(event.data(), world);
+        Text multiCurrencyPrice = formatShopPayment(event.data());
+        if (multiCurrencyPrice != null) {
+            return Text.translatable("replay.shop_purchase.multi_currency", actorText, itemName, multiCurrencyPrice);
+        }
         return Text.translatable("replay.shop_purchase", actorText, itemName, event.data().getInt("price_paid"));
+    }
+
+    private static @Nullable Text formatShopPayment(@NotNull NbtCompound data) {
+        if (!data.contains("price_paid_currencies", NbtElement.LIST_TYPE)) {
+            return null;
+        }
+
+        NbtList list = data.getList("price_paid_currencies", NbtElement.COMPOUND_TYPE);
+        if (list.isEmpty()) {
+            return null;
+        }
+
+        MutableText result = Text.empty();
+        boolean appended = false;
+        for (NbtElement element : list) {
+            if (!(element instanceof NbtCompound costTag)) {
+                continue;
+            }
+
+            Identifier currencyId = Identifier.tryParse(costTag.getString("currency"));
+            if (currencyId == null) {
+                continue;
+            }
+
+            if (appended) {
+                result.append(Text.literal(" + "));
+            }
+            result.append(EconomyApi.formatCurrencyAmount(new CurrencyAmount(currencyId, costTag.getInt("amount")), false));
+            appended = true;
+        }
+        return appended ? result : null;
     }
 
     @Nullable

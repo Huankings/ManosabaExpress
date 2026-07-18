@@ -1,6 +1,7 @@
 package dev.doctor4t.wathe.util;
 
 import dev.doctor4t.wathe.Wathe;
+import dev.doctor4t.wathe.api.shop.ShopPrice;
 import dev.doctor4t.wathe.cca.GameWorldComponent;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.item.ItemStack;
@@ -9,7 +10,7 @@ import org.jetbrains.annotations.NotNull;
 
 public class ShopEntry {
     private final ItemStack stack;
-    private final int price;
+    private final ShopPrice price;
     private final Type type;
 
     @FunctionalInterface
@@ -34,6 +35,10 @@ public class ShopEntry {
     }
 
     public ShopEntry(ItemStack stack, int price, Type type) {
+        this(stack, ShopPrice.money(price), type);
+    }
+
+    public ShopEntry(@NotNull ItemStack stack, @NotNull ShopPrice price, @NotNull Type type) {
         this.stack = stack;
         this.price = price;
         this.type = type;
@@ -63,6 +68,10 @@ public class ShopEntry {
      * 应使用这个入口或 {@link #giveToInventory(ItemStack, int, Type)}，避免再为发物品写 mixin。</p>
      */
     public static @NotNull ShopEntry directToHotbar(@NotNull ItemStack stack, int price, @NotNull Type type) {
+        return directToHotbar(stack, ShopPrice.money(price), type);
+    }
+
+    public static @NotNull ShopEntry directToHotbar(@NotNull ItemStack stack, @NotNull ShopPrice price, @NotNull Type type) {
         return new ShopEntry(stack, price, type) {
             @Override
             public boolean onBuy(@NotNull PlayerEntity player) {
@@ -78,6 +87,10 @@ public class ShopEntry {
      * 不再强制只能放进前 9 格快捷栏。</p>
      */
     public static @NotNull ShopEntry giveToInventory(@NotNull ItemStack stack, int price, @NotNull Type type) {
+        return giveToInventory(stack, ShopPrice.money(price), type);
+    }
+
+    public static @NotNull ShopEntry giveToInventory(@NotNull ItemStack stack, @NotNull ShopPrice price, @NotNull Type type) {
         return new ShopEntry(stack, price, type) {
             @Override
             public boolean onBuy(@NotNull PlayerEntity player) {
@@ -96,12 +109,29 @@ public class ShopEntry {
         return action(stack, price, type, action, true);
     }
 
+    public static @NotNull ShopEntry action(@NotNull ItemStack stack, @NotNull ShopPrice price, @NotNull Type type, @NotNull PurchaseAction action) {
+        return action(stack, price, type, action, true);
+    }
+
     /**
      * 创建一个“购买即执行动作”的商品，并控制失败时是否显示通用失败提示。
      */
     public static @NotNull ShopEntry action(
             @NotNull ItemStack stack,
             int price,
+            @NotNull Type type,
+            @NotNull PurchaseAction action,
+            boolean showPurchaseFailedMessage
+    ) {
+        return action(stack, ShopPrice.money(price), type, action, showPurchaseFailedMessage);
+    }
+
+    /**
+     * 创建一个“购买即执行动作”的商品，并支持多货币价格。
+     */
+    public static @NotNull ShopEntry action(
+            @NotNull ItemStack stack,
+            @NotNull ShopPrice price,
             @NotNull Type type,
             @NotNull PurchaseAction action,
             boolean showPurchaseFailedMessage
@@ -135,6 +165,10 @@ public class ShopEntry {
     }
 
     public int price() {
+        return this.price.legacyPrice();
+    }
+
+    public @NotNull ShopPrice shopPrice() {
         return this.price;
     }
 

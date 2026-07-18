@@ -3,6 +3,8 @@ package dev.doctor4t.wathe.game;
 import dev.doctor4t.wathe.Wathe;
 import dev.doctor4t.wathe.api.Faction;
 import dev.doctor4t.wathe.api.Role;
+import dev.doctor4t.wathe.api.economy.CurrencyAmount;
+import dev.doctor4t.wathe.api.shop.ShopPrice;
 import dev.doctor4t.wathe.cca.PlayerShopComponent;
 import dev.doctor4t.wathe.cca.GameWorldComponent;
 import dev.doctor4t.wathe.index.WatheItems;
@@ -151,58 +153,32 @@ public interface GameConstants {
     int SHOP_PSYCHO_MODE_TASK_MONEY_PRICE_SECONDARY = 75;
     int SHOP_LOCKPICK_MONEY_PRICE = 50;
     int SHOP_LOCKPICK_TASK_MONEY_PRICE = 25;
-    // 任务币目前作为杀手商店货币仍处于实验性暂停阶段；0 表示禁用任务完成后的任务币奖励。
-    int TASK_MONEY_PER_KILLER_TASK = 0;
+    int TASK_MONEY_PER_KILLER_TASK = 25;
     List<ShopEntry> SHOP_ENTRIES = Util.make(new ArrayList<>(), entries -> {
-        /*
-         * 任务币商店价格方案暂时暂停。
-         *
-         * 原因：任务币作为杀手商店货币仍在实验阶段，当前同时平衡金币价格、任务币价格、
-         * 以及“金币 + 任务币 / 金币或任务币”的多方案交易会让默认杀手商店难以调数值。
-         * 因此当前实际商店先恢复为纯金币价格：匕首 100 金币、疯魔模式 350 金币、开锁器 50 金币。
-         *
-         * 后续如果要重新启用任务币价格，可以参考下面格式：
-         *
-         * 匕首：100 金币 或 50 任务币
-         * new ShopEntry(
-         *         WatheItems.KNIFE.getDefaultStack(),
-         *         ShopPrice.anyOf(
-         *                 ShopPrice.option(CurrencyAmount.money(SHOP_KNIFE_MONEY_PRICE)),
-         *                 ShopPrice.option(CurrencyAmount.taskMoney(SHOP_KNIFE_TASK_MONEY_PRICE))
-         *         ),
-         *         ShopEntry.Type.WEAPON
-         * );
-         *
-         * 疯魔模式：350 金币 + 25 任务币，或 300 金币 + 75 任务币
-         * new ShopEntry(
-         *         WatheItems.PSYCHO_MODE.getDefaultStack(),
-         *         ShopPrice.anyOf(
-         *                 ShopPrice.option(
-         *                         CurrencyAmount.money(SHOP_PSYCHO_MODE_MONEY_PRICE_PRIMARY),
-         *                         CurrencyAmount.taskMoney(SHOP_PSYCHO_MODE_TASK_MONEY_PRICE_PRIMARY)
-         *                 ),
-         *                 ShopPrice.option(
-         *                         CurrencyAmount.money(SHOP_PSYCHO_MODE_MONEY_PRICE_SECONDARY),
-         *                         CurrencyAmount.taskMoney(SHOP_PSYCHO_MODE_TASK_MONEY_PRICE_SECONDARY)
-         *                 )
-         *         ),
-         *         ShopEntry.Type.WEAPON
-         * );
-         *
-         * 开锁器：50 金币 + 25 任务币
-         * new ShopEntry(
-         *         WatheItems.LOCKPICK.getDefaultStack(),
-         *         ShopPrice.allOf(
-         *                 CurrencyAmount.money(SHOP_LOCKPICK_MONEY_PRICE),
-         *                 CurrencyAmount.taskMoney(SHOP_LOCKPICK_TASK_MONEY_PRICE)
-         *         ),
-         *         ShopEntry.Type.TOOL
-         * );
-         */
-        entries.add(new ShopEntry(WatheItems.KNIFE.getDefaultStack(), SHOP_KNIFE_MONEY_PRICE, ShopEntry.Type.WEAPON));
+        entries.add(new ShopEntry(
+                WatheItems.KNIFE.getDefaultStack(),
+                ShopPrice.anyOf(
+                        ShopPrice.option(CurrencyAmount.money(SHOP_KNIFE_MONEY_PRICE)),
+                        ShopPrice.option(CurrencyAmount.taskMoney(SHOP_KNIFE_TASK_MONEY_PRICE))
+                ),
+                ShopEntry.Type.WEAPON
+        ));
         entries.add(new ShopEntry(WatheItems.REVOLVER.getDefaultStack(), 250, ShopEntry.Type.WEAPON));
         entries.add(new ShopEntry(WatheItems.GRENADE.getDefaultStack(), 300, ShopEntry.Type.WEAPON));
-        entries.add(new ShopEntry(WatheItems.PSYCHO_MODE.getDefaultStack(),SHOP_PSYCHO_MODE_MONEY_PRICE_PRIMARY,ShopEntry.Type.WEAPON){
+        entries.add(new ShopEntry(
+                WatheItems.PSYCHO_MODE.getDefaultStack(),
+                ShopPrice.anyOf(
+                        ShopPrice.option(
+                                CurrencyAmount.money(SHOP_PSYCHO_MODE_MONEY_PRICE_PRIMARY),
+                                CurrencyAmount.taskMoney(SHOP_PSYCHO_MODE_TASK_MONEY_PRICE_PRIMARY)
+                        ),
+                        ShopPrice.option(
+                                CurrencyAmount.money(SHOP_PSYCHO_MODE_MONEY_PRICE_SECONDARY),
+                                CurrencyAmount.taskMoney(SHOP_PSYCHO_MODE_TASK_MONEY_PRICE_SECONDARY)
+                        )
+                ),
+                ShopEntry.Type.WEAPON
+        ) {
             @Override
             public boolean onBuy(@NotNull PlayerEntity player) {
                 return PlayerShopComponent.usePsychoMode(player);
@@ -211,7 +187,14 @@ public interface GameConstants {
         entries.add(new ShopEntry(WatheItems.POISON_VIAL.getDefaultStack(), 70, ShopEntry.Type.POISON));
         entries.add(new ShopEntry(WatheItems.SCORPION.getDefaultStack(), 40, ShopEntry.Type.POISON));
         entries.add(new ShopEntry(WatheItems.FIRECRACKER.getDefaultStack(), 10, ShopEntry.Type.TOOL));
-        entries.add(new ShopEntry(WatheItems.LOCKPICK.getDefaultStack(), SHOP_LOCKPICK_MONEY_PRICE, ShopEntry.Type.TOOL));
+        entries.add(new ShopEntry(
+                WatheItems.LOCKPICK.getDefaultStack(),
+                ShopPrice.allOf(
+                        CurrencyAmount.money(SHOP_LOCKPICK_MONEY_PRICE),
+                        CurrencyAmount.taskMoney(SHOP_LOCKPICK_TASK_MONEY_PRICE)
+                ),
+                ShopEntry.Type.TOOL
+        ));
         entries.add(new ShopEntry(WatheItems.CROWBAR.getDefaultStack(), 25, ShopEntry.Type.TOOL));
         entries.add(new ShopEntry(WatheItems.BODY_BAG.getDefaultStack(), 70, ShopEntry.Type.TOOL));
         entries.add(new ShopEntry(WatheItems.BLACKOUT.getDefaultStack(), 250, ShopEntry.Type.TOOL) {
@@ -253,9 +236,8 @@ public interface GameConstants {
     int PASSIVE_MONEY_CAP_PASSENGER = -1;
     //杀手每杀一个人获得的金币
     int MONEY_PER_KILL = 125;
-    // 任务币击杀收益随任务币商店实验一起暂停；0 表示禁用击杀后的任务币奖励，后续重新启用时再调为正数。
-    int TASK_MONEY_PER_KILL = 0;
-    //疯魔状态下初始护盾数量
+    // 杀手每击杀一名玩家额外获得的任务币；独立于金币奖励，方便后续单独调节击杀任务币收益。
+    int TASK_MONEY_PER_KILL = 15;
     int PSYCHO_MODE_ARMOUR = 1;
 
     // Timers

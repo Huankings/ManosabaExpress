@@ -12,7 +12,6 @@ import net.minecraft.client.gui.widget.ButtonWidget;
 import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.client.render.RenderLayer;
 import net.minecraft.screen.PlayerScreenHandler;
-import net.minecraft.text.MutableText;
 import net.minecraft.text.Text;
 import net.minecraft.util.Identifier;
 import org.jetbrains.annotations.NotNull;
@@ -22,6 +21,15 @@ import java.util.List;
 public class LimitedInventoryScreen extends LimitedHandledScreen<PlayerScreenHandler> {
     public static final Identifier BACKGROUND_TEXTURE = Wathe.id("textures/gui/container/limited_inventory.png");
     public static final @NotNull Identifier ID = Wathe.id("textures/gui/game.png");
+    private static final int SHOP_ITEM_SPACING = 38;
+    private static final int SHOP_ITEM_X_OFFSET = 9;
+    private static final int SHOP_ITEM_Y_OFFSET = 46;
+    private static final int SHOP_SLOT_BACKGROUND_OFFSET = 7;
+    private static final int SHOP_SLOT_BACKGROUND_SIZE = 30;
+    private static final int SHOP_PRICE_TOOLTIP_X_OFFSET = -4;
+    private static final int SHOP_PRICE_TOOLTIP_TOP_OFFSET = -9;
+    private static final int SHOP_PRICE_TOOLTIP_LINE_HEIGHT = 10;
+    private static final int SHOP_PRICE_TOOLTIP_MULTILINE_EXTRA_OFFSET = 2;
     public final ClientPlayerEntity player;
 
     public LimitedInventoryScreen(@NotNull ClientPlayerEntity player) {
@@ -39,11 +47,10 @@ public class LimitedInventoryScreen extends LimitedHandledScreen<PlayerScreenHan
          */
         List<ShopEntry> entries = ShopApi.getEntriesForPlayer(this.player);
         if (entries.isEmpty()) return;
-        int apart = 38;
-        int x = this.width / 2 - entries.size() * apart / 2 + 9;
-        int y = this.y - 46;
+        int x = this.width / 2 - entries.size() * SHOP_ITEM_SPACING / 2 + SHOP_ITEM_X_OFFSET;
+        int y = this.y - SHOP_ITEM_Y_OFFSET;
         for (int i = 0; i < entries.size(); i++)
-            this.addDrawableChild(new StoreItemWidget(this, x + apart * i, y, entries.get(i), i));
+            this.addDrawableChild(new StoreItemWidget(this, x + SHOP_ITEM_SPACING * i, y, entries.get(i), i));
     }
 
     @Override
@@ -83,15 +90,68 @@ public class LimitedInventoryScreen extends LimitedHandledScreen<PlayerScreenHan
         @Override
         protected void renderWidget(DrawContext context, int mouseX, int mouseY, float delta) {
             super.renderWidget(context, mouseX, mouseY, delta);
-            context.drawGuiTexture(entry.type().getTexture(), this.getX() - 7, this.getY() - 7, 30, 30);
+            context.drawGuiTexture(
+                    entry.type().getTexture(),
+                    this.getX() - SHOP_SLOT_BACKGROUND_OFFSET,
+                    this.getY() - SHOP_SLOT_BACKGROUND_OFFSET,
+                    SHOP_SLOT_BACKGROUND_SIZE,
+                    SHOP_SLOT_BACKGROUND_SIZE
+            );
 //            context.drawGuiTexture(Wathe.id("gui/shop_slot"), this.getX() - 7, this.getY() - 7, 30, 30);
             context.drawItem(this.entry.stack(), this.getX(), this.getY());
             if (this.isHovered()) {
                 this.screen.renderLimitedInventoryTooltip(context, this.entry.stack());
                 drawShopSlotHighlight(context, this.getX(), this.getY(), 0);
             }
-            MutableText price = Text.literal(this.entry.price() + "\uE781");
-            context.drawTooltip(this.screen.textRenderer, price, this.getX() - 4 - this.screen.textRenderer.getWidth(price) / 2, this.getY() - 9);
+            this.renderPrice(context);
+        }
+
+        private void renderPrice(@NotNull DrawContext context) {
+            List<Text> priceLines = this.entry.shopPrice().displayLines();
+            if (priceLines.isEmpty()) {
+                return;
+            }
+
+            int maxWidth = 0;
+            int spaceWidth = Math.max(1, this.screen.textRenderer.getWidth(" "));
+
+            for (Text line : priceLines) {
+                maxWidth = Math.max(maxWidth, this.screen.textRenderer.getWidth(line));
+            }
+
+            /*
+             * 价格框继续走 DrawContext#drawTooltip。
+             *
+             * 这样背景、边框、悬浮动画都会回到原版 tooltip 的渲染路径，
+             * 也能继续吃到像 Modern UI 这类模组对 tooltip 的兼容改写。
+             *
+             * 单行价格沿用旧版 drawTooltip 的位置；多行价格则额外上移。
+             * 原版 OrderedTextTooltipComponent 每行高度是 10，并且单行 tooltip 内部会少算 2 像素高度。
+             * 因此多行时按这个差值补偿，可以让背景框底边保持在单行价格附近，只向上扩展，
+             * 不会因为疯魔模式这类五行价格向下挡住商品。
+             *
+             * 同时把每一行左右补上对称空白，这样“或”字和价格数字都会以整行居中显示，
+             * 而不是从左侧开始贴着背景框排。
+             */
+            List<Text> centeredPriceLines = new java.util.ArrayList<>(priceLines.size());
+            for (Text line : priceLines) {
+                int lineWidth = this.screen.textRenderer.getWidth(line);
+                int remainingWidth = Math.max(0, maxWidth - lineWidth);
+                int padCount = Math.round((float) remainingWidth / spaceWidth);
+                int leftPad = padCount / 2;
+                int rightPad = padCount - leftPad;
+
+                String leftPadding = " ".repeat(leftPad);
+                String rightPadding = " ".repeat(rightPad);
+                centeredPriceLines.add(Text.literal(leftPadding).append(line).append(rightPadding));
+            }
+
+            int tooltipX = this.getX() + SHOP_PRICE_TOOLTIP_X_OFFSET - maxWidth / 2;
+            int extraLineOffset = priceLines.size() <= 1
+                    ? 0
+                    : (priceLines.size() - 1) * SHOP_PRICE_TOOLTIP_LINE_HEIGHT + SHOP_PRICE_TOOLTIP_MULTILINE_EXTRA_OFFSET;
+            int tooltipY = this.getY() + SHOP_PRICE_TOOLTIP_TOP_OFFSET - extraLineOffset;
+            context.drawTooltip(this.screen.textRenderer, centeredPriceLines, tooltipX, tooltipY);
         }
 
         private void drawShopSlotHighlight(DrawContext context, int x, int y, int z) {

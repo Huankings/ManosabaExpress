@@ -1,5 +1,7 @@
 package dev.doctor4t.wathe.record;
 
+import dev.doctor4t.wathe.api.shop.ShopPayment;
+import dev.doctor4t.wathe.api.shop.ShopPrice;
 import dev.doctor4t.wathe.util.ShopEntry;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.item.ItemStack;
@@ -27,7 +29,10 @@ public final class ShopPurchaseTracker {
     private ShopPurchaseTracker() {
     }
 
-    public record PendingShopPurchase(ItemStack stack, int index, int pricePaid) {
+    public record PendingShopPurchase(ItemStack stack, int index, ShopPayment payment, ShopPrice listedPrice) {
+        public int pricePaid() {
+            return this.payment.totalAmount();
+        }
     }
 
     private static final Map<UUID, PendingShopPurchase> PENDING_PURCHASES = new ConcurrentHashMap<>();
@@ -40,14 +45,26 @@ public final class ShopPurchaseTracker {
     }
 
     public static void captureSuccessfulPurchase(@Nullable PlayerEntity player, @NotNull ShopEntry entry, int index, int pricePaid) {
-        captureSuccessfulPurchase(player, entry.stack(), index, pricePaid);
+        captureSuccessfulPurchase(player, entry.stack(), index, ShopPayment.money(pricePaid), entry.shopPrice());
+    }
+
+    public static void captureSuccessfulPurchase(@Nullable PlayerEntity player, @NotNull ShopEntry entry, int index, @NotNull ShopPayment payment) {
+        captureSuccessfulPurchase(player, entry.stack(), index, payment, entry.shopPrice());
     }
 
     public static void captureSuccessfulPurchase(@Nullable PlayerEntity player, @NotNull ItemStack stack, int index, int pricePaid) {
+        captureSuccessfulPurchase(player, stack, index, ShopPayment.money(pricePaid), ShopPrice.money(pricePaid));
+    }
+
+    public static void captureSuccessfulPurchase(@Nullable PlayerEntity player, @NotNull ItemStack stack, int index, @NotNull ShopPayment payment) {
+        captureSuccessfulPurchase(player, stack, index, payment, ShopPrice.money(payment.totalAmount()));
+    }
+
+    public static void captureSuccessfulPurchase(@Nullable PlayerEntity player, @NotNull ItemStack stack, int index, @NotNull ShopPayment payment, @NotNull ShopPrice listedPrice) {
         if (player == null || stack.isEmpty()) {
             return;
         }
-        PENDING_PURCHASES.put(player.getUuid(), new PendingShopPurchase(stack.copy(), index, pricePaid));
+        PENDING_PURCHASES.put(player.getUuid(), new PendingShopPurchase(stack.copy(), index, payment, listedPrice));
     }
 
     public static @Nullable PendingShopPurchase consume(@Nullable PlayerEntity player) {

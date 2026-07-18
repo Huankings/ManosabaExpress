@@ -1,6 +1,8 @@
 package dev.doctor4t.wathe.api.shop;
 
 import dev.doctor4t.wathe.api.Role;
+import dev.doctor4t.wathe.api.economy.CurrencyAmount;
+import dev.doctor4t.wathe.api.economy.EconomyApi;
 import dev.doctor4t.wathe.cca.GameWorldComponent;
 import dev.doctor4t.wathe.game.GameConstants;
 import dev.doctor4t.wathe.index.WatheSounds;
@@ -143,7 +145,7 @@ public final class ShopApi {
     public static @NotNull ShopPurchaseResult defaultPurchase(@NotNull ShopPurchaseContext context) {
         PlayerEntity player = context.player();
         ShopEntry entry = context.entry();
-        if (context.balance() < entry.price() || player.getItemCooldownManager().isCoolingDown(entry.stack().getItem())) {
+        if (!entry.shopPrice().canAfford(context.shop()) || player.getItemCooldownManager().isCoolingDown(entry.stack().getItem())) {
             return ShopPurchaseResult.FAIL_SHOW_MESSAGE;
         }
 
@@ -166,6 +168,60 @@ public final class ShopApi {
             }
         }
         return fallback;
+    }
+
+    /**
+     * 读取 Wathe 默认商店中某个物品的完整价格结构。
+     *
+     * <p>这个方法会返回整套 {@link ShopPrice}：包含所有货币、AND 条件和 OR 支付方案。
+     * 扩展职业只有在“明确希望完整继承默认杀手商品价格”时才应该使用它。
+     * 如果只是想取某一种货币的某一组价格，请使用
+     * {@link #getDefaultCurrencyPrice(Item, int, Identifier, int)}，避免中立/平民商店误带任务币。</p>
+     */
+    public static @Nullable ShopPrice getDefaultShopPrice(@NotNull Item item) {
+        for (ShopEntry entry : GameConstants.SHOP_ENTRIES) {
+            if (entry.stack().isOf(item)) {
+                return entry.shopPrice();
+            }
+        }
+        return null;
+    }
+
+    /**
+     * 按“支付方案索引 + 货币 id”读取默认商店价格。
+     *
+     * <p>例如如果后续重新启用疯魔模式的任务币实验方案，它可能有两组支付方案：</p>
+     * <p>option 0: 350 金币 + 25 任务币</p>
+     * <p>option 1: 300 金币 + 75 任务币</p>
+     * <p>调用方可以分别读取 option 0 的金币、option 0 的任务币、option 1 的金币、option 1 的任务币，
+     * 而不是把整套价格直接复制到自己的商店里。当前 Wathe 默认疯魔模式是纯金币，读取不存在的 option
+     * 或不存在的货币时会返回调用方传入的 fallback。</p>
+     */
+    public static int getDefaultCurrencyPrice(
+            @NotNull Item item,
+            int optionIndex,
+            @NotNull Identifier currency,
+            int fallback
+    ) {
+        ShopPrice price = getDefaultShopPrice(item);
+        if (price == null || optionIndex < 0 || optionIndex >= price.options().size()) {
+            return fallback;
+        }
+
+        for (CurrencyAmount cost : price.options().get(optionIndex).costs()) {
+            if (cost.currency().equals(currency)) {
+                return cost.amount();
+            }
+        }
+        return fallback;
+    }
+
+    public static int getDefaultMoneyPrice(@NotNull Item item, int optionIndex, int fallback) {
+        return getDefaultCurrencyPrice(item, optionIndex, EconomyApi.MONEY, fallback);
+    }
+
+    public static int getDefaultTaskMoneyPrice(@NotNull Item item, int optionIndex, int fallback) {
+        return getDefaultCurrencyPrice(item, optionIndex, EconomyApi.TASK_MONEY, fallback);
     }
 
     public static void sendPurchaseFailedMessage(@NotNull PlayerEntity player) {

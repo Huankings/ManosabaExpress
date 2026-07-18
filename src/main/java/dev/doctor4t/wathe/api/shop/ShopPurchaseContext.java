@@ -1,10 +1,12 @@
 package dev.doctor4t.wathe.api.shop;
 
 import dev.doctor4t.wathe.api.Role;
+import dev.doctor4t.wathe.api.economy.EconomyApi;
 import dev.doctor4t.wathe.cca.GameWorldComponent;
 import dev.doctor4t.wathe.cca.PlayerShopComponent;
 import dev.doctor4t.wathe.util.ShopEntry;
 import net.minecraft.entity.player.PlayerEntity;
+import net.minecraft.util.Identifier;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -24,6 +26,14 @@ public record ShopPurchaseContext(
         boolean roleSpecificShop
 ) {
     public int balance() {
-        return this.shop.balance;
+        return this.shop.getCurrencyAmount(EconomyApi.MONEY);
+    }
+
+    public int currencyBalance(@NotNull Identifier currency) {
+        return this.shop.getCurrencyAmount(currency);
+    }
+
+    public boolean canAffordEntry() {
+        return this.entry.shopPrice().canAfford(this.shop);
     }
 }

@@ -6,6 +6,7 @@ import dev.doctor4t.wathe.api.GameMode;
 import dev.doctor4t.wathe.api.MapEffect;
 import dev.doctor4t.wathe.api.PlayerLifeStateApi;
 import dev.doctor4t.wathe.api.appearance.BodyAppearanceApi;
+import dev.doctor4t.wathe.api.economy.EconomyApi;
 import dev.doctor4t.wathe.api.event.AllowPlayerDeath;
 import dev.doctor4t.wathe.api.event.GameEvents;
 import dev.doctor4t.wathe.api.event.ShouldDropOnDeath;
@@ -703,7 +704,12 @@ public class GameFunctions {
 
         if (killer != null) {
             if (GameWorldComponent.KEY.get(killer.getWorld()).canUseKillerFeatures(killer)) {
-                PlayerShopComponent.KEY.get(killer).addToBalance(GameConstants.MONEY_PER_KILL);
+                PlayerShopComponent killerShop = PlayerShopComponent.KEY.get(killer);
+                killerShop.addToBalance(GameConstants.MONEY_PER_KILL);
+                // 任务币击杀收益目前暂停；常量大于 0 时才发放，方便后续重新启用。
+                if (GameConstants.TASK_MONEY_PER_KILL > 0) {
+                    killerShop.addCurrencyAmount(EconomyApi.TASK_MONEY, GameConstants.TASK_MONEY_PER_KILL);
+                }
             }
 
             // replenish derringer

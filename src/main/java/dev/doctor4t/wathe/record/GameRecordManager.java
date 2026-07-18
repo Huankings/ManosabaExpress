@@ -4,7 +4,10 @@ import com.mojang.authlib.GameProfile;
 import dev.doctor4t.wathe.api.Faction;
 import dev.doctor4t.wathe.api.Role;
 import dev.doctor4t.wathe.api.WatheRoles;
+import dev.doctor4t.wathe.api.economy.CurrencyAmount;
 import dev.doctor4t.wathe.api.event.RecordEvents;
+import dev.doctor4t.wathe.api.shop.ShopPayment;
+import dev.doctor4t.wathe.api.shop.ShopPrice;
 import dev.doctor4t.wathe.cca.GameRoundEndComponent;
 import dev.doctor4t.wathe.cca.GameWorldComponent;
 import dev.doctor4t.wathe.cca.PlayerShopComponent;
@@ -13,6 +16,7 @@ import dev.doctor4t.wathe.record.replay.ReplayGenerator;
 import dev.doctor4t.wathe.util.ShopEntry;
 import net.minecraft.item.ItemStack;
 import net.minecraft.nbt.NbtCompound;
+import net.minecraft.nbt.NbtList;
 import net.minecraft.registry.Registries;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.server.world.ServerWorld;
@@ -236,7 +240,11 @@ public final class GameRecordManager {
     }
 
     public static void recordShopPurchase(ServerPlayerEntity player, ShopEntry entry, int index, int pricePaid) {
-        recordShopPurchase(player, entry.stack(), index, pricePaid, entry.price());
+        recordShopPurchase(player, entry.stack(), index, ShopPayment.money(pricePaid), entry.shopPrice());
+    }
+
+    public static void recordShopPurchase(ServerPlayerEntity player, ShopEntry entry, int index, ShopPayment payment) {
+        recordShopPurchase(player, entry.stack(), index, payment, entry.shopPrice());
     }
 
     /**
@@ -247,22 +255,49 @@ public final class GameRecordManager {
      * 回放仍然能显示真实购买结果。</p>
      */
     public static void recordShopPurchase(ServerPlayerEntity player, ItemStack purchasedStack, int index, int pricePaid) {
-        recordShopPurchase(player, purchasedStack, index, pricePaid, pricePaid);
+        recordShopPurchase(player, purchasedStack, index, ShopPayment.money(pricePaid), ShopPrice.money(pricePaid));
     }
 
-    private static void recordShopPurchase(ServerPlayerEntity player, ItemStack purchasedStack, int index, int pricePaid, int listedPrice) {
+    public static void recordShopPurchase(ServerPlayerEntity player, ItemStack purchasedStack, int index, ShopPayment payment) {
+        recordShopPurchase(player, purchasedStack, index, payment, ShopPrice.money(payment.totalAmount()));
+    }
+
+    public static void recordShopPurchase(ServerPlayerEntity player, ItemStack purchasedStack, int index, ShopPayment payment, ShopPrice listedPrice) {
         if (!hasActiveMatch()) {
             return;
         }
         NbtCompound data = new NbtCompound();
         data.putInt("index", index);
-        data.putInt("price", listedPrice);
-        data.putInt("price_paid", pricePaid);
+        data.putInt("price", listedPrice.legacyPrice());
+        data.putInt("price_paid", payment.totalAmount());
+        data.put("price_paid_currencies", toCurrencyAmountList(payment.costs()));
         data.putString("item", Registries.ITEM.getId(purchasedStack.getItem()).toString());
         data.putString("item_name", Text.Serialization.toJsonString(purchasedStack.getName(), player.getRegistryManager()));
         data.putInt("count", purchasedStack.getCount());
         data.putInt("balance_after", PlayerShopComponent.KEY.get(player).balance);
+        data.put("balances_after", toCurrencyBalanceCompound(PlayerShopComponent.KEY.get(player).getCurrencyBalancesSnapshot()));
         addEvent(player.getServerWorld(), GameRecordTypes.SHOP_PURCHASE, player, null, data);
+    }
+
+    private static NbtList toCurrencyAmountList(List<CurrencyAmount> amounts) {
+        NbtList list = new NbtList();
+        for (CurrencyAmount amount : amounts) {
+            NbtCompound tag = new NbtCompound();
+            tag.putString("currency", amount.currency().toString());
+            tag.putInt("amount", amount.amount());
+            list.add(tag);
+        }
+        return list;
+    }
+
+    private static NbtCompound toCurrencyBalanceCompound(Map<Identifier, Integer> balances) {
+        NbtCompound tag = new NbtCompound();
+        for (Map.Entry<Identifier, Integer> entry : balances.entrySet()) {
+            if (entry.getValue() > 0) {
+                tag.putInt(entry.getKey().toString(), entry.getValue());
+            }
+        }
+        return tag;
     }
 
     public static void recordTaskComplete(ServerPlayerEntity player, String taskName) {
