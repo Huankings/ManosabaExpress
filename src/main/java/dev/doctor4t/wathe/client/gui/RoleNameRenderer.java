@@ -49,7 +49,15 @@ public class RoleNameRenderer {
             nametagAlpha = MathHelper.lerp(tickCounter.getTickDelta(true) / 4, nametagAlpha, 1f);
             Text originalName = target.getDisplayName();
             nametag = RoleNameHudApi.resolveName(player, target, originalName);
-            if (RoleNameHudApi.countsAsCohort(player, target, component.canUseKillerFeatures(target))) {
+            /*
+             * 目标侧分两步判断：
+             * 1. countsAsCohort 表示“这个 subject 本身就是双向同伙成员”，例如真杀手、Hacker、
+             *    或明确允许双向识别的 Executioner；
+             * 2. showsAsCohortTarget 只补充“target 在当前 viewer 眼里显示成同伙”的单向伪装，
+             *    例如 Mimic、Jester、Vulture、Dreamer。它只影响目标显示，不会给 viewer 反查资格。
+             */
+            boolean targetCountsAsCohort = RoleNameHudApi.countsAsCohort(player, target, component.canUseKillerFeatures(target));
+            if (RoleNameHudApi.showsAsCohortTarget(player, target, targetCountsAsCohort)) {
                 targetRole = TrainRole.KILLER;
             } else {
                 targetRole = TrainRole.BYSTANDER;
@@ -71,6 +79,11 @@ public class RoleNameRenderer {
             context.drawTextWithShadow(renderer, nametag, -nameWidth / 2, 16, MathHelper.packRgb(1f, 1f, 1f) | ((int) (nametagAlpha * 255) << 24));
             if (component.isRunning()) {
                 TrainRole playerRole = TrainRole.BYSTANDER;
+                /*
+                 * 自己侧只能使用双向 cohort 状态，绝不能调用 showsAsCohortTarget。
+                 * 这样“被杀手看起来像同伙”的单向职业不会因为准心对准真杀手而反向看到
+                 * “杀手同伙”提示；Executioner / Hacker 这类明确保留双向机制的职业则仍会通过这里。
+                 */
                 if (RoleNameHudApi.countsAsCohort(player, player, component.canUseKillerFeatures(player))) playerRole = TrainRole.KILLER;
                 if (displayedTargetPlayer != null
                         && playerRole == TrainRole.KILLER

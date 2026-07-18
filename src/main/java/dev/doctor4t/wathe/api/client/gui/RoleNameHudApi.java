@@ -44,6 +44,7 @@ public final class RoleNameHudApi {
     private static final List<Entry<PlayerTargetFilter>> PLAYER_TARGET_FILTERS = new ArrayList<>();
     private static final List<Entry<NameHandler>> NAME_HANDLERS = new ArrayList<>();
     private static final List<Entry<CohortStateHandler>> COHORT_STATE_HANDLERS = new ArrayList<>();
+    private static final List<Entry<CohortTargetStateHandler>> COHORT_TARGET_STATE_HANDLERS = new ArrayList<>();
     private static final List<Entry<CohortHintHandler>> COHORT_HINT_HANDLERS = new ArrayList<>();
     private static final List<Entry<ExtraHudRenderer>> EXTRA_HUD_RENDERERS = new ArrayList<>();
     private static long nextOrder = 0L;
@@ -69,6 +70,19 @@ public final class RoleNameHudApi {
 
     public static void registerCohortState(@NotNull Identifier id, int priority, @NotNull CohortStateHandler handler) {
         register(COHORT_STATE_HANDLERS, id, priority, handler);
+    }
+
+    /**
+     * 注册“目标单向显示为杀手同伙”的规则。
+     *
+     * <p>这个接口只回答“viewer 的准心指向 target 时，target 是否应该显示成杀手同伙”；
+     * 它不会让 viewer 自己获得查看同伙提示的资格。最终 HUD 仍然会用
+     * {@link #countsAsCohort(ClientPlayerEntity, PlayerEntity, boolean)} 判断 viewer 自己是不是
+     * 真正的双向同伙成员。Mimic、Jester、Vulture、Dreamer 这类“杀手看他们像同伙，
+     * 但他们本人不能反查杀手”的职业应该接入这里，而不是接入 {@link #registerCohortState}。</p>
+     */
+    public static void registerCohortTargetState(@NotNull Identifier id, int priority, @NotNull CohortTargetStateHandler handler) {
+        register(COHORT_TARGET_STATE_HANDLERS, id, priority, handler);
     }
 
     public static void registerCohortHint(@NotNull Identifier id, int priority, @NotNull CohortHintHandler handler) {
@@ -142,6 +156,18 @@ public final class RoleNameHudApi {
                                          boolean vanillaValue) {
         for (Entry<CohortStateHandler> entry : snapshot(COHORT_STATE_HANDLERS)) {
             Boolean result = entry.handler().countsAsCohort(viewer, subject, vanillaValue);
+            if (result != null) {
+                return result;
+            }
+        }
+        return vanillaValue;
+    }
+
+    public static boolean showsAsCohortTarget(@NotNull ClientPlayerEntity viewer,
+                                              @NotNull PlayerEntity target,
+                                              boolean vanillaValue) {
+        for (Entry<CohortTargetStateHandler> entry : snapshot(COHORT_TARGET_STATE_HANDLERS)) {
+            Boolean result = entry.handler().showsAsCohortTarget(viewer, target, vanillaValue);
             if (result != null) {
                 return result;
             }
@@ -228,6 +254,13 @@ public final class RoleNameHudApi {
     @FunctionalInterface
     public interface CohortStateHandler {
         @Nullable Boolean countsAsCohort(@NotNull ClientPlayerEntity viewer, @NotNull PlayerEntity subject, boolean vanillaValue);
+    }
+
+    @FunctionalInterface
+    public interface CohortTargetStateHandler {
+        @Nullable Boolean showsAsCohortTarget(@NotNull ClientPlayerEntity viewer,
+                                             @NotNull PlayerEntity target,
+                                             boolean vanillaValue);
     }
 
     @FunctionalInterface
