@@ -290,6 +290,22 @@ public class WatheClient implements ClientModInitializer {
             }
 
             /*
+             * 死亡后的玩家会被 Wathe 切到原版 spectator，用左键点击其他玩家时，
+             * Minecraft 原本会进入“附身该玩家视角”的旁观逻辑。
+             *
+             * 如果这里仍然吞掉左键并切换手雷模式，就会出现：
+             * 玩家死亡时手里刚好残留一颗手雷 -> 想左键附身观战 -> 实际只切了手雷模式。
+             *
+             * 因此只有“Wathe 玩法层仍算存活”的玩家才允许左键切手雷模式。
+             * 注意不要简单禁止所有 spectator / creative：
+             * 部分扩展玩法会通过 PlayerLifeStateApi 授权“旁观/创造但仍按存活处理”，
+             * GameFunctions.isPlayerAliveAndSurvival 会保留这些特殊存活状态的正常操作。
+             */
+            if (!GameFunctions.isPlayerAliveAndSurvival(player)) {
+                return false;
+            }
+
+            /*
              * Fabric 的预攻击回调在“左键持续按住”时会重复触发，
              * 如果不做额外限流，就会出现：
              * 1. 点一下左键，因为按下时间稍长而连续切换两次；
@@ -732,10 +748,11 @@ public class WatheClient implements ClientModInitializer {
     private static void maybeShowGrenadeThrowModeHint(@NotNull ClientPlayerEntity player) {
         int currentSlot = player.getInventory().selectedSlot;
         boolean isHoldingGrenade = player.getMainHandStack().isOf(WatheItems.GRENADE);
-        if (isHoldingGrenade && lastGrenadeSelectedSlot != currentSlot) {
+        boolean canUseGrenadeThrowMode = GameFunctions.isPlayerAliveAndSurvival(player);
+        if (isHoldingGrenade && canUseGrenadeThrowMode && lastGrenadeSelectedSlot != currentSlot) {
             showGrenadeThrowModeMessage(player, "tip.grenade.current_throw_mode");
             lastGrenadeSelectedSlot = currentSlot;
-        } else if (!isHoldingGrenade) {
+        } else if (!isHoldingGrenade || !canUseGrenadeThrowMode) {
             lastGrenadeSelectedSlot = -1;
         }
     }
