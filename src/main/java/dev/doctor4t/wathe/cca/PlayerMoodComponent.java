@@ -67,7 +67,8 @@ import static dev.doctor4t.wathe.Wathe.isSkyVisibleAdjacent;
  * 3. 第一个任务依旧走时间冷却刷新；
  * 4. 第二、第三个任务不会永久解锁，而是只在当前心情真的落入对应阈值区间时补刷；
  * 5. 任务做完后，其他任务不会消失；
- * 6. 如果某个任务一直留在任务栏里，系统会累计“其他任务完成了多少次”，达到阈值后自动清掉该卡死任务，但不会给心情奖励。
+ * 6. 如果某个任务一直留在任务栏里，系统会累计“其他任务完成了多少次”，达到阈值后自动清掉该卡死任务，但不会给心情奖励；
+ * 7. 扩展可以通过公开 API 主动发放任务，但最多仍只能同时存在 {@link GameConstants#MAX_CONCURRENT_MOOD_TASKS} 个任务。
  */
 public class PlayerMoodComponent implements AutoSyncedComponent, ServerTickingComponent, ClientTickingComponent {
     public static final ComponentKey<PlayerMoodComponent> KEY = ComponentRegistry.getOrCreate(Wathe.id("mood"), PlayerMoodComponent.class);
@@ -341,8 +342,9 @@ public class PlayerMoodComponent implements AutoSyncedComponent, ServerTickingCo
             return 0;
         }
 
+        int cappedExpectedTaskCount = Math.min(expectedTaskCount, GameConstants.MAX_CONCURRENT_MOOD_TASKS);
         int filled = 0;
-        while (this.tasks.size() < expectedTaskCount) {
+        while (this.tasks.size() < cappedExpectedTaskCount) {
             TrainTask task = this.assignRandomTask();
             if (task == null) {
                 break;
@@ -376,6 +378,81 @@ public class PlayerMoodComponent implements AutoSyncedComponent, ServerTickingCo
         float random = this.player.getRandom().nextFloat();
         int cooldown = (int) (random * (GameConstants.MAX_TASK_COOLDOWN - GameConstants.MIN_TASK_COOLDOWN) + GameConstants.MIN_TASK_COOLDOWN);
         return Math.max(cooldown, 2);
+    }
+
+    /**
+     * 当前已有多少个心情任务。
+     *
+     * <p>这个读入口给扩展 API 和调试逻辑使用，避免外部为了看数量直接依赖 {@link #tasks} 的可变 Map。</p>
+     */
+    public int getActiveMoodTaskCount() {
+        return this.tasks.size();
+    }
+
+    /**
+     * 当前还剩多少个可发放任务槽。
+     *
+     * <p>这里统一使用 {@link GameConstants#MAX_CONCURRENT_MOOD_TASKS}，确保低心情自动任务和扩展主动任务都共用同一条上限规则。</p>
+     */
+    public int getRemainingMoodTaskSlots() {
+        return Math.max(0, GameConstants.MAX_CONCURRENT_MOOD_TASKS - this.tasks.size());
+    }
+
+    /**
+     * 判断当前玩家是否可以通过外部 API 获得新的心情任务。
+     *
+     * <p>扩展职业常见需求是“技能触发后直接给目标塞任务”，但这里仍然集中保护几个边界：</p>
+     * <p>1. 只允许服务端改任务，客户端不能本地伪造任务；</p>
+     * <p>2. 只在对局运行且玩家仍按 Wathe 玩法存活时发放，避免大厅/死亡状态留下脏任务；</p>
+     * <p>3. 只有 REAL/FAKE 心情职业能接任务，MoodType.NONE 的展示型职业不会被强行挂任务；</p>
+     * <p>4. 永远不能超过全局最大同时任务数。</p>
+     */
+    public boolean canReceiveExternalMoodTask() {
+        if (this.player.getWorld().isClient()) {
+            return false;
+        }
+
+        GameWorldComponent gameWorldComponent = GameWorldComponent.KEY.get(this.player.getWorld());
+        Role role = gameWorldComponent.getRole(this.player);
+        boolean supportsMoodTasks = hasRealMood(role) || hasFakeMood(role);
+        return gameWorldComponent.isRunning()
+                && GameFunctions.isPlayerAliveAndSurvival(this.player)
+                && supportsMoodTasks
+                && this.getRemainingMoodTaskSlots() > 0;
+    }
+
+    /**
+     * 供公开 API 复用的“外部主动发任务”入口。
+     *
+     * <p>它复用 Wathe 原本的随机抽任务逻辑，因此仍然会：</p>
+     * <p>1. 避免抽到当前已经存在的任务；</p>
+     * <p>2. 维护 timesGotten 权重，减少同一任务反复出现；</p>
+     * <p>3. 初始化卡死任务累计计数；</p>
+     * <p>4. 统一同步给客户端。</p>
+     *
+     * <p>注意：这里“只是发任务”，不会触发任务完成事件，也不会额外改心情值。
+     * 扩展如果需要奖励/惩罚，应在自己的技能逻辑里单独处理。</p>
+     */
+    public @NotNull List<Task> assignExternalRandomTasks(int requestedCount) {
+        if (requestedCount <= 0 || !this.canReceiveExternalMoodTask()) {
+            return List.of();
+        }
+
+        int tasksToAssign = Math.min(requestedCount, this.getRemainingMoodTaskSlots());
+        ArrayList<Task> assignedTasks = new ArrayList<>();
+        while (assignedTasks.size() < tasksToAssign) {
+            TrainTask task = this.assignRandomTask();
+            if (task == null) {
+                break;
+            }
+            assignedTasks.add(task.getType());
+        }
+
+        if (!assignedTasks.isEmpty()) {
+            this.sync();
+            this.dirty = false;
+        }
+        return List.copyOf(assignedTasks);
     }
 
     /**

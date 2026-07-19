@@ -349,6 +349,8 @@ Wathe 的地图通常是“模板区复制到游戏区”。配置项来自：
 - 只要身上有任意任务，就按单任务速度掉心情，不再按任务数量叠加掉心情；
 - 第一个任务仍按冷却刷新；
 - 低心情会按阈值临时开放第二 / 第三个并行任务槽；
+- 扩展 Mod 可以通过 `MoodTaskApi.assignRandomTasks(...)` / `fillRandomTaskSlots(...)` 主动发放随机心情任务，不必等待心情跌到阈值；
+- 外部主动发放任务仍然和自动任务共用最多 3 个同时任务的上限；
 - 心情回升后不会强行删除已有任务，但不会继续补新任务；
 - 完成一个任务只移除该任务，不会清空全部任务；
 - 长期卡住的任务会在其他任务完成若干次后自动移除，但不奖励心情；
@@ -535,6 +537,7 @@ GameRecordManager.recordGlobalEvent(
 | `VictoryApi` | 胜利仲裁 | 独立胜利、保活、共胜 |
 | `EconomyApi` | 金币 HUD、被动收入、多货币 | 富豪、任务大师、自定义货币 |
 | `ShopApi` | 职业商店和商店修改器 | 给某职业专属商品，或改默认杀手商品 |
+| `MoodTaskApi` | 主动发放心情任务 | 技能给目标直接追加随机任务、补满任务槽 |
 | `TaskCompletionApi` | 任务完成事件和任务收益 | 任务大师、完成任务减冷却、职业充能 |
 | `InstinctApi` | 本能资格和描边 | 新职业透视、状态高亮、本能压制 |
 | `PlayerLifeStateApi` | 特殊玩法存活状态 | 旁观 / 创造但仍参与胜负和 HUD |
@@ -674,12 +677,13 @@ Datagen 入口是 `WatheDatagen`，相关类包括：
 1. 在扩展 Mod 初始化时用 `WatheRoles.registerCivilianRole` / `registerKillerRole` / `registerNeutralRole` 注册职业。
 2. 如果职业需要专属商店，用 `ShopApi.registerRoleShop` 或 `registerShopModifier`。
 3. 如果职业需要金币 HUD / 被动收入，用 `EconomyApi` 注册。
-4. 如果职业和任务完成有关，用 `TaskCompletionApi.AFTER_TASK_COMPLETE` 或任务收益 provider。
-5. 如果职业改变胜负，用 `VictoryApi.registerRule`。
-6. 如果职业需要本能透视，用 `InstinctApi.registerAvailability` 和 `registerHighlight`。
-7. 如果职业需要记录技能，用 `GameRecordManager.recordSkillUse` / `recordGlobalEvent`，再用 `ReplayRegistry` 注册格式器。
-8. 如果职业会伪装、换皮、伪尸体，用 `PlayerAppearanceApi` / `BodyAppearanceApi`。
-9. 如果职业会让旁观 / 创造玩家仍参与胜负，用 `PlayerLifeStateApi` 授权，并在清理时撤销。
+4. 如果职业需要主动给玩家追加心情任务，用 `MoodTaskApi.assignRandomTasks` 或 `fillRandomTaskSlots`。
+5. 如果职业和任务完成有关，用 `TaskCompletionApi.AFTER_TASK_COMPLETE` 或任务收益 provider。
+6. 如果职业改变胜负，用 `VictoryApi.registerRule`。
+7. 如果职业需要本能透视，用 `InstinctApi.registerAvailability` 和 `registerHighlight`。
+8. 如果职业需要记录技能，用 `GameRecordManager.recordSkillUse` / `recordGlobalEvent`，再用 `ReplayRegistry` 注册格式器。
+9. 如果职业会伪装、换皮、伪尸体，用 `PlayerAppearanceApi` / `BodyAppearanceApi`。
+10. 如果职业会让旁观 / 创造玩家仍参与胜负，用 `PlayerLifeStateApi` 授权，并在清理时撤销。
 
 一个最小的独立胜利规则示例：
 

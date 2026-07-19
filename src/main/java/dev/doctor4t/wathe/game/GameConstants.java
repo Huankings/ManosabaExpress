@@ -95,6 +95,13 @@ public interface GameConstants {
     int TIME_TO_FIRST_TASK = getInTicks(0, 30);
     int MIN_TASK_COOLDOWN = getInTicks(0, 30);
     int MAX_TASK_COOLDOWN = getInTicks(1, 0);
+    /**
+     * 玩家身上允许同时挂起的心情任务上限。
+     *
+     * <p>低心情阈值自动补任务、以及扩展通过公开 API 主动发任务，都必须共同遵守这个上限。
+     * 这样扩展职业可以绕开心情阈值额外塞任务，但不会把 HUD 和任务完成逻辑推到 Wathe 没设计过的数量。</p>
+     */
+    int MAX_CONCURRENT_MOOD_TASKS = 3;
     float SECOND_TASK_MOOD_THRESHOLD = 0.51f;
     float THIRD_TASK_MOOD_THRESHOLD = 0.17f;
     float MOOD_BREAKDOWN_WARNING_THRESHOLD = 0.15f;
@@ -282,7 +289,7 @@ public interface GameConstants {
         if (mood <= THIRD_TASK_MOOD_THRESHOLD) {
             slots = 3;
         }
-        return slots;
+        return Math.min(slots, MAX_CONCURRENT_MOOD_TASKS);
     }
 
     /**
