@@ -368,8 +368,8 @@
   "task.sleep": "去睡一会儿。",
   "tip.cooldown": "冷却中：%s",
   "tip.wathe.held_item_invisible_to_others": "手持该物品时对其他玩家不可见",
-  "currency.wathe.money": "金币",
-  "currency.wathe.task_money": "任务币",
+  "currency.wathe.money": "§f\uE781§r",
+  "currency.wathe.task_money": "§f\uE782§r",
   "shop.purchase_failed": "购买失败",
   "shop.price.or": "或",
   "shop.price.free": "免费",
@@ -394,7 +394,7 @@
   ,"replay.footer": "回放结束"
   ,"replay.role.unknown": "未知职业"
   ,"replay.item.unknown": "未知物品"
-  ,"replay.shop_purchase": "%s 购买了 %s，花费 %s 金币"
+  ,"replay.shop_purchase": "%s 购买了 %s，花费 %s§f\uE781§r"
   ,"replay.shop_purchase.multi_currency": "%s 购买了 %s，花费 %s"
   ,"replay.item_pickup": "%s 捡起了 %s"
   ,"replay.item_pickup.multiple": "%s 捡起了 %s x%s"
