@@ -32,6 +32,8 @@
 
     "client.EntityRendererDispatchMixin",
     "client.GameRendererMixin",
+    "client.inventory.HandledScreenInventoryButtonMixin",
+    "client.inventory.InventoryScreenMixin",
     "client.MinecraftClientMixin",
     "client.PlayerEntityRendererMixin",
     "client.ResourceTextureMixin",

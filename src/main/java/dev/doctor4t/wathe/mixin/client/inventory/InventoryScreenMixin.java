@@ -1,14 +1,10 @@
-package dev.doctor4t.wathe.mixin.client.restrictions;
+package dev.doctor4t.wathe.mixin.client.inventory;
 
-import com.llamalad7.mixinextras.injector.wrapmethod.WrapMethod;
-import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import dev.doctor4t.wathe.api.client.inventory.InventoryButtonApi;
 import dev.doctor4t.wathe.api.client.inventory.InventoryScreenType;
-import dev.doctor4t.wathe.client.WatheClient;
-import dev.doctor4t.wathe.client.gui.screen.ingame.LimitedInventoryScreen;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.ingame.AbstractInventoryScreen;
-import net.minecraft.client.gui.screen.ingame.CreativeInventoryScreen;
+import net.minecraft.client.gui.screen.ingame.InventoryScreen;
 import net.minecraft.entity.player.PlayerInventory;
 import net.minecraft.screen.PlayerScreenHandler;
 import net.minecraft.text.Text;
@@ -18,20 +14,20 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
-@Mixin(CreativeInventoryScreen.class)
-public abstract class CreativeInventoryScreenMixin extends AbstractInventoryScreen<PlayerScreenHandler> {
-    public CreativeInventoryScreenMixin(PlayerScreenHandler screenHandler, PlayerInventory playerInventory, Text text) {
+@Mixin(InventoryScreen.class)
+public abstract class InventoryScreenMixin extends AbstractInventoryScreen<PlayerScreenHandler> {
+    public InventoryScreenMixin(PlayerScreenHandler screenHandler, PlayerInventory playerInventory, Text text) {
         super(screenHandler, playerInventory, text);
     }
 
     @Inject(method = "init", at = @At("TAIL"))
-    private void wathe$initCreativeInventoryButtons(CallbackInfo ci) {
+    private void wathe$initInventoryButtons(CallbackInfo ci) {
         if (this.client == null) {
             return;
         }
         InventoryButtonApi.initializeScreen(
                 this,
-                InventoryScreenType.CREATIVE,
+                InventoryScreenType.VANILLA,
                 this.client.player,
                 this.textRenderer,
                 widget -> this.addDrawableChild(widget),
@@ -45,35 +41,21 @@ public abstract class CreativeInventoryScreenMixin extends AbstractInventoryScre
     }
 
     @Inject(method = "render", at = @At("TAIL"))
-    private void wathe$renderCreativeInventoryButtons(DrawContext context, int mouseX, int mouseY, float delta, CallbackInfo ci) {
+    private void wathe$renderInventoryButtons(DrawContext context, int mouseX, int mouseY, float delta, CallbackInfo ci) {
         InventoryButtonApi.renderScreen(this, context, mouseX, mouseY, delta);
     }
 
     @Inject(method = "handledScreenTick", at = @At("TAIL"))
-    private void wathe$tickCreativeInventoryButtons(CallbackInfo ci) {
+    private void wathe$tickInventoryButtons(CallbackInfo ci) {
         InventoryButtonApi.tickScreen(this);
     }
 
-    @Inject(method = "removed", at = @At("HEAD"))
-    private void wathe$closeCreativeInventoryButtons(CallbackInfo ci) {
-        InventoryButtonApi.closeScreen(this);
-    }
-
     @Inject(method = "keyPressed", at = @At("HEAD"), cancellable = true)
-    private void wathe$keepCreativeInventoryOpenForButtons(int keyCode, int scanCode, int modifiers, CallbackInfoReturnable<Boolean> cir) {
+    private void wathe$keepInventoryOpenForButtons(int keyCode, int scanCode, int modifiers, CallbackInfoReturnable<Boolean> cir) {
         if (this.client != null
                 && this.client.options.inventoryKey.matchesKey(keyCode, scanCode)
                 && !InventoryButtonApi.allowInventoryKeyClose(this, keyCode, scanCode)) {
             cir.setReturnValue(true);
-        }
-    }
-
-    @WrapMethod(method = "handledScreenTick")
-    public void wathe$replaceSurvivalInventory(Operation<Void> original) {
-        if (WatheClient.isPlayerAliveAndInSurvival()) {
-            this.client.setScreen(new LimitedInventoryScreen(this.client.player));
-        } else {
-            original.call();
         }
     }
 }

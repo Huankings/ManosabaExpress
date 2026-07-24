@@ -7,7 +7,9 @@ import dev.doctor4t.ratatouille.client.util.ambience.BackgroundAmbience;
 import dev.doctor4t.wathe.Wathe;
 import dev.doctor4t.wathe.WatheConfig;
 import dev.doctor4t.wathe.api.Role;
+import dev.doctor4t.wathe.api.client.inventory.InventoryPageState;
 import dev.doctor4t.wathe.api.client.invisibility.HeldItemInvisibilityApi;
+import dev.doctor4t.wathe.api.event.GameEvents;
 import dev.doctor4t.wathe.api.instinct.InstinctApi;
 import dev.doctor4t.wathe.cca.GameWorldComponent;
 import dev.doctor4t.wathe.cca.MapEnhancementsWorldComponent;
@@ -408,8 +410,17 @@ public class WatheClient implements ClientModInitializer {
         ClientPlayNetworking.registerGlobalReceiver(AnnounceEndingPayload.ID, new AnnounceEndingPayload.Receiver());
         ClientPlayNetworking.registerGlobalReceiver(TaskCompletePayload.ID, new TaskCompletePayload.Receiver());
         ClientPlayNetworking.registerGlobalReceiver(TaskPointSyncPayload.ID, new TaskPointSyncPayload.Receiver());
+        /*
+         * 背包分页页码只在当前连接/当前对局内有意义。
+         * 在 Wathe 本体统一清理后，扩展 mod 只需要使用 InventoryPageState，
+         * 不必再各自注册一套分页 reset。
+         */
+        GameEvents.ON_GAME_START.register(gameMode -> InventoryPageState.reset());
+        GameEvents.ON_GAME_STOP.register(gameMode -> InventoryPageState.reset());
+        GameEvents.ON_FINISH_FINALIZE.register((world, gameComponent) -> InventoryPageState.reset());
         ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
             TaskPointClientState.clear();
+            InventoryPageState.reset();
             instinctToggleActive = false;
             wasHoldingInvisibleHeldItem = false;
         });

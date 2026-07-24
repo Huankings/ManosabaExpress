@@ -1,6 +1,8 @@
 package dev.doctor4t.wathe.client.gui.screen.ingame;
 
 import dev.doctor4t.wathe.Wathe;
+import dev.doctor4t.wathe.api.client.inventory.InventoryButtonApi;
+import dev.doctor4t.wathe.api.client.inventory.InventoryScreenType;
 import dev.doctor4t.wathe.api.shop.ShopApi;
 import dev.doctor4t.wathe.client.gui.StoreRenderer;
 import dev.doctor4t.wathe.util.ShopEntry;
@@ -46,11 +48,31 @@ public class LimitedInventoryScreen extends LimitedHandledScreen<PlayerScreenHan
          * 只要注册了职业商店，也会自然显示自己的商品按钮。
          */
         List<ShopEntry> entries = ShopApi.getEntriesForPlayer(this.player);
-        if (entries.isEmpty()) return;
-        int x = this.width / 2 - entries.size() * SHOP_ITEM_SPACING / 2 + SHOP_ITEM_X_OFFSET;
-        int y = this.y - SHOP_ITEM_Y_OFFSET;
-        for (int i = 0; i < entries.size(); i++)
-            this.addDrawableChild(new StoreItemWidget(this, x + SHOP_ITEM_SPACING * i, y, entries.get(i), i));
+        if (!entries.isEmpty()) {
+            int x = this.width / 2 - entries.size() * SHOP_ITEM_SPACING / 2 + SHOP_ITEM_X_OFFSET;
+            int y = this.y - SHOP_ITEM_Y_OFFSET;
+            for (int i = 0; i < entries.size(); i++)
+                this.addDrawableChild(new StoreItemWidget(this, x + SHOP_ITEM_SPACING * i, y, entries.get(i), i));
+        }
+
+        /*
+         * 背包扩展按钮统一从 InventoryButtonApi 挂载。
+         * 这样扩展 mod 不需要再 mixin LimitedInventoryScreen；动态头像列表、
+         * 翻页按钮、文本输入阶段阻止关闭等生命周期都由 Wathe 统一调度。
+         */
+        InventoryButtonApi.initializeScreen(
+                this,
+                InventoryScreenType.LIMITED,
+                this.player,
+                this.textRenderer,
+                widget -> this.addDrawableChild(widget),
+                this.width,
+                this.height,
+                this.x,
+                this.y,
+                this.backgroundWidth,
+                this.backgroundHeight
+        );
     }
 
     @Override
@@ -73,8 +95,14 @@ public class LimitedInventoryScreen extends LimitedHandledScreen<PlayerScreenHan
     @Override
     public void render(DrawContext context, int mouseX, int mouseY, float delta) {
         super.render(context, mouseX, mouseY, delta);
+        InventoryButtonApi.renderScreen(this, context, mouseX, mouseY, delta);
         this.drawMouseoverTooltip(context, mouseX, mouseY);
         StoreRenderer.renderHud(this.textRenderer, this.player, context, delta);
+    }
+
+    @Override
+    protected void handledScreenTick() {
+        InventoryButtonApi.tickScreen(this);
     }
 
     public static class StoreItemWidget extends ButtonWidget {

@@ -45,6 +45,7 @@ Wathe 是一个基于 **Minecraft 1.21.1 + Fabric** 的列车狼人杀 / 社交�
 | --- | --- |
 | `src/main/java/dev/doctor4t/wathe/Wathe.java` | Mod 总初始化：注册物品、方块、命令、网络包、数据包重载、回放格式器、任务点系统等 |
 | `src/main/java/dev/doctor4t/wathe/api` | 给本体和扩展 Mod 使用的公开 API：职业、阵营、游戏模式、商店、经济、胜利、任务完成、本能、HUD 等 |
+| `src/main/java/dev/doctor4t/wathe/api/client/inventory` | 背包按钮公开 API：扩展按钮注册、三类背包 screen type、动态分组、分页和头像辅助 |
 | `src/main/java/dev/doctor4t/wathe/cca` | Cardinal Components 状态组件：世界状态、玩家状态、计分板全局状态 |
 | `src/main/java/dev/doctor4t/wathe/game` | 对局生命周期、游戏模式、地图效果、地图重置任务 |
 | `src/main/java/dev/doctor4t/wathe/command` | 管理员和玩家指令 |
@@ -547,6 +548,7 @@ GameRecordManager.recordGlobalEvent(
 | `BodyAppearanceApi` | 尸体外观覆写 | 双重人格、伪尸体 |
 | `HeldItemInvisibilityApi` | 手持物隐藏 | 某些技能道具对其他活人不可见 |
 | `TimeHudApi` | 时间 HUD | 自定义时间显示 |
+| `InventoryButtonApi` | 背包按钮生命周期 | 职业选人按钮、图鉴按钮、分页按钮、输入阶段阻止 E 键关闭 |
 | `TrayEffectRegistry` | 托盘效果 | 毒药、药剂、陷阱 |
 | `BedEffectRegistry` | 床效果 | 床毒、床炸弹 |
 | `AllowPlayerDeath` | 死亡拦截 | 护盾、免死、替死 |
@@ -556,6 +558,59 @@ GameRecordManager.recordGlobalEvent(
 | `CanSeePoison` | 毒药可见性 | 验毒职业、特殊视觉 |
 | `RecordEvents` | 对局记录完成 | 生成额外回放、统计数据 |
 | `ReplayRegistry` | 回放文本格式器 | 自定义技能 / 物品 / 死亡原因文本 |
+
+### 背包按钮公开 API
+
+背包按钮统一由 `dev.doctor4t.wathe.api.client.inventory` 包提供。扩展 Mod 不需要再 mixin
+`LimitedInventoryScreen`、原版 `InventoryScreen` 或 `CreativeInventoryScreen` 来追加按钮；只要在客户端初始化时注册 provider，Wathe 会在对应 screen 打开后统一调度 `init`、`tick`、`render`、`close` 和“背包键是否允许关闭”。
+
+核心类型：
+
+- `InventoryButtonApi`：注册 provider，并负责每个 screen 实例的生命周期调度。
+- `InventoryScreenType`：区分 `LIMITED`、`VANILLA`、`CREATIVE` 三种背包界面。
+- `InventoryButtonContext`：提供当前 screen、玩家、字体、界面尺寸、背景坐标，以及 `addWidget`、`replaceGroup`、`clearGroup`、`setGroupVisible` 等操作。
+- `InventoryButtonExtension`：扩展侧每次打开背包都会创建一个实例，可以保存当前页、已选目标、临时输入状态。
+- `InventoryButtonLayout`、`InventoryPageState`、`InventoryPageSwitchWidget`：提供 NoellesRoles 同款居中分页布局、跨 screen 页码缓存和上一页/下一页按钮。
+- `InventoryPlayerHeadHelper`：渲染玩家头像时优先读取原始皮肤，避免变形/伪装状态造成“伪装套娃”。
+
+示例：
+
+```java
+public static void register() {
+    InventoryButtonApi.registerProvider(MyMod.id("inventory/my_role"), InventoryButtonApi.DEFAULT_PRIORITY, context -> {
+        if (context.type() != InventoryScreenType.LIMITED || context.player() == null) {
+            return null;
+        }
+        return MyRoleComponent.KEY.get(context.requirePlayer()).canUseButton()
+                ? new MyRoleInventoryButtons()
+                : null;
+    });
+}
+
+final class MyRoleInventoryButtons implements InventoryButtonExtension {
+    private static final Identifier GROUP = MyMod.id("inventory_group/my_role");
+
+    @Override
+    public void init(InventoryButtonContext context) {
+        context.addWidget(GROUP, new MyRoleTargetButton(context.requireLimitedScreen(), 0, 0));
+    }
+
+    @Override
+    public void tick(InventoryButtonContext context) {
+        // 动态显示/隐藏整组按钮。需要重建列表时用 replaceGroup 或 clearGroup。
+        context.setGroupVisible(GROUP, MyRoleComponent.KEY.get(context.requirePlayer()).canUseButton());
+    }
+
+    @Override
+    public boolean allowInventoryKeyClose(InventoryButtonContext context, int keyCode, int scanCode) {
+        return !MyRoleInputState.isTyping();
+    }
+}
+```
+
+`replaceGroup` / `clearGroup` 的“删除”语义是隐藏并禁用旧 widget，而不是直接从 Minecraft screen 内部列表移除。这样可以稳定兼容不同映射和版本，也能避免误删其他扩展挂到同一个背包里的按钮。需要像召集者这类动态增删列表时，优先把同一组玩家头像和翻页按钮放进同一个 group，再整体重建或显隐。
+
+页码缓存由 Wathe 在开局、停局、结算完成和断线时统一清理。扩展侧只需要使用 `InventoryPageState` 保存某类按钮的当前页，不要自己监听对局重置事件重复清理。
 
 ## 扩展工程如何接入
 

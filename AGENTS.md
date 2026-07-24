@@ -62,6 +62,7 @@
 - 心情 HUD：`MoodHudApi`
 - 时间 HUD：`TimeHudApi`
 - 手持物隐藏：`HeldItemInvisibilityApi`
+- 背包按钮：`InventoryButtonApi`、`InventoryScreenType`、`InventoryButtonContext`、`InventoryPageState`、`InventoryPageSwitchWidget`
 - 床 / 托盘 / 毒药 / 回放：`BedEffectRegistry`、`TrayEffectRegistry`、`CanSeePoison`、`ReplayRegistry`
 
 ### HarpyModLoader
@@ -86,7 +87,7 @@ Harpy 当前按 `role.getFaction()` 分平民、义警、杀手、中立池；�
 - `death/NoellesRolesDeathBootstrap.java`：死亡保护和反噬。
 - `record/NoellesRolesReplayFormatters.java`：回放格式化。
 - `client/NoellesrolesClient.java`：客户端初始化。
-- `client/appearance`、`client/instinct`、`client/visibility`、`client/ui`：外观、本能、隐藏物品和界面。
+- `client/appearance`、`client/instinct`、`client/visibility`、`client/inventory`、`client/ui`：外观、本能、隐藏物品、背包按钮和界面。
 
 ### StupidExpress
 
@@ -292,6 +293,20 @@ Harpymodloader.setRoleMaximum(MY_ROLE, 1);
 - 动态状态隐藏：`registerRule(...)`
 - API 已处理“本人 F5 看自己仍可见、死亡 / 旁观 / 创造可见、只隐藏局内存活玩家视角”的边界，不要在扩展里重复写整套渲染 mixin。
 
+## 背包按钮和分页
+
+扩展要在背包里加按钮时，优先接 `dev.doctor4t.wathe.api.client.inventory`，不要再新增 `LimitedInventoryScreen` / `InventoryScreen` / `CreativeInventoryScreen` 的 screen mixin。
+
+- `InventoryScreenType.LIMITED`：Wathe 局内限制背包，职业选人按钮通常只挂这里。
+- `InventoryScreenType.VANILLA`：原版玩家背包，适合图鉴、帮助入口等非职业状态按钮。
+- `InventoryScreenType.CREATIVE`：创造背包，适合 StarryExpress 图鉴这类创造模式也要显示的入口。
+- 扩展在客户端初始化时用 `InventoryButtonApi.registerProvider(id, priority, provider)` 注册。provider 返回 `null` 表示当前 screen 不需要按钮。
+- `InventoryButtonContext.addWidget(groupId, widget)` 会把 widget 加入命名分组；动态列表用 `replaceGroup` / `clearGroup` / `setGroupVisible`，不要直接操作 screen 内部 children。
+- “删除 widget”在 API 里表现为隐藏、禁用和解除焦点，目的是兼容 MC screen 内部列表没有稳定公开删除接口的情况。
+- 需要 NoellesRoles 同款换页时使用 `InventoryButtonLayout`、`InventoryPageState`、`InventoryPageSwitchWidget`。Wathe 会在开局、停局、结算完成、断线时统一 reset 页码。
+- 输入框或二阶段选择期间禁止 E 键关背包时，在 `InventoryButtonExtension.allowInventoryKeyClose(...)` 返回 `false`，关闭时清理静态输入状态放进 `close(...)`。
+- 变形怪这类“点击后头像和翻页按钮都要消失”的场景，应让头像和翻页按钮共享同一个可见性条件或同一个 group，避免只隐藏一部分按钮。
+
 ## 胜利、死亡和回放
 
 特殊胜利优先接入 `VictoryApi`：
@@ -347,7 +362,7 @@ Harpymodloader.setRoleMaximum(MY_ROLE, 1);
 ### Wathe 接口公开化
 
 1. 找出现有扩展的重复 mixin / helper。
-2. 在 Wathe 设计一个窄 API：注册 handler、priority、PASS 语义、上下文 record。
+2. 在 Wathe 设计一个窄 API：注册 handler、priority、PASS 语义、上下文 record；背包按钮类需求优先考虑 `InventoryButtonApi` 的 screen type、group 和 lifecycle。
 3. Wathe 原逻辑改成先询问 API，再走默认行为。
 4. 把 NoellesRoles / StupidExpress / kinssaba / StarryExpress 中相关逻辑接入 API。
 5. 删除或停用已不需要的扩展 mixin，并同步 mixin json。

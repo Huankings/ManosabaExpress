@@ -3,6 +3,7 @@ package dev.doctor4t.wathe.client.gui.screen.ingame;
 import com.google.common.collect.Sets;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.datafixers.util.Pair;
+import dev.doctor4t.wathe.api.client.inventory.InventoryButtonApi;
 import dev.doctor4t.wathe.client.WatheClient;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.Screen;
@@ -527,6 +528,9 @@ public abstract class LimitedHandledScreen<T extends ScreenHandler> extends Scre
         if (super.keyPressed(keyCode, scanCode, modifiers)) {
             return true;
         } else if (this.client.options.inventoryKey.matchesKey(keyCode, scanCode)) {
+            if (!InventoryButtonApi.allowInventoryKeyClose(this, keyCode, scanCode)) {
+                return true;
+            }
             this.close();
             return true;
         } else {
@@ -561,6 +565,7 @@ public abstract class LimitedHandledScreen<T extends ScreenHandler> extends Scre
 
     @Override
     public void removed() {
+        InventoryButtonApi.closeScreen(this);
         if (this.client.player != null) {
             this.handler.onClosed(this.client.player);
         }
