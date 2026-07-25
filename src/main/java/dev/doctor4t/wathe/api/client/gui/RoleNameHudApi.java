@@ -43,6 +43,7 @@ public final class RoleNameHudApi {
     private static final List<Entry<RaycastSourceHandler>> RAYCAST_SOURCE_HANDLERS = new ArrayList<>();
     private static final List<Entry<PlayerTargetFilter>> PLAYER_TARGET_FILTERS = new ArrayList<>();
     private static final List<Entry<NameHandler>> NAME_HANDLERS = new ArrayList<>();
+    private static final List<Entry<EntityNameHandler>> ENTITY_NAME_HANDLERS = new ArrayList<>();
     private static final List<Entry<CohortStateHandler>> COHORT_STATE_HANDLERS = new ArrayList<>();
     private static final List<Entry<CohortTargetStateHandler>> COHORT_TARGET_STATE_HANDLERS = new ArrayList<>();
     private static final List<Entry<CohortHintHandler>> COHORT_HINT_HANDLERS = new ArrayList<>();
@@ -66,6 +67,17 @@ public final class RoleNameHudApi {
 
     public static void registerName(@NotNull Identifier id, int priority, @NotNull NameHandler handler) {
         register(NAME_HANDLERS, id, priority, handler);
+    }
+
+    /**
+     * 注册非玩家实体的准心名牌。
+     *
+     * <p>这个接口只面向“扩展职业生成了一个需要像玩家一样显示名字的实体”这种窄场景，
+     * 例如 NoellesRoles 魔术师播放体。普通玩家名字仍然走 {@link #registerName}，
+     * 这样同伙提示、精神错乱混淆和其他玩家专属逻辑不会被非玩家实体误触发。</p>
+     */
+    public static void registerEntityName(@NotNull Identifier id, int priority, @NotNull EntityNameHandler handler) {
+        register(ENTITY_NAME_HANDLERS, id, priority, handler);
     }
 
     public static void registerCohortState(@NotNull Identifier id, int priority, @NotNull CohortStateHandler handler) {
@@ -151,6 +163,17 @@ public final class RoleNameHudApi {
         return originalName;
     }
 
+    public static @Nullable Text resolveEntityName(@NotNull ClientPlayerEntity viewer,
+                                                   @NotNull Entity target) {
+        for (Entry<EntityNameHandler> entry : snapshot(ENTITY_NAME_HANDLERS)) {
+            Text result = entry.handler().getName(viewer, target);
+            if (result != null) {
+                return result;
+            }
+        }
+        return null;
+    }
+
     public static boolean countsAsCohort(@NotNull ClientPlayerEntity viewer,
                                          @NotNull PlayerEntity subject,
                                          boolean vanillaValue) {
@@ -226,6 +249,7 @@ public final class RoleNameHudApi {
                           @NotNull RenderTickCounter tickCounter,
                           float range,
                           @Nullable PlayerEntity targetPlayer,
+                          @Nullable Entity targetEntity,
                           @Nullable Text displayedTargetName,
                           float nametagAlpha,
                           float noteAlpha) {
@@ -249,6 +273,11 @@ public final class RoleNameHudApi {
     @FunctionalInterface
     public interface NameHandler {
         @Nullable Text getName(@NotNull ClientPlayerEntity viewer, @NotNull PlayerEntity target, @NotNull Text originalName);
+    }
+
+    @FunctionalInterface
+    public interface EntityNameHandler {
+        @Nullable Text getName(@NotNull ClientPlayerEntity viewer, @NotNull Entity target);
     }
 
     @FunctionalInterface

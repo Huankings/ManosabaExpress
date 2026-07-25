@@ -46,6 +46,7 @@ Wathe 是一个基于 **Minecraft 1.21.1 + Fabric** 的列车狼人杀 / 社交�
 | `src/main/java/dev/doctor4t/wathe/Wathe.java` | Mod 总初始化：注册物品、方块、命令、网络包、数据包重载、回放格式器、任务点系统等 |
 | `src/main/java/dev/doctor4t/wathe/api` | 给本体和扩展 Mod 使用的公开 API：职业、阵营、游戏模式、商店、经济、胜利、任务完成、本能、HUD 等 |
 | `src/main/java/dev/doctor4t/wathe/api/client/inventory` | 背包按钮公开 API：扩展按钮注册、三类背包 screen type、动态分组、分页和头像辅助 |
+| `src/main/java/dev/doctor4t/wathe/api/client/hud` | 通用屏幕 HUD 叠加 API：右下角职业状态、全屏遮罩、狙击镜等自由绘制入口 |
 | `src/main/java/dev/doctor4t/wathe/cca` | Cardinal Components 状态组件：世界状态、玩家状态、计分板全局状态 |
 | `src/main/java/dev/doctor4t/wathe/game` | 对局生命周期、游戏模式、地图效果、地图重置任务 |
 | `src/main/java/dev/doctor4t/wathe/command` | 管理员和玩家指令 |
@@ -457,6 +458,48 @@ ShopApi.registerRoleShop(MY_ROLE, player -> List.of(
 - 开关模式：按一下打开，再按一下关闭；
 - 长按模式：按住才生效。
 
+### 通用 HUD 叠加 API
+
+职业/词条需要画“自由位置”的屏幕 HUD 时，优先接入 `dev.doctor4t.wathe.api.client.hud` 包，不要再给 `InGameHud` 写扩展 mixin。这个 API 面向右下角状态文字、全屏遮罩、狙击镜、开局安全提示等通用叠加内容；如果只是心情条、顶部时间、准心名字或背包按钮，应优先使用对应的专用 API。
+
+核心类型：
+
+- `HudOverlayApi.register(id, layer, priority, renderer)`：注册任意 HUD provider。
+- `HudOverlayApi.registerAliveRole(id, layer, priority, role, renderer)`：注册职业 HUD，并自动要求本地玩家是该职业且符合 Wathe 的 `GameFunctions.isPlayerAliveAndSurvival(...)` 存活定义。
+- `HudOverlayLayer.BEFORE_HUD`：在原版 HUD 前绘制，适合控制、绑架、开局安全提示这类要尽早盖住画面的内容。
+- `HudOverlayLayer.MAIN_HUD`：在 Wathe 主 HUD 后绘制，适合常规右下角职业状态。
+- `HudOverlayLayer.AFTER_HUD`：在全部 HUD 后绘制，适合狙击镜等必须压在最上层的遮罩。
+- `HudOverlayContext`：提供 `client`、`player`、`gameWorld`、`drawContext`、`textRenderer`、屏幕尺寸、`aliveAndSurvival`、debug/HUD 隐藏状态和 `renderHotbar()`。
+- `HudOverlayLayout`：提供常用的右下角多行文字和准心附近居中绘制工具。
+
+常规职业状态示例：
+
+```java
+HudOverlayApi.registerAliveRole(
+        MyMod.id("hud/my_role/status"),
+        HudOverlayLayer.MAIN_HUD,
+        HudOverlayApi.DEFAULT_PRIORITY,
+        MY_ROLE,
+        context -> HudOverlayLayout.drawBottomRightLine(
+                context,
+                Text.translatable("hud.mymod.my_role.ready"),
+                MY_ROLE.color()
+        )
+);
+```
+
+全屏遮罩或狙击镜这类不是“某职业右下角文字”的 HUD 可以直接 `register(...)`，但必须在 provider 内自己判断存活状态：
+
+```java
+HudOverlayApi.register(MyMod.id("hud/my_role/scope"), HudOverlayLayer.AFTER_HUD, 1000, context -> {
+    if (!context.aliveAndSurvival()) {
+        return;
+    }
+    context.drawContext().fill(0, 0, context.width(), context.height(), 0xAA000000);
+    context.renderHotbar();
+});
+```
+
 ## 主要物品和玩法效果
 
 Wathe 本体提供了不少社交推理玩法道具：
@@ -543,7 +586,8 @@ GameRecordManager.recordGlobalEvent(
 | `InstinctApi` | 本能资格和描边 | 新职业透视、状态高亮、本能压制 |
 | `PlayerLifeStateApi` | 特殊玩法存活状态 | 旁观 / 创造但仍参与胜负和 HUD |
 | `MoodHudApi` | 心情 HUD 样式 | 特殊职业心情条 |
-| `RoleNameHudApi` | 职业名 HUD | 扩展职业名显示规则 |
+| `HudOverlayApi` | 通用屏幕 HUD 叠加 | 右下角职业状态、全屏遮罩、狙击镜、开局安全提示 |
+| `RoleNameHudApi` | 准心名字 / 实体名牌 / 准心额外 HUD | 扩展职业名显示规则、非玩家播放体名牌、准心附近提示 |
 | `PlayerAppearanceApi` | 玩家外观覆写 | 伪装、变形 |
 | `BodyAppearanceApi` | 尸体外观覆写 | 双重人格、伪尸体 |
 | `HeldItemInvisibilityApi` | 手持物隐藏 | 某些技能道具对其他活人不可见 |
@@ -723,7 +767,8 @@ Datagen 入口是 `WatheDatagen`，相关类包括：
 11. 商店系统改成 `ShopApi`，职业商店、商品修改、统一扣款和回放都走公开入口。
 12. 胜利系统改成 `VictoryApi`，独立胜利、保活、共胜不必再 mixin Murder 模式。
 13. 本能系统改成 `InstinctApi`，扩展职业可注册自己的可用性和描边颜色。
-14. 玩家跳跃、碰撞、开局无碰撞、心情死亡、渐进式重置都可用指令动态配置。
+14. 通用屏幕 HUD 改成 `HudOverlayApi`，扩展职业的右下角状态、全屏遮罩和狙击镜可以统一接入，并默认按 Wathe 存活定义过滤。
+15. 玩家跳跃、碰撞、开局无碰撞、心情死亡、渐进式重置都可用指令动态配置。
 
 ## 新扩展职业的推荐接入顺序
 
@@ -736,9 +781,10 @@ Datagen 入口是 `WatheDatagen`，相关类包括：
 5. 如果职业和任务完成有关，用 `TaskCompletionApi.AFTER_TASK_COMPLETE` 或任务收益 provider。
 6. 如果职业改变胜负，用 `VictoryApi.registerRule`。
 7. 如果职业需要本能透视，用 `InstinctApi.registerAvailability` 和 `registerHighlight`。
-8. 如果职业需要记录技能，用 `GameRecordManager.recordSkillUse` / `recordGlobalEvent`，再用 `ReplayRegistry` 注册格式器。
-9. 如果职业会伪装、换皮、伪尸体，用 `PlayerAppearanceApi` / `BodyAppearanceApi`。
-10. 如果职业会让旁观 / 创造玩家仍参与胜负，用 `PlayerLifeStateApi` 授权，并在清理时撤销。
+8. 如果职业需要普通屏幕 HUD，用 `HudOverlayApi.registerAliveRole`；准心名字、实体名牌或准心附近提示用 `RoleNameHudApi`。
+9. 如果职业需要记录技能，用 `GameRecordManager.recordSkillUse` / `recordGlobalEvent`，再用 `ReplayRegistry` 注册格式器。
+10. 如果职业会伪装、换皮、伪尸体，用 `PlayerAppearanceApi` / `BodyAppearanceApi`。
+11. 如果职业会让旁观 / 创造玩家仍参与胜负，用 `PlayerLifeStateApi` 授权，并在清理时撤销。
 
 一个最小的独立胜利规则示例：
 
@@ -771,6 +817,7 @@ VictoryApi.registerRule(MyMod.id("victory/my_role"), VictoryApi.DEFAULT_PRIORITY
 - 新增回放事件时同时考虑记录字段、格式器和翻译键。
 - 新增货币或商店价格时，优先阅读 `README_SHOP_CURRENCY_API.md`。
 - 新地图优先从 `map_datapack_template` 复制，再用 `/wathe:mapVariables` 配置坐标。
+- 普通职业 HUD 不要新增 `InGameHud` / `RoleNameRenderer` mixin；优先用 `HudOverlayApi`、`RoleNameHudApi`，并删除已被 API 替代的旧 mixin 配置。
 - 涉及胜负、死亡、复活、旁观 / 创造存活状态时，务必统一使用 `GameFunctions.isPlayerAliveAndSurvival(...)` 和 `PlayerLifeStateApi`，不要只看原版 `isSpectator()`。
 - 涉及职业阵营时，优先使用 `role.getFaction()` 或 `GameWorldComponent.isFaction(...)`。
 

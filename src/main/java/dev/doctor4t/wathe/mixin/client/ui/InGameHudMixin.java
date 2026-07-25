@@ -5,12 +5,18 @@ import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
 import dev.doctor4t.ratatouille.client.lib.render.helpers.Easing;
 import dev.doctor4t.wathe.Wathe;
+import dev.doctor4t.wathe.api.client.hud.HudOverlayApi;
+import dev.doctor4t.wathe.api.client.hud.HudOverlayContext;
+import dev.doctor4t.wathe.api.client.hud.HudOverlayLayer;
+import dev.doctor4t.wathe.cca.GameWorldComponent;
 import dev.doctor4t.wathe.client.WatheClient;
 import dev.doctor4t.wathe.client.gui.*;
 import dev.doctor4t.wathe.game.GameConstants;
+import dev.doctor4t.wathe.game.GameFunctions;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.font.TextRenderer;
 import net.minecraft.client.gui.DrawContext;
+import net.minecraft.client.gui.hud.DebugHud;
 import net.minecraft.client.gui.hud.InGameHud;
 import net.minecraft.client.network.ClientPlayerEntity;
 import net.minecraft.client.render.RenderLayer;
@@ -22,6 +28,7 @@ import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
+import org.spongepowered.asm.mixin.gen.Invoker;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
@@ -29,7 +36,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import java.awt.*;
 
 @Mixin(InGameHud.class)
-public class InGameHudMixin {
+public abstract class InGameHudMixin {
     @Shadow
     @Final
     private MinecraftClient client;
@@ -37,6 +44,17 @@ public class InGameHudMixin {
     private static final Identifier WATHE_HOTBAR_TEXTURE = Wathe.id("hud/hotbar");
     @Unique
     private static final Identifier WATHE_HOTBAR_SELECTION_TEXTURE = Wathe.id("hud/hotbar_selection");
+
+    @Invoker("renderHotbar")
+    protected abstract void wathe$invokeRenderHotbar(DrawContext context, RenderTickCounter tickCounter);
+
+    @Inject(method = "render", at = @At("HEAD"))
+    private void wathe$renderHudOverlayBefore(DrawContext context, RenderTickCounter tickCounter, CallbackInfo ci) {
+        HudOverlayContext overlayContext = this.wathe$createHudOverlayContext(context, tickCounter);
+        if (overlayContext != null) {
+            HudOverlayApi.render(HudOverlayLayer.BEFORE_HUD, overlayContext);
+        }
+    }
 
     @Inject(method = "renderMainHud", at = @At("TAIL"))
     private void wathe$renderHud(DrawContext context, RenderTickCounter tickCounter, CallbackInfo ci) {
@@ -52,6 +70,19 @@ public class InGameHudMixin {
             TimeRenderer.renderHud(renderer, player, context, tickCounter.getTickDelta(true));
             LobbyPlayersRenderer.renderHud(renderer, player, context);
             CooldownRenderer.renderHud(renderer, player, context, tickCounter);
+        }
+
+        HudOverlayContext overlayContext = this.wathe$createHudOverlayContext(context, tickCounter);
+        if (overlayContext != null) {
+            HudOverlayApi.render(HudOverlayLayer.MAIN_HUD, overlayContext);
+        }
+    }
+
+    @Inject(method = "render", at = @At("TAIL"))
+    private void wathe$renderHudOverlayAfter(DrawContext context, RenderTickCounter tickCounter, CallbackInfo ci) {
+        HudOverlayContext overlayContext = this.wathe$createHudOverlayContext(context, tickCounter);
+        if (overlayContext != null) {
+            HudOverlayApi.render(HudOverlayLayer.AFTER_HUD, overlayContext);
         }
     }
 
@@ -138,5 +169,35 @@ public class InGameHudMixin {
                 this.client.getProfiler().pop();
             }
         }
+    }
+
+    @Unique
+    private HudOverlayContext wathe$createHudOverlayContext(DrawContext context, RenderTickCounter tickCounter) {
+        ClientPlayerEntity player = this.client.player;
+        if (player == null) {
+            return null;
+        }
+
+        DebugHud debugHud = this.client.inGameHud.getDebugHud();
+        /*
+         * 通用 HUD API 必须使用 Wathe 统一的“仍在局内存活且可参与”的定义。
+         * 这样扩展职业迁移后不再各自判断 spectator/creative，也不会出现玩家死亡后
+         * 右下角职业状态或全屏状态仍残留的问题。
+         */
+        boolean aliveAndSurvival = GameFunctions.isPlayerAliveAndSurvival(player);
+        return new HudOverlayContext(
+                this.client,
+                player,
+                this.client.textRenderer,
+                context,
+                tickCounter,
+                GameWorldComponent.KEY.get(player.getWorld()),
+                aliveAndSurvival,
+                GameFunctions.isPlayerSpectatingOrCreative(player),
+                debugHud != null && debugHud.shouldShowDebugHud(),
+                this.client.options.hudHidden,
+                this.client.currentScreen,
+                this::wathe$invokeRenderHotbar
+        );
     }
 }

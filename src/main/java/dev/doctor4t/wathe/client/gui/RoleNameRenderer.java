@@ -29,6 +29,7 @@ public class RoleNameRenderer {
     private static final Text[] note = new Text[]{Text.empty(), Text.empty(), Text.empty(), Text.empty()};
     private static PlayerEntity targetPlayer = null;
     private static PlayerEntity displayedTargetPlayer = null;
+    private static Entity targetEntity = null;
 
     public static void renderHud(TextRenderer renderer, @NotNull ClientPlayerEntity player, DrawContext context, RenderTickCounter tickCounter) {
         GameWorldComponent component = GameWorldComponent.KEY.get(player.getWorld());
@@ -37,35 +38,68 @@ public class RoleNameRenderer {
             noteAlpha = 0f;
             targetPlayer = null;
             displayedTargetPlayer = null;
+            targetEntity = null;
             return;
         }
         if (player.getWorld().getLightLevel(LightType.BLOCK, BlockPos.ofFloored(player.getEyePos())) < 3 && player.getWorld().getLightLevel(LightType.SKY, BlockPos.ofFloored(player.getEyePos())) < 10)
             return;
         float range = GameFunctions.isPlayerSpectatingOrCreative(player) ? 8f : 2f;
         Entity raycastSource = RoleNameHudApi.resolveRaycastSource(player);
-        if (ProjectileUtil.getCollision(raycastSource, entity -> entity instanceof PlayerEntity target && RoleNameHudApi.shouldIncludePlayerTarget(player, target), range) instanceof EntityHitResult entityHitResult && entityHitResult.getEntity() instanceof PlayerEntity target) {
-            targetPlayer = target;
-            displayedTargetPlayer = target;
-            nametagAlpha = MathHelper.lerp(tickCounter.getTickDelta(true) / 4, nametagAlpha, 1f);
-            Text originalName = target.getDisplayName();
-            nametag = RoleNameHudApi.resolveName(player, target, originalName);
-            /*
-             * 目标侧分两步判断：
-             * 1. countsAsCohort 表示“这个 subject 本身就是双向同伙成员”，例如真杀手、Hacker、
-             *    或明确允许双向识别的 Executioner；
-             * 2. showsAsCohortTarget 只补充“target 在当前 viewer 眼里显示成同伙”的单向伪装，
-             *    例如 Mimic、Jester、Vulture、Dreamer。它只影响目标显示，不会给 viewer 反查资格。
-             */
-            boolean targetCountsAsCohort = RoleNameHudApi.countsAsCohort(player, target, component.canUseKillerFeatures(target));
-            if (RoleNameHudApi.showsAsCohortTarget(player, target, targetCountsAsCohort)) {
-                targetRole = TrainRole.KILLER;
-            } else {
-                targetRole = TrainRole.BYSTANDER;
+        if (ProjectileUtil.getCollision(raycastSource, entity -> {
+            if (entity instanceof PlayerEntity target) {
+                return RoleNameHudApi.shouldIncludePlayerTarget(player, target);
             }
-            boolean shouldObfuscate = PlayerPsychoComponent.KEY.get(target).getPsychoTicks() > 0;
-            nametag = shouldObfuscate ? Text.literal("urscrewed" + "X".repeat(player.getRandom().nextInt(8))).styled(style -> style.withFormatting(Formatting.OBFUSCATED, Formatting.DARK_RED)) : nametag;
+            return RoleNameHudApi.resolveEntityName(player, entity) != null;
+        }, range) instanceof EntityHitResult entityHitResult) {
+            Entity hitEntity = entityHitResult.getEntity();
+            if (hitEntity instanceof PlayerEntity target) {
+                targetPlayer = target;
+                displayedTargetPlayer = target;
+                targetEntity = target;
+                nametagAlpha = MathHelper.lerp(tickCounter.getTickDelta(true) / 4, nametagAlpha, 1f);
+                Text originalName = target.getDisplayName();
+                nametag = RoleNameHudApi.resolveName(player, target, originalName);
+                /*
+                 * 目标侧分两步判断：
+                 * 1. countsAsCohort 表示“这个 subject 本身就是双向同伙成员”，例如真杀手、Hacker、
+                 *    或明确允许双向识别的 Executioner；
+                 * 2. showsAsCohortTarget 只补充“target 在当前 viewer 眼里显示成同伙”的单向伪装，
+                 *    例如 Mimic、Jester、Vulture、Dreamer。它只影响目标显示，不会给 viewer 反查资格。
+                 */
+                boolean targetCountsAsCohort = RoleNameHudApi.countsAsCohort(player, target, component.canUseKillerFeatures(target));
+                if (RoleNameHudApi.showsAsCohortTarget(player, target, targetCountsAsCohort)) {
+                    targetRole = TrainRole.KILLER;
+                } else {
+                    targetRole = TrainRole.BYSTANDER;
+                }
+                boolean shouldObfuscate = PlayerPsychoComponent.KEY.get(target).getPsychoTicks() > 0;
+                nametag = shouldObfuscate ? Text.literal("urscrewed" + "X".repeat(player.getRandom().nextInt(8))).styled(style -> style.withFormatting(Formatting.OBFUSCATED, Formatting.DARK_RED)) : nametag;
+            } else {
+                Text entityName = RoleNameHudApi.resolveEntityName(player, hitEntity);
+                if (entityName != null) {
+                    /*
+                     * 非玩家实体只复用“准心名牌”的淡入淡出和坐标，不参与同伙识别。
+                     * 扩展职业例如魔术师播放体只需要告诉 Wathe 这个实体此刻应该显示什么名字，
+                     * 不再 mixin 到 RoleNameRenderer 复制整段射线和绘制逻辑。
+                     */
+                    targetPlayer = null;
+                    displayedTargetPlayer = null;
+                    targetEntity = hitEntity;
+                    targetRole = TrainRole.BYSTANDER;
+                    nametagAlpha = MathHelper.lerp(tickCounter.getTickDelta(true) / 4, nametagAlpha, 1f);
+                    nametag = entityName;
+                } else {
+                    targetPlayer = null;
+                    targetEntity = null;
+                    nametagAlpha = MathHelper.lerp(tickCounter.getTickDelta(true) / 4, nametagAlpha, 0f);
+                    if (nametagAlpha <= 0.05f) {
+                        displayedTargetPlayer = null;
+                    }
+                }
+            }
         } else {
             targetPlayer = null;
+            targetEntity = null;
             nametagAlpha = MathHelper.lerp(tickCounter.getTickDelta(true) / 4, nametagAlpha, 0f);
             if (nametagAlpha <= 0.05f) {
                 displayedTargetPlayer = null;
@@ -130,6 +164,7 @@ public class RoleNameRenderer {
                 tickCounter,
                 range,
                 targetPlayer,
+                targetEntity,
                 nametag,
                 nametagAlpha,
                 noteAlpha

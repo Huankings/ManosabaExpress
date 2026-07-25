@@ -45,6 +45,8 @@
 - `src/main/java/dev/doctor4t/wathe/client/gui/StoreRenderer.java`：右上角货币和商店价格渲染。
 - `src/main/java/dev/doctor4t/wathe/client/gui/RoleNameRenderer.java`：准心玩家名 / 同伙提示 / 额外 HUD。
 - `src/main/java/dev/doctor4t/wathe/client/gui/MoodRenderer.java`、`TimeRenderer.java`：心情和时间 HUD。
+- `src/main/java/dev/doctor4t/wathe/api/client/hud/*`：通用屏幕 HUD 叠加 API，扩展职业右下角状态、全屏遮罩和狙击镜优先看这里。
+- `src/main/java/dev/doctor4t/wathe/mixin/client/ui/InGameHudMixin.java`：Wathe 统一调度 `HudOverlayApi` 的客户端注入点，扩展侧一般不应再直接 mixin 这个类。
 
 ### Wathe API
 
@@ -58,7 +60,8 @@
 - 本能：`InstinctApi`
 - 玩家存活：`PlayerLifeStateApi`
 - 外观：`PlayerAppearanceApi`、`BodyAppearanceApi`
-- 准心名字 HUD：`RoleNameHudApi`
+- 通用屏幕 HUD：`HudOverlayApi`、`HudOverlayContext`、`HudOverlayLayer`、`HudOverlayLayout`
+- 准心名字 / 实体名牌 / 准心额外 HUD：`RoleNameHudApi`
 - 心情 HUD：`MoodHudApi`
 - 时间 HUD：`TimeHudApi`
 - 手持物隐藏：`HeldItemInvisibilityApi`
@@ -87,6 +90,8 @@ Harpy 当前按 `role.getFaction()` 分平民、义警、杀手、中立池；�
 - `death/NoellesRolesDeathBootstrap.java`：死亡保护和反噬。
 - `record/NoellesRolesReplayFormatters.java`：回放格式化。
 - `client/NoellesrolesClient.java`：客户端初始化。
+- `client/hud/NoellesHudHandlers.java`、`NoellesHudSupport.java`：Wathe 通用 HUD API 的总注册入口和布局辅助。
+- `client/roles/<role>/*StatusHud.java`：按职业拆分的普通屏幕 HUD provider。
 - `client/appearance`、`client/instinct`、`client/visibility`、`client/inventory`、`client/ui`：外观、本能、隐藏物品、背包按钮和界面。
 
 ### StupidExpress
@@ -110,7 +115,7 @@ Harpy 当前按 `role.getFaction()` 分平民、义警、杀手、中立池；�
 - `KinsWatheItems.java`
 - `KinsWatheShopBootstrap.java`、`KinsWatheShops.java`
 - `victory/KinsWatheVictoryRules.java`
-- `roles/*`、`mixin/*`、`client/instinct/*`、`client/role_name/*`
+- `roles/*`、`mixin/*`、`client/hud/*`、`client/instinct/*`、`client/role_name/*`
 
 kinssaba 使用 Yarn 命名，经济和任务收入集中在 `KinsWatheRoles.registerEconomyApi()`。
 
@@ -253,8 +258,11 @@ Harpymodloader.setRoleMaximum(MY_ROLE, 1);
 - 准心目标过滤：`RoleNameHudApi.registerPlayerTargetFilter(...)`
 - 同伙状态：`RoleNameHudApi.registerCohortState(...)`
 - 目标单向显示为同伙：`RoleNameHudApi.registerCohortTargetState(...)`
+- 非玩家实体名牌：`RoleNameHudApi.registerEntityName(...)`
 - 隐藏同伙提示：`RoleNameHudApi.registerCohortHint(...)`
 - 准心额外 HUD：`RoleNameHudApi.registerExtraHud(...)`
+
+`registerEntityName(...)` 只给魔术师播放体这类“非玩家实体也要在准心处显示名字”的窄场景使用；普通玩家名仍用 `registerName(...)`，避免绕开同伙提示、精神错乱混淆和玩家目标过滤。
 
 外观优先级经验：
 
@@ -285,6 +293,15 @@ Harpymodloader.setRoleMaximum(MY_ROLE, 1);
 - 顶部时间替换 / 隐藏：`TimeHudApi.registerProvider(...)`
 - 固定色特殊倒计时用 `TimeDisplay.showFixedColor(...)`
 - 普通动态倒计时用 `showCountdown(...)` 或 `showDynamic(...)`
+
+通用屏幕 HUD：
+
+- 普通右下角职业状态用 `HudOverlayApi.registerAliveRole(...)`，它会同时判断本地玩家职业和 Wathe 的 `GameFunctions.isPlayerAliveAndSurvival(...)` 存活定义。
+- 非职业专属但仍只应给活人看的 HUD，例如被控制、被绑架、开局安全、停电提示、狙击镜遮罩，用 `HudOverlayApi.register(...)`，并在 provider 内显式检查 `context.aliveAndSurvival()`。
+- `HudOverlayLayer.BEFORE_HUD` 适合尽早盖住画面的提示；`MAIN_HUD` 适合常规状态文字；`AFTER_HUD` 适合压在最上层的遮罩，需要复画快捷栏时调用 `context.renderHotbar()`。
+- 同一 layer 内 priority 越大越晚渲染，因此会盖住低 priority 的 HUD。
+- 扩展侧按职业和词条拆文件，聚合类只负责调用各 `register()`；不要把所有职业 HUD 塞进一个大类。
+- 普通 HUD 不要再新增 `InGameHud` / `RoleNameRenderer` mixin；如果 API 已覆盖旧 mixin，要同步删除源码文件和 mixin json 条目。
 
 手持物隐藏：
 
@@ -353,7 +370,7 @@ Harpymodloader.setRoleMaximum(MY_ROLE, 1);
 
 客户端代码：
 
-- HUD、屏幕、相机、模型谓词、按键、渲染混入放 `src/client/java`。
+- HUD、屏幕、相机、模型谓词、按键、渲染混入放 `src/client/java`；普通屏幕 HUD 优先接 `HudOverlayApi` / `RoleNameHudApi`，只有 API 不够表达时才保留窄 mixin。
 - 服务端逻辑、物品行为、死亡、任务、胜利、组件注册放 `src/main/java`。
 - client mixin 注册到 `*.client.mixins.json`，common/server mixin 注册到主 mixin json。
 
@@ -362,11 +379,12 @@ Harpymodloader.setRoleMaximum(MY_ROLE, 1);
 ### Wathe 接口公开化
 
 1. 找出现有扩展的重复 mixin / helper。
-2. 在 Wathe 设计一个窄 API：注册 handler、priority、PASS 语义、上下文 record；背包按钮类需求优先考虑 `InventoryButtonApi` 的 screen type、group 和 lifecycle。
+2. 在 Wathe 设计一个窄 API：注册 handler、priority、PASS 语义、上下文 record；背包按钮类需求优先考虑 `InventoryButtonApi` 的 screen type、group 和 lifecycle，普通屏幕 HUD 优先考虑 `HudOverlayApi` 的 layer 和存活过滤。
 3. Wathe 原逻辑改成先询问 API，再走默认行为。
 4. 把 NoellesRoles / StupidExpress / kinssaba / StarryExpress 中相关逻辑接入 API。
 5. 删除或停用已不需要的扩展 mixin，并同步 mixin json。
-6. 编译 Wathe，复制 jar，再编译受影响扩展。
+6. 如果新增或调整了 API，同步更新 Wathe / 扩展 README 与 AGENTS，避免后续维护继续按旧 mixin 路线开发。
+7. 编译 Wathe，复制 jar，再编译受影响扩展。
 
 ### 商店 / 经济改动
 
