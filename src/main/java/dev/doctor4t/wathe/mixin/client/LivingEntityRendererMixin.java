@@ -2,7 +2,8 @@ package dev.doctor4t.wathe.mixin.client;
 
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
-import dev.doctor4t.wathe.cca.PlayerPsychoComponent;
+import dev.doctor4t.wathe.api.client.psycho.PsychoModeClientApi;
+import net.minecraft.client.network.AbstractClientPlayerEntity;
 import net.minecraft.client.render.VertexConsumerProvider;
 import net.minecraft.client.render.entity.EntityRenderer;
 import net.minecraft.client.render.entity.EntityRendererFactory;
@@ -13,7 +14,6 @@ import net.minecraft.client.render.entity.model.EntityModel;
 import net.minecraft.client.util.math.MatrixStack;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.LivingEntity;
-import net.minecraft.entity.player.PlayerEntity;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 
@@ -33,9 +33,9 @@ public abstract class LivingEntityRendererMixin<T extends LivingEntity, M extend
             float headYaw,
             float headPitch, Operation<Void> original,
             T livingEntity) {
-        boolean isPsycho = livingEntity instanceof PlayerEntity player && PlayerPsychoComponent.KEY.get(player).getPsychoTicks() > 0;
+        boolean shouldHideFeatures = livingEntity instanceof AbstractClientPlayerEntity player && PsychoModeClientApi.shouldHideFeatures(player);
         boolean isItemRenderer = instance instanceof HeldItemFeatureRenderer<?, ?>;
-        if (!isPsycho || isItemRenderer) {
+        if (!shouldHideFeatures || isItemRenderer) {
             original.call(instance, matrixStack, vertexConsumerProvider, i, t, limbAngle, limbDistance, tickDelta, animationProgress, headYaw, headPitch);
         }
     }

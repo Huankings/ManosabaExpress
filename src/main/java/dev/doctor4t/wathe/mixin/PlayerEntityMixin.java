@@ -8,6 +8,8 @@ import com.mojang.datafixers.util.Either;
 import dev.doctor4t.wathe.api.Role;
 import dev.doctor4t.wathe.api.bed.BedEffectRegistry;
 import dev.doctor4t.wathe.api.event.AllowPlayerPunching;
+import dev.doctor4t.wathe.api.psycho.PsychoModeApi;
+import dev.doctor4t.wathe.api.psycho.PsychoModeProfile;
 import dev.doctor4t.wathe.cca.GameWorldComponent;
 import dev.doctor4t.wathe.cca.MapEnhancementsWorldComponent;
 import dev.doctor4t.wathe.cca.PlayerMoodComponent;
@@ -34,6 +36,7 @@ import net.minecraft.item.ItemStack;
 import net.minecraft.item.Items;
 import net.minecraft.nbt.NbtCompound;
 import net.minecraft.server.network.ServerPlayerEntity;
+import net.minecraft.sound.SoundEvent;
 import net.minecraft.sound.SoundCategory;
 import net.minecraft.util.Unit;
 import net.minecraft.util.math.BlockPos;
@@ -151,15 +154,25 @@ public abstract class PlayerEntityMixin extends LivingEntity {
             return;
         }
 
-        if (mainHandStack.isOf(WatheItems.BAT) && target instanceof PlayerEntity playerTarget && this.getAttackCooldownProgress(0.5F) >= 1f) {
+        PsychoModeProfile psychoProfile = PsychoModeApi.getActiveProfile(self);
+        if (psychoProfile != null
+                && psychoProfile.isMeleeWeapon(self, mainHandStack)
+                && target instanceof PlayerEntity playerTarget
+                && this.getAttackCooldownProgress(0.5F) >= 1f) {
             if (self instanceof ServerPlayerEntity serverPlayer && playerTarget instanceof ServerPlayerEntity serverTarget) {
-                GameRecordManager.recordItemHit(serverPlayer, serverPlayer.getMainHandStack(), GameConstants.DeathReasons.BAT, serverTarget, null);
+                GameRecordManager.recordItemHit(serverPlayer, serverPlayer.getMainHandStack(), psychoProfile.meleeDeathReason(), serverTarget, null);
             }
-            GameFunctions.killPlayer(playerTarget, true, self, GameConstants.DeathReasons.BAT);
-            self.getEntityWorld().playSound(self,
-                    playerTarget.getX(), playerTarget.getEyeY(), playerTarget.getZ(),
-                    WatheSounds.ITEM_BAT_HIT, SoundCategory.PLAYERS,
-                    3f, 1f);
+            NbtCompound replayData = self instanceof ServerPlayerEntity serverPlayer
+                    ? GameFunctions.createReplayItemData(serverPlayer.getServerWorld(), mainHandStack)
+                    : null;
+            GameFunctions.killPlayer(playerTarget, true, self, psychoProfile.meleeDeathReason(), replayData);
+            SoundEvent hitSound = psychoProfile.hitSound();
+            if (hitSound != null) {
+                self.getEntityWorld().playSound(self,
+                        playerTarget.getX(), playerTarget.getEyeY(), playerTarget.getZ(),
+                        hitSound, SoundCategory.PLAYERS,
+                        3f, 1f);
+            }
             return;
         }
 
@@ -314,4 +327,5 @@ public abstract class PlayerEntityMixin extends LivingEntity {
             ci.cancel();
         }
     }
+
 }

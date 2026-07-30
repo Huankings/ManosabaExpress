@@ -10,6 +10,10 @@ import dev.doctor4t.wathe.api.economy.EconomyApi;
 import dev.doctor4t.wathe.api.event.AllowPlayerDeath;
 import dev.doctor4t.wathe.api.event.GameEvents;
 import dev.doctor4t.wathe.api.event.ShouldDropOnDeath;
+import dev.doctor4t.wathe.api.psycho.PsychoModeApi;
+import dev.doctor4t.wathe.api.psycho.PsychoModeProfile;
+import dev.doctor4t.wathe.api.psycho.PsychoShieldContext;
+import dev.doctor4t.wathe.api.psycho.PsychoShieldResult;
 import dev.doctor4t.wathe.cca.*;
 import dev.doctor4t.wathe.compat.TrainVoicePlugin;
 import dev.doctor4t.wathe.config.datapack.MapRegistry;
@@ -45,6 +49,7 @@ import net.minecraft.registry.Registries;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.sound.SoundCategory;
+import net.minecraft.sound.SoundEvent;
 import net.minecraft.text.Style;
 import net.minecraft.text.Text;
 import net.minecraft.util.Clearable;
@@ -628,8 +633,19 @@ public class GameFunctions {
         PlayerPsychoComponent component = PlayerPsychoComponent.KEY.get(victim);
 
         if (!AllowPlayerDeath.EVENT.invoker().allowDeath(victim, killer, deathReason)) return;
-        if (component.getPsychoTicks() > 0) {
-            if (component.getArmour() > 0) {
+        if (component.isPsychoActive()) {
+            PsychoModeProfile psychoProfile = component.getProfile();
+            NbtCompound damageReplayData = createBlockedDamageReplayData(killer, deathReason);
+            PsychoModeApi.putModeReplayData(damageReplayData, psychoProfile);
+            PsychoShieldResult shieldResult = PsychoModeApi.resolveShield(new PsychoShieldContext(
+                    victim,
+                    killer,
+                    deathReason,
+                    component,
+                    psychoProfile,
+                    damageReplayData.copy()
+            ));
+            if (shieldResult == PsychoShieldResult.BLOCK) {
                 if (victim instanceof ServerPlayerEntity victimPlayer) {
                     /*
                      * 统一走解析方法，避免像“手雷爆炸打到护盾”这种并非主手直接命中的伤害
@@ -639,20 +655,25 @@ public class GameFunctions {
                      * 这样像扩展模组的巫毒魔法这类“没有物品来源”的伤害，
                      * 才能在护盾回放里退回显示成死因文本，而不是 [未知物品]。
                      */
-                    NbtCompound damageReplayData = createBlockedDamageReplayData(killer, deathReason);
                     GameRecordManager.recordShieldBlocked(
                             victimPlayer,
                             killer instanceof ServerPlayerEntity killerPlayer ? killerPlayer : null,
-                            Wathe.id("psycho_mode"),
+                            psychoProfile.shieldSourceId(),
                             getReplayItemId(damageReplayData),
                             damageReplayData
                     );
                 }
-                component.setArmour(component.getArmour() - 1);
-                component.sync();
-                victim.playSoundToPlayer(WatheSounds.ITEM_PSYCHO_ARMOUR, SoundCategory.MASTER, 5F, 1F);
+                if (component.getArmour() > 0) {
+                    component.setArmour(component.getArmour() - 1);
+                }
+                SoundEvent shieldSound = psychoProfile.shieldSound();
+                if (shieldSound != null) {
+                    victim.playSoundToPlayer(shieldSound, SoundCategory.MASTER, 5F, 1F);
+                }
                 return;
-            } else {
+            }
+
+            if (shieldResult == PsychoShieldResult.BYPASS || component.getArmour() <= 0) {
                 component.stopPsycho();
             }
         }

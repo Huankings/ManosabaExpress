@@ -17,7 +17,6 @@ import net.minecraft.client.font.TextRenderer;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.render.RenderTickCounter;
 import net.minecraft.entity.player.PlayerEntity;
-import net.minecraft.text.MutableText;
 import net.minecraft.text.Text;
 import net.minecraft.util.Identifier;
 import net.minecraft.util.math.MathHelper;
@@ -484,32 +483,35 @@ public class MoodRenderer {
     }
 
     private static void renderPsycho(@NotNull PlayerEntity player, @NotNull TextRenderer renderer, @NotNull DrawContext context, PlayerPsychoComponent component, @NotNull RenderTickCounter tickCounter, @NotNull MoodHudContext moodContext) {
-        int colour = MathHelper.hsvToRgb(0F, 1.0F, 0.5F);
-        MutableText text = Text.translatable("game.psycho_mode.text").withColor(colour);
-        int width = renderer.getWidth(text);
         random.setSeed(System.currentTimeMillis());
         PsychoMoodHudStyle psychoStyle = MoodHudApi.resolvePsychoStyle(moodContext, component);
+        Text text = psychoStyle.text(moodContext, component);
+        int textColour = psychoStyle.textColour(moodContext, component);
+        int timerBarColour = psychoStyle.timerBarColour(moodContext, component);
+        int width = text == null ? 0 : renderer.getWidth(text);
 
-        context.getMatrices().push();
-        context.getMatrices().translate(random.nextGaussian() / 3, random.nextGaussian() / 3, 0);
-        context.enableScissor(22, 6, 180, 23);
-        for (int i = -1; i <= 3; i++) {
-            float value = 1 - ((player.age + tickCounter.getTickDelta(true)) / 64) % 1;
+        if (text != null && width > 0) {
             context.getMatrices().push();
-            context.getMatrices().translate(value * (width + 4), 6, 0);
-            context.drawTextWithShadow(renderer, text, i * (width + 4), 0, colour | 255 << 24);
+            context.getMatrices().translate(random.nextGaussian() / 3, random.nextGaussian() / 3, 0);
+            context.enableScissor(22, 6, 180, 23);
+            for (int i = -1; i <= 3; i++) {
+                float value = 1 - ((player.age + tickCounter.getTickDelta(true)) / 64) % 1;
+                context.getMatrices().push();
+                context.getMatrices().translate(value * (width + 4), 6, 0);
+                context.drawTextWithShadow(renderer, text, i * (width + 4), 0, withFixedAlpha(textColour, 1.0f));
+                context.getMatrices().pop();
+            }
+            context.disableScissor();
             context.getMatrices().pop();
         }
-        context.disableScissor();
-        context.getMatrices().pop();
 
         context.getMatrices().push();
         context.getMatrices().translate(random.nextGaussian() / 3, random.nextGaussian() / 3, 0);
         context.getMatrices().push();
         context.getMatrices().translate(26, 8 + renderer.fontHeight, 0);
-        float duration = Math.max(1f, component.getPsychoTicks() - tickCounter.getTickDelta(true)) / GameConstants.PSYCHO_TIMER;
+        float duration = Math.max(1f, component.getPsychoTicks() - tickCounter.getTickDelta(true)) / component.getMaxPsychoTicks();
         context.getMatrices().scale(150 * duration, 1, 1);
-        context.fill(0, 0, 1, 1, colour | ((int) (0.9f * 255) << 24));
+        context.fill(0, 0, 1, 1, withFixedAlpha(timerBarColour, 0.9f));
         context.getMatrices().pop();
         context.getMatrices().pop();
 
@@ -524,14 +526,22 @@ public class MoodRenderer {
             random.setSeed(tick);
             float alpha = (12 - i) / 12f;
             context.getMatrices().push();
-            float moodScale = 0.2f + (GameConstants.PSYCHO_MODE_ARMOUR - component.armour) * 0.8f;
+            float moodScale = 0.2f + (component.getInitialArmour() - component.getArmour()) * 0.8f;
             float eyeScale = 0.8f;
             context.getMatrices().translate(
                     (random.nextFloat() - random.nextFloat()) * moodScale * i,
                     (random.nextFloat() - random.nextFloat()) * moodScale * i,
                     -i * 3
             );
-            Identifier bodySprite = component.armour == GameConstants.PSYCHO_MODE_ARMOUR ? psychoStyle.body(moodContext, component) : psychoStyle.hitBody(moodContext, component);
+            /*
+             * 疯魔图标的“破损态”表示当前已经没有可用护盾，而不是“曾经被打掉过护盾”。
+             *
+             * 旧判断用 currentArmour == initialArmour 来决定完整图标；这会让 0 护盾 profile
+             * 例如 NoellesRoles 赏金猎人的悬赏模式，在初始 0 层时错误显示完整 mood_psycho。
+             * 现在统一按当前护盾是否仍大于 0 判定：有护盾显示完整身体，无护盾显示 hit/破损身体。
+             * 扩展通过 MoodHudApi.registerPsychoStyle 提供自己的完整/破损 sprite 时，也会自然沿用这套语义。
+             */
+            Identifier bodySprite = component.getArmour() > 0 ? psychoStyle.body(moodContext, component) : psychoStyle.hitBody(moodContext, component);
             if (bodySprite != null) {
                 context.drawSprite(5, 6, 0, 14, 17, context.guiAtlasManager.getSprite(bodySprite), 1f, 1f, 1f, alpha);
             }
@@ -547,6 +557,16 @@ public class MoodRenderer {
             context.getMatrices().pop();
         }
         context.getMatrices().pop();
+    }
+
+    private static int withFixedAlpha(int rgbOrArgb, float alpha) {
+        /*
+         * 疯魔文本和倒计时条颜色也允许扩展传 0xRRGGBB 或 java.awt.Color#getRGB() 的 0xAARRGGBB。
+         * 这里统一丢弃输入 alpha，再写入本次 HUD 绘制需要的 alpha，避免颜色自带 0xFF 破坏淡入淡出。
+         */
+        int rgb = rgbOrArgb & 0x00FFFFFF;
+        int alphaByte = MathHelper.floor(MathHelper.clamp(alpha, 0.0F, 1.0F) * 255.0F);
+        return rgb | (alphaByte << 24);
     }
 
     private static class TaskRenderer {

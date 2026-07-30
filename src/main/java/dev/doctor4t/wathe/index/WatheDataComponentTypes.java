@@ -29,6 +29,14 @@ public interface WatheDataComponentTypes {
      */
     ComponentType<String> TRAY_EFFECT_OWNER = register("tray_effect_owner", stringBuilder -> stringBuilder.codec(Codec.STRING).packetCodec(PacketCodecs.STRING));
     ComponentType<Boolean> USED = register("used", stringBuilder -> stringBuilder.codec(Codec.BOOL).packetCodec(PacketCodecs.BOOL));
+    /**
+     * 标记“由疯魔模式 API 临时授予的物品”归属于哪个疯魔 profile。
+     *
+     * <p>旧逻辑在疯魔结束时会直接清掉玩家背包里的所有 Wathe bat，这对扩展职业不够安全：
+     * 后续 Bounty Hunter、Jester 或其它职业可能授予完全不同的临时武器，也可能让玩家本来就拥有同类物品。
+     * 因此新 API 给授予物品写入 profile id，只回收这一轮机制发出去的那一份，避免误删玩家自己的物品。</p>
+     */
+    ComponentType<String> PSYCHO_GRANTED_PROFILE = register("psycho_granted_profile", stringBuilder -> stringBuilder.codec(Codec.STRING).packetCodec(PacketCodecs.STRING));
 
     private static <T> ComponentType<T> register(String name, @NotNull UnaryOperator<ComponentType.Builder<T>> builderOperator) {
         return Registry.register(Registries.DATA_COMPONENT_TYPE, Wathe.id(name), builderOperator.apply(ComponentType.builder()).build());

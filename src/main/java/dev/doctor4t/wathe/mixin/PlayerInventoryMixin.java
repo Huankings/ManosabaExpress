@@ -2,8 +2,8 @@ package dev.doctor4t.wathe.mixin;
 
 import com.llamalad7.mixinextras.injector.wrapmethod.WrapMethod;
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
+import dev.doctor4t.wathe.api.psycho.PsychoModeApi;
 import dev.doctor4t.wathe.cca.PlayerPsychoComponent;
-import dev.doctor4t.wathe.index.WatheItems;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.entity.player.PlayerInventory;
 import org.jetbrains.annotations.NotNull;
@@ -22,9 +22,10 @@ public class PlayerInventoryMixin {
         int oldSlot = this.player.getInventory().selectedSlot;
         original.call(scrollAmount);
         PlayerPsychoComponent component = PlayerPsychoComponent.KEY.get(this.player);
-        if (component.getPsychoTicks() > 0 &&
-                (this.player.getInventory().getStack(oldSlot).isOf(WatheItems.BAT)) &&
-                (!this.player.getInventory().getStack(this.player.getInventory().selectedSlot).isOf(WatheItems.BAT))
+        if (component.isPsychoActive()
+                && component.getProfile().lockHotbar()
+                && PsychoModeApi.isLockedItem(this.player, this.player.getInventory().getStack(oldSlot))
+                && !PsychoModeApi.isLockedItem(this.player, this.player.getInventory().getStack(this.player.getInventory().selectedSlot))
         ) this.player.getInventory().selectedSlot = oldSlot;
     }
 }

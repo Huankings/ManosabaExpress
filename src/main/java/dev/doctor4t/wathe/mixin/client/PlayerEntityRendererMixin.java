@@ -1,6 +1,7 @@
 package dev.doctor4t.wathe.mixin.client;
 
 import com.llamalad7.mixinextras.injector.ModifyExpressionValue;
+import dev.doctor4t.wathe.api.psycho.PsychoModeApi;
 import dev.doctor4t.wathe.api.client.invisibility.HeldItemInvisibilityApi;
 import dev.doctor4t.wathe.client.WatheClient;
 import dev.doctor4t.wathe.index.WatheItems;
@@ -23,7 +24,7 @@ public class PlayerEntityRendererMixin {
     @Inject(method = "getArmPose", at = @At("TAIL"), cancellable = true)
     private static void wathe$customArmPose(AbstractClientPlayerEntity player,
                                           Hand hand, CallbackInfoReturnable<BipedEntityModel.ArmPose> cir) {
-        if (player.getStackInHand(hand).isOf(WatheItems.BAT))
+        if (PsychoModeApi.isMeleeKillWeapon(player, player.getStackInHand(hand)))
             cir.setReturnValue(BipedEntityModel.ArmPose.CROSSBOW_CHARGE);
     }
 

@@ -8,11 +8,11 @@
   "announcement.goals.neutral": "达成你的独立目标，或在混乱中存活到最后。",
   "announcement.goals.vigilante": "消灭任何凶手并保护平民。",
   "announcement.loose_ends.goal": "在危险找上你之前解决所有隐患。祝你好运。",
-  "announcement.loose_ends.premise": "魔女岛上的每个人都携带一把袖珍手枪和一把匕首。",
+  "announcement.loose_ends.premise": "在场的每个人都携带一把袖珍手枪和一把匕首。",
   "announcement.loose_ends.welcome": "欢迎登岛……孤行者。",
   "announcement.loose_ends.winner": "%s 获胜！",
-  "announcement.premise": "魔女岛上潜伏着一名杀手。",
-  "announcement.premises": "魔女岛上潜伏着 %s 名杀手。",
+  "announcement.premise": "人群当中潜伏着一名杀手。",
+  "announcement.premises": "人群当中潜伏着 %s 名杀手。",
   "announcement.role.civilian": "平民！",
   "announcement.role.killer": "杀手！",
   "announcement.role.loose_end": "孤行者！",
@@ -278,6 +278,8 @@
   "game.psycho_mode.over": "疯魔模式结束！",
   "game.psycho_mode.text": "杀光他们！",
   "game.psycho_mode.time": "疯魔模式：%s",
+  "psycho_mode.wathe.default": "疯魔时刻",
+  "psycho_shield.wathe.default": "疯魔护盾",
   "game.start_error.game_running": "无法开始游戏：已有游戏正在进行。请从大厅重新尝试。",
   "game.start_error.not_enough_players": "无法开始游戏：至少需要 6 名玩家。",
   "game.tip.cohort": "杀手同伙",
@@ -421,8 +423,8 @@
   ,"replay.death.wathe.fell_out_of_train.killed": "%s 被 %s 推下了这个世界"
   ,"replay.death.unknown.died": "%s 死亡"
   ,"replay.death.unknown.killed": "%s 被 %s 击杀"
-  ,"replay.shield_blocked.wathe.psycho_mode.by_item": "%s 的疯魔护盾抵挡住了来自 %s 的 %s 的伤害"
-  ,"replay.shield_blocked.wathe.psycho_mode.item": "%s 的疯魔护盾抵挡住了来自 %s 的伤害"
+  ,"replay.shield_blocked.wathe.psycho_mode.by_item": "%s 的%s抵挡住了来自 %s 的 %s 的伤害"
+  ,"replay.shield_blocked.wathe.psycho_mode.item": "%s 的%s抵挡住了来自 %s 的伤害"
   ,"replay.role_changed": "%s 的身份从 %s 变成了 %s"
   ,"replay.task_complete": "%s 完成了任务：%s"
   ,"replay.task.unknown": "未知任务"
@@ -438,7 +440,7 @@
   ,"replay.item_hit.wathe.knife": "%s 用%s命中了 %s"
   ,"replay.item_hit.wathe.revolver": "%s 用%s命中了 %s"
   ,"replay.item_hit.wathe.bat": "%s 使用%s命中了 %s"
-  ,"replay.global.wathe.psycho_mode_end": "%s 的疯魔时刻结束"
+  ,"replay.global.wathe.psycho_mode_end": "%s的%s结束"
   ,"replay.global.wathe.blackout_recovering": "电力正在恢复"
   ,"replay.global.wathe.blackout_restored": "电力已完全恢复"
   ,"replay.global.wathe.fishing_rod_used": "%s 使用了钓鱼竿"

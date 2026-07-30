@@ -9,6 +9,7 @@ import dev.doctor4t.wathe.WatheConfig;
 import dev.doctor4t.wathe.api.Role;
 import dev.doctor4t.wathe.api.client.inventory.InventoryPageState;
 import dev.doctor4t.wathe.api.client.invisibility.HeldItemInvisibilityApi;
+import dev.doctor4t.wathe.api.client.psycho.PsychoModeClientApi;
 import dev.doctor4t.wathe.api.event.GameEvents;
 import dev.doctor4t.wathe.api.instinct.InstinctApi;
 import dev.doctor4t.wathe.cca.GameWorldComponent;
@@ -117,6 +118,7 @@ public class WatheClient implements ClientModInitializer {
         // 加载 config
         WatheConfig.init(Wathe.MOD_ID, WatheConfig.class);
         ensureDefaultInstinctHandlersRegistered();
+        PsychoModeClientApi.registerDefaultClientHandlers();
 
         // Initialize ScreenParticle
         // 初始化屏幕粒子
@@ -244,7 +246,6 @@ public class WatheClient implements ClientModInitializer {
         // 氛围
         AmbienceUtil.registerBackgroundAmbience(new BackgroundAmbience(WatheSounds.AMBIENT_TRAIN_INSIDE, player -> isTrainMoving() && !Wathe.isSkyVisibleAdjacent(player), 20));
         AmbienceUtil.registerBackgroundAmbience(new BackgroundAmbience(WatheSounds.AMBIENT_TRAIN_OUTSIDE, player -> isTrainMoving() && Wathe.isSkyVisibleAdjacent(player), 20));
-        AmbienceUtil.registerBackgroundAmbience(new BackgroundAmbience(WatheSounds.AMBIENT_PSYCHO_DRONE, player -> gameComponent.isPsychoActive(), 20));
 //        AmbienceUtil.registerBlockEntityAmbience(WatheBlockEntities.SPRINKLER, new BlockEntityAmbience(WatheSounds.BLOCK_SPRINKLER_RUN, 0.5f, blockEntity -> blockEntity instanceof SprinklerBlockEntity sprinklerBlockEntity && sprinklerBlockEntity.isPowered(), 20));
 
         // Caching components

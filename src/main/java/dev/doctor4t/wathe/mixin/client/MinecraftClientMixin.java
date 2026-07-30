@@ -5,9 +5,9 @@ import com.llamalad7.mixinextras.injector.v2.WrapWithCondition;
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
 import com.llamalad7.mixinextras.sugar.Local;
+import dev.doctor4t.wathe.api.psycho.PsychoModeApi;
 import dev.doctor4t.wathe.cca.PlayerPsychoComponent;
 import dev.doctor4t.wathe.client.WatheClient;
-import dev.doctor4t.wathe.index.WatheItems;
 import dev.doctor4t.wathe.index.tag.WatheItemTags;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.network.ClientPlayerEntity;
@@ -46,9 +46,10 @@ public class MinecraftClientMixin {
     private void wathe$invalid(@NotNull PlayerInventory instance, int value, Operation<Void> original) {
         int oldSlot = instance.selectedSlot;
         PlayerPsychoComponent component = PlayerPsychoComponent.KEY.get(instance.player);
-        if (component.getPsychoTicks() > 0 &&
-                (instance.getStack(oldSlot).isOf(WatheItems.BAT)) &&
-                (!instance.getStack(value).isOf(WatheItems.BAT))
+        if (component.isPsychoActive()
+                && component.getProfile().lockHotbar()
+                && PsychoModeApi.isLockedItem(instance.player, instance.getStack(oldSlot))
+                && !PsychoModeApi.isLockedItem(instance.player, instance.getStack(value))
         ) return;
         original.call(instance, value);
     }

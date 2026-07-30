@@ -64,6 +64,7 @@
 - 准心名字 / 实体名牌 / 准心额外 HUD：`RoleNameHudApi`
 - 心情 HUD：`MoodHudApi`
 - 时间 HUD：`TimeHudApi`
+- 疯魔模式：`PsychoModeApi`、`PsychoModeProfile`、`PsychoShieldContext`、`PsychoShieldResult`、客户端 `PsychoModeClientApi`
 - 手持物隐藏：`HeldItemInvisibilityApi`
 - 背包按钮：`InventoryButtonApi`、`InventoryScreenType`、`InventoryButtonContext`、`InventoryPageState`、`InventoryPageSwitchWidget`
 - 床 / 托盘 / 毒药 / 回放：`BedEffectRegistry`、`TrayEffectRegistry`、`CanSeePoison`、`ReplayRegistry`
@@ -273,6 +274,22 @@ Harpymodloader.setRoleMaximum(MY_ROLE, 1);
 - 双重人格这类低优先级外观应给主动变形让路。
 - `PlayerAppearanceApi.resolveOriginalSkinTextures(...)` 用于防止伪装套娃，不要读取目标实体当前已经被覆盖过的皮肤再二次套用。
 
+## 疯魔模式 API
+
+扩展职业要接入疯魔机制时，优先使用 `dev.doctor4t.wathe.api.psycho`，不要再 mixin `PlayerPsychoComponent`、球棒命中音效、`psycho_drone` 背景音或疯魔皮肤渲染器。
+
+- 基础定义：用 `PsychoModeProfile.copyOf(PsychoModeApi.createDefaultProfile(), id)` 继承 Wathe 默认疯魔，再覆盖 `durationTicks`、`armour`、`grantedItems`、`hitSound`、`shieldSound`、`backgroundSound(sound, play)`、`visualSettings`、`nameTranslationKey` 等字段。
+- 启动/结束：服务端用 `PsychoModeApi.start(player, profileId)` 启动；强制收束、回合清理、召集等场景用 `PsychoModeApi.stop(player, recordReplay)`，不要直接改 `psychoTicks/armour`。
+- 查询状态：用 `PsychoModeApi.isActive(player)`、`isActive(player, profileId)`、`getActiveProfile(player)`、`getRemainingTicks(player)`、`getArmour(player)`，避免扩展依赖 CCA 内部字段。
+- 授予物品：profile 的 `grantedItems` 会被 Wathe 打 `PSYCHO_GRANTED_PROFILE` 标记，结束时只回收该 profile 授予的临时物品，避免误删玩家自己持有的同类物品。
+- 锁栏/防丢弃：默认锁 profile 授予物品；特殊武器可用 `lockedItemPredicate` / `meleeWeaponPredicate` 定义，不要再写 `ServerPlayNetworkHandler`、`PlayerInventory`、`MinecraftClient` 的锁槽 mixin。
+- 护盾交互：穿盾/强制挡盾用 `PsychoModeApi.registerShieldRule(id, priority, handler)`，handler 读取 `PsychoShieldContext` 并返回 `BYPASS`、`BLOCK` 或 `PASS`。
+- 声音与音乐：球棒/近战命中声音走 profile 的 `hitSound`，护盾声音走 `shieldSound`，背景音乐走 `backgroundSound` 和 `playBackgroundSound`；自定义背景音乐还要在客户端初始化调用 `PsychoModeClientApi.registerBackgroundAmbience(sound, intervalTicks)`。
+- 皮肤：profile 可给默认 `PsychoVisualSettings.skin(...)`；扩展需要覆盖时在客户端用 `PsychoModeClientApi.registerVisualProvider(id, priority, provider)`。这是“profile 默认皮肤 + 扩展按优先级覆盖”的双层机制。
+- Mood 显示：自定义疯魔完整/破损图标、跑马文本、文本颜色和倒计时条颜色用 `MoodHudApi.registerPsychoStyle(...)` 返回 `PsychoMoodHudStyle`；Wathe 统一按当前护盾是否大于 0 切换 body / hitBody，0 护盾 profile 启动后应直接显示破损图标。颜色 provider 可返回 `0xRRGGBB` 或 `0xAARRGGBB`，渲染器会重新写入 HUD 需要的 alpha。
+- 回放名称：疯魔结束回放使用 `PsychoModeApi.REPLAY_MODE_NAME_KEY` 中的翻译 key，默认名称是 `psycho_mode.wathe.default`；疯魔护盾抵挡回放使用 `PsychoModeApi.REPLAY_SHIELD_NAME_KEY`，默认名称是 `psycho_shield.wathe.default`。扩展 profile 要给自己的 `psycho_mode.<modid>.<name>` / `psycho_shield.<modid>.<name>` 翻译，`replay.global.wathe.psycho_mode_end` 会显示成“%s的%s结束”，护盾抵挡会显示成“%s 的%s抵挡……”。
+- 扩展代码组织：NoellesRoles、kinssaba 等扩展要按职业拆到 `roles/<role>/...PsychoHandler`，聚合 bootstrap 只调用各职业 `init()`，不要把所有疯魔规则塞进一个公共大类。
+
 ## 本能、HUD、手持物隐藏
 
 本能透视：
@@ -380,11 +397,12 @@ Harpymodloader.setRoleMaximum(MY_ROLE, 1);
 
 1. 找出现有扩展的重复 mixin / helper。
 2. 在 Wathe 设计一个窄 API：注册 handler、priority、PASS 语义、上下文 record；背包按钮类需求优先考虑 `InventoryButtonApi` 的 screen type、group 和 lifecycle，普通屏幕 HUD 优先考虑 `HudOverlayApi` 的 layer 和存活过滤。
-3. Wathe 原逻辑改成先询问 API，再走默认行为。
-4. 把 NoellesRoles / StupidExpress / kinssaba / StarryExpress 中相关逻辑接入 API。
-5. 删除或停用已不需要的扩展 mixin，并同步 mixin json。
-6. 如果新增或调整了 API，同步更新 Wathe / 扩展 README 与 AGENTS，避免后续维护继续按旧 mixin 路线开发。
-7. 编译 Wathe，复制 jar，再编译受影响扩展。
+3. 疯魔类需求优先抽成 `PsychoModeApi` profile / shield rule / client visual provider；持续时间、护盾、授予物品、锁栏、声音、背景音乐、皮肤、结束回放名称都应由 profile 或对应 handler 表达。
+4. Wathe 原逻辑改成先询问 API，再走默认行为。
+5. 把 NoellesRoles / StupidExpress / kinssaba / StarryExpress 中相关逻辑接入 API。
+6. 删除或停用已不需要的扩展 mixin，并同步 mixin json。
+7. 如果新增或调整了 API，同步更新 Wathe / 扩展 README 与 AGENTS，避免后续维护继续按旧 mixin 路线开发。
+8. 编译 Wathe，复制 jar，再编译受影响扩展。
 
 ### 商店 / 经济改动
 

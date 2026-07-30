@@ -5,7 +5,7 @@ import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
 import com.llamalad7.mixinextras.sugar.Local;
 import dev.doctor4t.wathe.api.PlayerLifeStateApi;
-import dev.doctor4t.wathe.index.WatheItems;
+import dev.doctor4t.wathe.api.psycho.PsychoModeApi;
 import dev.doctor4t.wathe.util.BatAttackCooldownPreserver;
 import net.minecraft.registry.RegistryKey;
 import net.minecraft.server.network.ServerPlayerEntity;
@@ -59,7 +59,7 @@ public class ServerPlayerEntityMixin implements BatAttackCooldownPreserver {
     @Override
     public void wathe$preserveNextBatInteractionSwing(Hand hand) {
         ServerPlayerEntity self = (ServerPlayerEntity) (Object) this;
-        if (!self.getStackInHand(hand).isOf(WatheItems.BAT)) {
+        if (!PsychoModeApi.isMeleeKillWeapon(self, self.getStackInHand(hand))) {
             return;
         }
 
@@ -87,7 +87,7 @@ public class ServerPlayerEntityMixin implements BatAttackCooldownPreserver {
             return false;
         }
 
-        boolean shouldPreserve = this.wathe$preserveBatSwingCooldownHand == hand && player.getStackInHand(hand).isOf(WatheItems.BAT);
+        boolean shouldPreserve = this.wathe$preserveBatSwingCooldownHand == hand && PsychoModeApi.isMeleeKillWeapon(player, player.getStackInHand(hand));
         this.wathe$clearBatSwingCooldownPreservation();
         return shouldPreserve;
     }
@@ -96,5 +96,17 @@ public class ServerPlayerEntityMixin implements BatAttackCooldownPreserver {
     private void wathe$clearBatSwingCooldownPreservation() {
         this.wathe$preserveBatSwingCooldownUntilAge = -1;
         this.wathe$preserveBatSwingCooldownHand = null;
+    }
+
+    @Inject(method = "dropSelectedItem", at = @At("HEAD"), cancellable = true)
+    private void wathe$preventDroppingLockedPsychoItem(boolean entireStack, CallbackInfoReturnable<Boolean> cir) {
+        ServerPlayerEntity self = (ServerPlayerEntity) (Object) this;
+        /*
+         * 疯魔 profile 授予的锁定物品应该由 profile 结束流程回收。
+         * 如果允许玩家中途丢出，后续就会出现“皮肤/护盾还在，但核心武器已经落地”的半状态。
+         */
+        if (PsychoModeApi.shouldPreventDrop(self, self.getMainHandStack())) {
+            cir.setReturnValue(false);
+        }
     }
 }

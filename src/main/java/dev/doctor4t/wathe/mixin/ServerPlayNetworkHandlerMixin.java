@@ -2,8 +2,8 @@ package dev.doctor4t.wathe.mixin;
 
 import com.llamalad7.mixinextras.injector.wrapmethod.WrapMethod;
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
+import dev.doctor4t.wathe.api.psycho.PsychoModeApi;
 import dev.doctor4t.wathe.cca.PlayerPsychoComponent;
-import dev.doctor4t.wathe.index.WatheItems;
 import dev.doctor4t.wathe.util.BatAttackCooldownPreserver;
 import net.minecraft.network.packet.c2s.play.PlayerInteractBlockC2SPacket;
 import net.minecraft.network.packet.c2s.play.PlayerInteractEntityC2SPacket;
@@ -28,8 +28,11 @@ public class ServerPlayNetworkHandlerMixin {
     @WrapMethod(method = "onUpdateSelectedSlot")
     private void wathe$invalid(UpdateSelectedSlotC2SPacket packet, @NotNull Operation<Void> original) {
         PlayerPsychoComponent component = PlayerPsychoComponent.KEY.get(this.player);
-        if (component.getPsychoTicks() > 0 && !this.player.getInventory().getStack(packet.getSelectedSlot()).isOf(WatheItems.BAT))
+        if (component.isPsychoActive()
+                && component.getProfile().lockHotbar()
+                && !PsychoModeApi.isLockedItem(this.player, this.player.getInventory().getStack(packet.getSelectedSlot()))) {
             return;
+        }
         original.call(packet);
     }
 

@@ -3,6 +3,7 @@ package dev.doctor4t.wathe.client.gui;
 import com.mojang.blaze3d.platform.GlStateManager;
 import com.mojang.blaze3d.systems.RenderSystem;
 import dev.doctor4t.wathe.Wathe;
+import dev.doctor4t.wathe.api.psycho.PsychoModeApi;
 import dev.doctor4t.wathe.index.WatheItems;
 import dev.doctor4t.wathe.item.DerringerItem;
 import dev.doctor4t.wathe.item.KnifeItem;
@@ -51,7 +52,7 @@ public class CrosshairRenderer {
                 context.drawGuiTexture(KNIFE_BACKGROUND, -5, 5, 10, 7);
                 context.drawGuiTexture(KNIFE_PROGRESS, 10, 7, 0, 0, -5, 5, (int) (f * 10.0f), 7);
             }
-        } else if (mainHandStack.isOf(WatheItems.BAT)) {
+        } else if (PsychoModeApi.isMeleeKillWeapon(player, mainHandStack)) {
             if (player.getAttackCooldownProgress(tickCounter.getTickDelta(true)) >= 1f && client.crosshairTarget instanceof EntityHitResult result && result.getEntity() instanceof PlayerEntity) {
                 target = true;
                 context.drawGuiTexture(BAT_ATTACK, -5, 5, 10, 7);

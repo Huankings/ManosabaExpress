@@ -1,6 +1,7 @@
 package dev.doctor4t.wathe.record.replay;
 
 import dev.doctor4t.wathe.Wathe;
+import dev.doctor4t.wathe.api.psycho.PsychoModeApi;
 import dev.doctor4t.wathe.api.economy.CurrencyAmount;
 import dev.doctor4t.wathe.api.economy.EconomyApi;
 import dev.doctor4t.wathe.record.GameRecordEvent;
@@ -374,12 +375,13 @@ public final class DefaultReplayFormatters {
         }
 
         Text itemName = formatBlockedDamageName(event.data(), world);
+        Text shieldName = Text.translatable(PsychoModeApi.resolveShieldNameTranslationKey(event.data()));
         UUID attackerUuid = getActorUuid(event);
         if (attackerUuid != null) {
             Text attackerText = ReplayGenerator.formatPlayerName(attackerUuid, ensurePlayerInfoCache(match));
-            return Text.translatable("replay.shield_blocked.wathe.psycho_mode.by_item", victimText, attackerText, itemName);
+            return Text.translatable("replay.shield_blocked.wathe.psycho_mode.by_item", victimText, shieldName, attackerText, itemName);
         }
-        return Text.translatable("replay.shield_blocked.wathe.psycho_mode.item", victimText, itemName);
+        return Text.translatable("replay.shield_blocked.wathe.psycho_mode.item", victimText, shieldName, itemName);
     }
 
     /**
@@ -579,7 +581,13 @@ public final class DefaultReplayFormatters {
     @Nullable
     public static Text formatPsychoModeEnd(GameRecordEvent event, GameRecordManager.MatchRecord match, ServerWorld world) {
         Text actorText = actorText(event, match);
-        return actorText == null ? null : Text.translatable("replay.global.wathe.psycho_mode_end", actorText);
+        return actorText == null
+                ? null
+                : Text.translatable(
+                "replay.global.wathe.psycho_mode_end",
+                actorText,
+                Text.translatable(PsychoModeApi.resolveModeNameTranslationKey(event.data()))
+        );
     }
 
     @Nullable

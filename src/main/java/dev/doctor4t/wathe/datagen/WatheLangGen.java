@@ -171,6 +171,8 @@ public class WatheLangGen extends FabricLanguageProvider {
         builder.add("game.psycho_mode.time", "Psycho Mode: %s");
         builder.add("game.psycho_mode.text", "Kill them all!");
         builder.add("game.psycho_mode.over", "Psycho Mode Over!");
+        builder.add("psycho_mode.wathe.default", "Psycho Mode");
+        builder.add("psycho_shield.wathe.default", "psycho shield");
         builder.add("game.tip.cohort", "Killer Cohort");
         builder.add("game.start_error.not_enough_players", "Game cannot start: %s players minimum are required.");
         builder.add("game.start_error.game_running", "Game cannot start: a game is already running. Please try again from the lobby.");
@@ -206,8 +208,8 @@ public class WatheLangGen extends FabricLanguageProvider {
         builder.add("replay.death.wathe.fell_out_of_train.killed", "%s was pushed out of the world by %s");
         builder.add("replay.death.unknown.died", "%s died");
         builder.add("replay.death.unknown.killed", "%s was killed by %s");
-        builder.add("replay.shield_blocked.wathe.psycho_mode.by_item", "%s's psycho shield blocked damage from %s's %s");
-        builder.add("replay.shield_blocked.wathe.psycho_mode.item", "%s's psycho shield blocked damage from %s");
+        builder.add("replay.shield_blocked.wathe.psycho_mode.by_item", "%s's %s blocked damage from %s's %s");
+        builder.add("replay.shield_blocked.wathe.psycho_mode.item", "%s's %s blocked damage from %s");
         builder.add("replay.role_changed", "%s changed identity from %s to %s");
         builder.add("replay.task_complete", "%s completed the task: %s");
         builder.add("replay.task.unknown", "Unknown Task");
@@ -223,7 +225,7 @@ public class WatheLangGen extends FabricLanguageProvider {
         builder.add("replay.item_hit.wathe.knife", "%s used %s to hit %s");
         builder.add("replay.item_hit.wathe.revolver", "%s used %s to hit %s");
         builder.add("replay.item_hit.wathe.bat", "%s used %s to hit %s");
-        builder.add("replay.global.wathe.psycho_mode_end", "%s's psycho mode ended");
+        builder.add("replay.global.wathe.psycho_mode_end", "%s's %s ended");
         builder.add("replay.global.wathe.blackout_recovering", "Power is returning");
         builder.add("replay.global.wathe.blackout_restored", "Power has fully returned");
         builder.add("replay.global.wathe.fishing_rod_used", "%s used a fishing rod");

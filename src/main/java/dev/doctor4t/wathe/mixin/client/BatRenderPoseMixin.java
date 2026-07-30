@@ -1,6 +1,6 @@
 package dev.doctor4t.wathe.mixin.client;
 
-import dev.doctor4t.wathe.index.WatheItems;
+import dev.doctor4t.wathe.api.psycho.PsychoModeApi;
 import net.minecraft.client.network.AbstractClientPlayerEntity;
 import net.minecraft.client.render.VertexConsumerProvider;
 import net.minecraft.client.render.entity.LivingEntityRenderer;
@@ -45,7 +45,7 @@ public abstract class BatRenderPoseMixin<T extends LivingEntity, M extends Entit
         if (!(entity instanceof AbstractClientPlayerEntity player)) {
             return;
         }
-        if (!player.getMainHandStack().isOf(WatheItems.BAT)) {
+        if (!PsychoModeApi.isMeleeKillWeapon(player, player.getMainHandStack())) {
             return;
         }
         if (!(this.model instanceof BipedEntityModel<?> bipedModel)) {
