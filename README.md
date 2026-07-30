@@ -116,11 +116,12 @@ Wathe 是一个基于 **Minecraft 1.21.1 + Fabric** 的列车狼人杀 / 社交�
 - 根据死亡原因记录回放事件；
 - 支持毒药、床毒、自定义武器、自定义死亡原因等额外 NBT 数据；
 - 触发 `AllowPlayerDeath` 事件，扩展职业可以实现护盾、免死、替死等逻辑；
+- 通过 `DeathApi` 暴露死亡请求、致死确认前、切旁观后、心情重置前、尸体生成时和死亡结束后的分阶段钩子；
 - 根据 `ShouldDropOnDeath` 判断死亡时掉落哪些物品；
 - 平民死亡会增加倒计时惩罚时间；
 - 杀手击杀后获得金币收益，并刷新已使用的 Derringer。
 
-源码里保留了旧 4 参 `killPlayer(victim, spawnBody, killer, deathReason)` 的完整方法体，同时新增 5 参重载临时挂载额外回放数据。这是为了兼容旧扩展 Mod 对旧方法字节码位置的 mixin 注入。
+源码里保留了旧 4 参 `killPlayer(victim, spawnBody, killer, deathReason)` 的完整方法体，同时新增 5 参重载临时挂载额外回放数据。旧扩展仍能暂时兼容，但新增死亡奖励、反噬、尸体标记、特殊存活和击杀收益归属应优先接 `DeathApi`，不要再 mixin `GameFunctions.killPlayer(...)` 的局部变量或返回点。
 
 ### 结算流程
 
@@ -583,6 +584,8 @@ GameRecordManager.recordGlobalEvent(
 | `ShopApi` | 职业商店和商店修改器 | 给某职业专属商品，或改默认杀手商品 |
 | `MoodTaskApi` | 主动发放心情任务 | 技能给目标直接追加随机任务、补满任务槽 |
 | `TaskCompletionApi` | 任务完成事件和任务收益 | 任务大师、完成任务减冷却、职业充能 |
+| `GunShotApi` | 枪击接管、客户端目标覆写、左轮误伤惩罚、冷却修正 | 自定义手枪、假枪、无声枪、按状态调整左轮冷却 |
+| `DeathApi` | 击杀/死亡分阶段钩子、默认击杀收益规则、尸体生成回调 | 赏金奖励、时间狭缝、双重人格致死转化、验尸官尸体数据 |
 | `InstinctApi` | 本能资格和描边 | 新职业透视、状态高亮、本能压制 |
 | `PlayerLifeStateApi` | 特殊玩法存活状态 | 旁观 / 创造但仍参与胜负和 HUD |
 | `MoodHudApi` | 心情 HUD 样式 | 特殊职业心情条 |

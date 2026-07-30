@@ -1,6 +1,8 @@
 package dev.doctor4t.wathe.item;
 
 import dev.doctor4t.wathe.Wathe;
+import dev.doctor4t.wathe.api.combat.GunShotApi;
+import dev.doctor4t.wathe.api.combat.GunTargetContext;
 import dev.doctor4t.wathe.client.WatheClient;
 import dev.doctor4t.wathe.client.particle.HandParticle;
 import dev.doctor4t.wathe.client.render.WatheRenderLayers;
@@ -54,6 +56,12 @@ public class RevolverItem extends Item {
     }
 
     public static HitResult getGunTarget(PlayerEntity user) {
-        return ProjectileUtil.getCollision(user, entity -> entity instanceof PlayerEntity player && GameFunctions.isPlayerAliveAndSurvival(player), 20f);
+        HitResult defaultTarget = ProjectileUtil.getCollision(user, entity -> entity instanceof PlayerEntity player && GameFunctions.isPlayerAliveAndSurvival(player), 20f);
+        /*
+         * 客户端先算出 Wathe 默认射线，再交给 GunShotApi。
+         * 这允许假左轮强制 miss，或允许扩展职业把“可见目标/特殊射线来源”接进来；
+         * 服务端收到实体 id 后仍会重新校验距离和玩法存活状态。
+         */
+        return GunShotApi.resolveTarget(new GunTargetContext(user, user.getMainHandStack(), 20F, defaultTarget));
     }
 }

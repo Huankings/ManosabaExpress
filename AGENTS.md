@@ -57,6 +57,8 @@
 - 经济：`EconomyApi`、`CurrencyDefinition`、`CurrencyAmount`
 - 任务：`TaskCompletionApi`
 - 胜利：`VictoryApi`
+- 枪击 / 左轮反火：`GunShotApi`、`GunShotContext`、`GunTargetContext`、`RevolverPenaltyContext`
+- 击杀 / 死亡阶段：`DeathApi`、`DeathContext`、`BodySpawnContext`
 - 本能：`InstinctApi`
 - 玩家存活：`PlayerLifeStateApi`
 - 外观：`PlayerAppearanceApi`、`BodyAppearanceApi`
@@ -88,7 +90,8 @@ Harpy 当前按 `role.getFaction()` 分平民、义警、杀手、中立池；�
 - `ModItems.java`：物品注册。
 - `NoellesRolesShops.java`、`shop/NoellesRolesShopBootstrap.java`：商店和多货币兼容。
 - `roleassign/NoellesRolesRoleAssignedBootstrap.java`：分配后发物品和初始化状态。
-- `death/NoellesRolesDeathBootstrap.java`：死亡保护和反噬。
+- `combat/NoellesRolesCombatBootstrap.java`：枪击接管、左轮目标覆写、左轮反火和冷却 API 接入总入口。
+- `death/NoellesRolesDeathBootstrap.java`：死亡保护、反噬和 DeathApi 分阶段击杀机制总入口。
 - `record/NoellesRolesReplayFormatters.java`：回放格式化。
 - `client/NoellesrolesClient.java`：客户端初始化。
 - `client/hud/NoellesHudHandlers.java`、`NoellesHudSupport.java`：Wathe 通用 HUD API 的总注册入口和布局辅助。
@@ -359,7 +362,13 @@ Harpymodloader.setRoleMaximum(MY_ROLE, 1);
 - 死亡队友 / 伴侣是否也要写进胜利阵营；
 - 结算页颜色和翻译 key。
 
-死亡保护优先接 `AllowPlayerDeath` 或各扩展已有死亡引导器，不要把大量死亡特判堆到主类。需要新死因或技能事件时同时补：
+枪击接管、左轮误伤惩罚、枪械客户端目标覆写和开火后冷却修正优先接 `dev.doctor4t.wathe.api.combat.GunShotApi`。扩展侧要按职业或词条拆 handler，再由聚合 bootstrap 注册；不要再 mixin `GunShootPayload`、`RevolverItem` 或 `DerringerItem` 的通用流程。
+
+死亡保护优先接 `AllowPlayerDeath` 或各扩展已有死亡引导器；击杀奖励、重复死亡吞噬、致死确认前转化、确认死亡后清理、心情重置前处理和尸体生成回调优先接 `dev.doctor4t.wathe.api.death.DeathApi`，不要把大量死亡特判堆到主类或 mixin `GameFunctions.killPlayer(...)`。
+
+`DeathApi` 优先级约定：重复死亡保护最高，其次是特殊存活保护、死亡流程状态、回放上下文、致死确认前拦截、普通逻辑、确认死亡后的奖励 / 二段机制、最终清理。priority 越大越先执行；同 priority 后注册的规则先执行。
+
+需要新死因或技能事件时同时补：
 
 - 事件 id / death reason id；
 - `GameRecordManager` 记录；

@@ -6,6 +6,10 @@ import dev.doctor4t.wathe.api.GameMode;
 import dev.doctor4t.wathe.api.MapEffect;
 import dev.doctor4t.wathe.api.PlayerLifeStateApi;
 import dev.doctor4t.wathe.api.appearance.BodyAppearanceApi;
+import dev.doctor4t.wathe.api.death.BodySpawnContext;
+import dev.doctor4t.wathe.api.death.DeathApi;
+import dev.doctor4t.wathe.api.death.DeathContext;
+import dev.doctor4t.wathe.api.death.DeathDecision;
 import dev.doctor4t.wathe.api.economy.EconomyApi;
 import dev.doctor4t.wathe.api.event.AllowPlayerDeath;
 import dev.doctor4t.wathe.api.event.GameEvents;
@@ -630,159 +634,208 @@ public class GameFunctions {
     }
 
     public static void killPlayer(PlayerEntity victim, boolean spawnBody, @Nullable PlayerEntity killer, Identifier deathReason) {
-        PlayerPsychoComponent component = PlayerPsychoComponent.KEY.get(victim);
-
-        if (!AllowPlayerDeath.EVENT.invoker().allowDeath(victim, killer, deathReason)) return;
-        if (component.isPsychoActive()) {
-            PsychoModeProfile psychoProfile = component.getProfile();
-            NbtCompound damageReplayData = createBlockedDamageReplayData(killer, deathReason);
-            PsychoModeApi.putModeReplayData(damageReplayData, psychoProfile);
-            PsychoShieldResult shieldResult = PsychoModeApi.resolveShield(new PsychoShieldContext(
-                    victim,
-                    killer,
-                    deathReason,
-                    component,
-                    psychoProfile,
-                    damageReplayData.copy()
-            ));
-            if (shieldResult == PsychoShieldResult.BLOCK) {
-                if (victim instanceof ServerPlayerEntity victimPlayer) {
-                    /*
-                     * 统一走解析方法，避免像“手雷爆炸打到护盾”这种并非主手直接命中的伤害
-                     * 被错误显示成未知物品。
-                     *
-                     * 同时这里也必须把 death_reason 带进 shield_blocked，
-                     * 这样像扩展模组的巫毒魔法这类“没有物品来源”的伤害，
-                     * 才能在护盾回放里退回显示成死因文本，而不是 [未知物品]。
-                     */
-                    GameRecordManager.recordShieldBlocked(
-                            victimPlayer,
-                            killer instanceof ServerPlayerEntity killerPlayer ? killerPlayer : null,
-                            psychoProfile.shieldSourceId(),
-                            getReplayItemId(damageReplayData),
-                            damageReplayData
-                    );
-                }
-                if (component.getArmour() > 0) {
-                    component.setArmour(component.getArmour() - 1);
-                }
-                SoundEvent shieldSound = psychoProfile.shieldSound();
-                if (shieldSound != null) {
-                    victim.playSoundToPlayer(shieldSound, SoundCategory.MASTER, 5F, 1F);
-                }
-                return;
-            }
-
-            if (shieldResult == PsychoShieldResult.BYPASS || component.getArmour() <= 0) {
-                component.stopPsycho();
-            }
-        }
-
-        if (victim instanceof ServerPlayerEntity serverPlayerEntity && isPlayerAliveAndSurvival(serverPlayerEntity)) {
-            /*
-             * 真正死亡时必须先清特殊存活授权，再切旁观。
-             * 否则“机制旁观仍存活”的玩家被击杀后，客户端和胜负判定会继续把他当活人。
-             */
-            PlayerLifeStateApi.clearAliveOverride(serverPlayerEntity);
-            serverPlayerEntity.changeGameMode(net.minecraft.world.GameMode.SPECTATOR);
-
-            NbtCompound pendingExtraDeathData = PENDING_EXTRA_DEATH_DATA.get();
-            NbtCompound deathData = pendingExtraDeathData == null ? new NbtCompound() : pendingExtraDeathData.copy();
-            if (deathReason.equals(GameConstants.DeathReasons.POISON) || deathReason.equals(GameConstants.DeathReasons.BED_POISON)) {
-                PlayerPoisonComponent poisonComponent = PlayerPoisonComponent.KEY.get(victim);
-                if (poisonComponent.getPoisoner() != null) {
-                    deathData.putUuid("poisoner", poisonComponent.getPoisoner());
-                }
-                if (poisonComponent.getPoisonData() != null) {
-                    NbtCompound poisonData = poisonComponent.getPoisonData();
-                    if (poisonData.contains("item")) {
-                        deathData.putString("item", poisonData.getString("item"));
-                    }
-                    if (poisonData.contains("item_name")) {
-                        deathData.putString("item_name", poisonData.getString("item_name"));
-                    }
-                    deathData.put("poison_data", poisonData);
-                }
-            }
-            NbtCompound damageReplayData = resolveDamageReplayData(killer, deathReason, deathData);
-            if (damageReplayData != null) {
-                if (damageReplayData.contains("item") && !deathData.contains("item")) {
-                    deathData.putString("item", damageReplayData.getString("item"));
-                }
-                if (damageReplayData.contains("item_name") && !deathData.contains("item_name")) {
-                    deathData.putString("item_name", damageReplayData.getString("item_name"));
-                }
-            }
-            GameRecordManager.recordDeath(
-                    serverPlayerEntity,
-                    killer instanceof ServerPlayerEntity killerPlayer ? killerPlayer : null,
-                    deathReason,
-                    deathData.isEmpty() ? null : deathData
-            );
-        } else {
+        DeathContext deathContext = new DeathContext(victim, spawnBody, killer, deathReason, PENDING_EXTRA_DEATH_DATA.get());
+        if (DeathApi.resolveEarlyInterceptors(deathContext) == DeathDecision.CANCEL) {
+            deathContext.markCancelledBeforeAttempt();
             return;
         }
 
-        if (killer != null) {
-            if (GameWorldComponent.KEY.get(killer.getWorld()).canUseKillerFeatures(killer)) {
-                PlayerShopComponent killerShop = PlayerShopComponent.KEY.get(killer);
-                killerShop.addToBalance(GameConstants.MONEY_PER_KILL);
-                // 任务币击杀收益目前暂停；常量大于 0 时才发放，方便后续重新启用。
-                if (GameConstants.TASK_MONEY_PER_KILL > 0) {
-                    killerShop.addCurrencyAmount(EconomyApi.TASK_MONEY, GameConstants.TASK_MONEY_PER_KILL);
+        try {
+            /*
+             * 这里是“死亡请求已经进入 Wathe 统一流程，但还没有经过免死/护盾/致死确认”的阶段。
+             * 旧扩展里钉在 killPlayer HEAD 的连锁死亡和状态标记，应迁移到这个阶段，
+             * 再用 priority 明确谁先执行、谁后执行。
+             */
+            DeathApi.invokeBeforeAttempt(deathContext);
+
+            PlayerPsychoComponent component = PlayerPsychoComponent.KEY.get(victim);
+
+            if (!AllowPlayerDeath.EVENT.invoker().allowDeath(victim, killer, deathReason)) {
+                deathContext.markCancelledByProtection();
+                return;
+            }
+            if (component.isPsychoActive()) {
+                PsychoModeProfile psychoProfile = component.getProfile();
+                NbtCompound damageReplayData = createBlockedDamageReplayData(killer, deathReason);
+                PsychoModeApi.putModeReplayData(damageReplayData, psychoProfile);
+                PsychoShieldResult shieldResult = PsychoModeApi.resolveShield(new PsychoShieldContext(
+                        victim,
+                        killer,
+                        deathReason,
+                        component,
+                        psychoProfile,
+                        damageReplayData.copy()
+                ));
+                if (shieldResult == PsychoShieldResult.BLOCK) {
+                    if (victim instanceof ServerPlayerEntity victimPlayer) {
+                        /*
+                         * 统一走解析方法，避免像“手雷爆炸打到护盾”这种并非主手直接命中的伤害
+                         * 被错误显示成未知物品。
+                         *
+                         * 同时这里也必须把 death_reason 带进 shield_blocked，
+                         * 这样像扩展模组的巫毒魔法这类“没有物品来源”的伤害，
+                         * 才能在护盾回放里退回显示成死因文本，而不是 [未知物品]。
+                         */
+                        GameRecordManager.recordShieldBlocked(
+                                victimPlayer,
+                                killer instanceof ServerPlayerEntity killerPlayer ? killerPlayer : null,
+                                psychoProfile.shieldSourceId(),
+                                getReplayItemId(damageReplayData),
+                                damageReplayData
+                        );
+                    }
+                    if (component.getArmour() > 0) {
+                        component.setArmour(component.getArmour() - 1);
+                    }
+                    SoundEvent shieldSound = psychoProfile.shieldSound();
+                    if (shieldSound != null) {
+                        victim.playSoundToPlayer(shieldSound, SoundCategory.MASTER, 5F, 1F);
+                    }
+                    deathContext.markBlockedByShield();
+                    return;
+                }
+
+                if (shieldResult == PsychoShieldResult.BYPASS || component.getArmour() <= 0) {
+                    component.stopPsycho();
                 }
             }
 
-            // replenish derringer
-            for (List<ItemStack> list : killer.getInventory().combinedInventory) {
-                for (ItemStack stack : list) {
-                    Boolean used = stack.get(WatheDataComponentTypes.USED);
-                    if (stack.isOf(WatheItems.DERRINGER) && used != null && used) {
-                        stack.set(WatheDataComponentTypes.USED, false);
-                        killer.playSoundToPlayer(WatheSounds.ITEM_DERRINGER_RELOAD, SoundCategory.PLAYERS, 1.0f, 1.0f);
+            if (victim instanceof ServerPlayerEntity serverPlayerEntity && isPlayerAliveAndSurvival(serverPlayerEntity)) {
+                /*
+                 * 这一步在清特殊存活授权之前，给扩展最后一次把“致死”改写成其它机制的机会。
+                 * 例如双重人格活跃人格被击杀时，可以在这里改为“双活解离”并取消本次死亡。
+                 */
+                if (DeathApi.resolveFatalInterceptors(deathContext) == DeathDecision.CANCEL) {
+                    deathContext.markFatalIntercepted();
+                    return;
+                }
+
+                /*
+                 * 真正死亡时必须先清特殊存活授权，再切旁观。
+                 * 否则“机制旁观仍存活”的玩家被击杀后，客户端和胜负判定会继续把他当活人。
+                 */
+                PlayerLifeStateApi.clearAliveOverride(serverPlayerEntity);
+                serverPlayerEntity.changeGameMode(net.minecraft.world.GameMode.SPECTATOR);
+                deathContext.markDead();
+                DeathApi.invokeAfterMarkedDead(deathContext);
+
+                NbtCompound pendingExtraDeathData = PENDING_EXTRA_DEATH_DATA.get();
+                NbtCompound deathData = pendingExtraDeathData == null ? new NbtCompound() : pendingExtraDeathData.copy();
+                if (deathReason.equals(GameConstants.DeathReasons.POISON) || deathReason.equals(GameConstants.DeathReasons.BED_POISON)) {
+                    PlayerPoisonComponent poisonComponent = PlayerPoisonComponent.KEY.get(victim);
+                    if (poisonComponent.getPoisoner() != null) {
+                        deathData.putUuid("poisoner", poisonComponent.getPoisoner());
+                    }
+                    if (poisonComponent.getPoisonData() != null) {
+                        NbtCompound poisonData = poisonComponent.getPoisonData();
+                        if (poisonData.contains("item")) {
+                            deathData.putString("item", poisonData.getString("item"));
+                        }
+                        if (poisonData.contains("item_name")) {
+                            deathData.putString("item_name", poisonData.getString("item_name"));
+                        }
+                        deathData.put("poison_data", poisonData);
+                    }
+                }
+                NbtCompound damageReplayData = resolveDamageReplayData(killer, deathReason, deathData);
+                if (damageReplayData != null) {
+                    if (damageReplayData.contains("item") && !deathData.contains("item")) {
+                        deathData.putString("item", damageReplayData.getString("item"));
+                    }
+                    if (damageReplayData.contains("item_name") && !deathData.contains("item_name")) {
+                        deathData.putString("item_name", damageReplayData.getString("item_name"));
+                    }
+                }
+                GameRecordManager.recordDeath(
+                        serverPlayerEntity,
+                        killer instanceof ServerPlayerEntity killerPlayer ? killerPlayer : null,
+                        deathReason,
+                        deathData.isEmpty() ? null : deathData
+                );
+                deathContext.markDeathRecorded();
+            } else {
+                return;
+            }
+
+            if (killer != null) {
+                boolean defaultKillerReward = GameWorldComponent.KEY.get(killer.getWorld()).canUseKillerFeatures(killer);
+                /*
+                 * 默认击杀收益不再写死为“杀手能力角色一定获得”。
+                 * 扩展可以在 DeathApi 里允许/拒绝这笔 Wathe 默认收益，例如：
+                 * 1. 魔术师播放体击杀时阻止假玩家拿钱，再把收益转给真实魔术师；
+                 * 2. 未来特殊职业可以让非杀手阵营也获得默认击杀收益；
+                 * 3. 额外奖励仍建议放在 afterAttempt，并检查 confirmedDeath()。
+                 */
+                if (DeathApi.shouldGrantDefaultKillerReward(deathContext, defaultKillerReward)) {
+                    PlayerShopComponent killerShop = PlayerShopComponent.KEY.get(killer);
+                    killerShop.addToBalance(GameConstants.MONEY_PER_KILL);
+                    // 任务币击杀收益目前暂停；常量大于 0 时才发放，方便后续重新启用。
+                    if (GameConstants.TASK_MONEY_PER_KILL > 0) {
+                        killerShop.addCurrencyAmount(EconomyApi.TASK_MONEY, GameConstants.TASK_MONEY_PER_KILL);
+                    }
+                }
+
+                // replenish derringer
+                for (List<ItemStack> list : killer.getInventory().combinedInventory) {
+                    for (ItemStack stack : list) {
+                        Boolean used = stack.get(WatheDataComponentTypes.USED);
+                        if (stack.isOf(WatheItems.DERRINGER) && used != null && used) {
+                            stack.set(WatheDataComponentTypes.USED, false);
+                            killer.playSoundToPlayer(WatheSounds.ITEM_DERRINGER_RELOAD, SoundCategory.PLAYERS, 1.0f, 1.0f);
+                        }
                     }
                 }
             }
-        }
 
-        PlayerMoodComponent.KEY.get(victim).reset();
+            DeathApi.invokeBeforeMoodReset(deathContext);
+            PlayerMoodComponent.KEY.get(victim).reset();
 
-        if (spawnBody) {
-            PlayerBodyEntity body = WatheEntities.PLAYER_BODY.create(victim.getWorld());
-            if (body != null) {
-                body.setPlayerUuid(victim.getUuid());
-                UUID appearanceUuid = BodyAppearanceApi.resolveAppearanceUuid(victim, killer, deathReason);
-                if (appearanceUuid != null) {
+            if (spawnBody) {
+                PlayerBodyEntity body = WatheEntities.PLAYER_BODY.create(victim.getWorld());
+                if (body != null) {
+                    body.setPlayerUuid(victim.getUuid());
+                    UUID appearanceUuid = BodyAppearanceApi.resolveAppearanceUuid(victim, killer, deathReason);
+                    if (appearanceUuid != null) {
+                        /*
+                         * 这里只写“尸体看起来像谁”，不改 body.setPlayerUuid(...) 里的真实死者。
+                         * 这样双重人格等视觉伪装不会影响尸袋、验尸、回放等继续追踪真正死亡玩家的逻辑。
+                         */
+                        body.setAppearanceUuid(appearanceUuid);
+                    }
+                    Vec3d spawnPos = victim.getPos().add(victim.getRotationVector().normalize().multiply(1));
+                    body.refreshPositionAndAngles(spawnPos.getX(), victim.getY(), spawnPos.getZ(), victim.getHeadYaw(), 0f);
+                    body.setYaw(victim.getHeadYaw());
+                    body.setHeadYaw(victim.getHeadYaw());
                     /*
-                     * 这里只写“尸体看起来像谁”，不改 body.setPlayerUuid(...) 里的真实死者。
-                     * 这样双重人格等视觉伪装不会影响尸袋、验尸、回放等继续追踪真正死亡玩家的逻辑。
+                     * 尸体生成回调放在 spawnEntity 之前：
+                     * 旧扩展里拿本地变量 body 写 CCA/状态效果的 mixin，都可以在这里安全迁移。
                      */
-                    body.setAppearanceUuid(appearanceUuid);
-                }
-                Vec3d spawnPos = victim.getPos().add(victim.getRotationVector().normalize().multiply(1));
-                body.refreshPositionAndAngles(spawnPos.getX(), victim.getY(), spawnPos.getZ(), victim.getHeadYaw(), 0f);
-                body.setYaw(victim.getHeadYaw());
-                body.setHeadYaw(victim.getHeadYaw());
-                victim.getWorld().spawnEntity(body);
-            }
-        }
-
-        for (List<ItemStack> list : victim.getInventory().combinedInventory) {
-            for (int i = 0; i < list.size(); i++) {
-                ItemStack stack = list.get(i);
-                if (shouldDropOnDeath(stack, victim)) {
-                    victim.dropItem(stack, true, false);
-                    list.set(i, ItemStack.EMPTY);
+                    DeathApi.invokeBodySpawn(new BodySpawnContext(deathContext, body, victim, killer, deathReason));
+                    deathContext.markBodySpawned();
+                    victim.getWorld().spawnEntity(body);
                 }
             }
-        }
 
-        GameWorldComponent gameWorldComponent = GameWorldComponent.KEY.get(victim.getWorld());
-        if (gameWorldComponent.isInnocent(victim)) {
-            GameTimeComponent.KEY.get(victim.getWorld()).addTime(GameConstants.TIME_ON_CIVILIAN_KILL);
-        }
+            for (List<ItemStack> list : victim.getInventory().combinedInventory) {
+                for (int i = 0; i < list.size(); i++) {
+                    ItemStack stack = list.get(i);
+                    if (shouldDropOnDeath(stack, victim)) {
+                        victim.dropItem(stack, true, false);
+                        list.set(i, ItemStack.EMPTY);
+                    }
+                }
+            }
 
-        TrainVoicePlugin.addPlayer(victim.getUuid());
+            GameWorldComponent gameWorldComponent = GameWorldComponent.KEY.get(victim.getWorld());
+            if (gameWorldComponent.isInnocent(victim)) {
+                GameTimeComponent.KEY.get(victim.getWorld()).addTime(GameConstants.TIME_ON_CIVILIAN_KILL);
+            }
+
+            TrainVoicePlugin.addPlayer(victim.getUuid());
+            deathContext.markCompletedDefaultFlow();
+        } finally {
+            DeathApi.invokeAfterAttempt(deathContext);
+        }
     }
 
     /**
