@@ -43,6 +43,7 @@
 - `src/main/java/dev/doctor4t/wathe/cca/PlayerShopComponent.java`：金币、多货币余额、购买结算。
 - `src/main/java/dev/doctor4t/wathe/cca/PlayerMoodComponent.java`：心情和任务完成入口。
 - `src/main/java/dev/doctor4t/wathe/client/gui/StoreRenderer.java`：右上角货币和商店价格渲染。
+- `src/main/java/dev/doctor4t/wathe/client/gui/CrosshairRenderer.java`：Wathe 局内准心图标、武器锁定和小进度图标渲染。
 - `src/main/java/dev/doctor4t/wathe/client/gui/RoleNameRenderer.java`：准心玩家名 / 同伙提示 / 额外 HUD。
 - `src/main/java/dev/doctor4t/wathe/client/gui/MoodRenderer.java`、`TimeRenderer.java`：心情和时间 HUD。
 - `src/main/java/dev/doctor4t/wathe/api/client/hud/*`：通用屏幕 HUD 叠加 API，扩展职业右下角状态、全屏遮罩和狙击镜优先看这里。
@@ -63,6 +64,7 @@
 - 玩家存活：`PlayerLifeStateApi`
 - 外观：`PlayerAppearanceApi`、`BodyAppearanceApi`
 - 通用屏幕 HUD：`HudOverlayApi`、`HudOverlayContext`、`HudOverlayLayer`、`HudOverlayLayout`
+- 准心图标 / 准心下方小进度条：`CrosshairHudApi`
 - 准心名字 / 实体名牌 / 准心额外 HUD：`RoleNameHudApi`
 - 心情 HUD：`MoodHudApi`
 - 时间 HUD：`TimeHudApi`
@@ -323,6 +325,13 @@ Harpymodloader.setRoleMaximum(MY_ROLE, 1);
 - 扩展侧按职业和词条拆文件，聚合类只负责调用各 `register()`；不要把所有职业 HUD 塞进一个大类。
 - 普通 HUD 不要再新增 `InGameHud` / `RoleNameRenderer` mixin；如果 API 已覆盖旧 mixin，要同步删除源码文件和 mixin json 条目。
 
+准心图标 HUD：
+
+- 替换屏幕中心 3x3 准心或准心下方 10x7 小图标时用 `CrosshairHudApi.registerProvider(...)`，不要再 mixin `CrosshairRenderer`。
+- 只在默认准心后额外补进度条时用 `CrosshairHudApi.registerOverlay(...)`，例如时停者怀表冷却/蓄力条。
+- Provider 返回 `PASS` 表示继续交给后续 provider 或 Wathe 默认准心；返回 `HANDLED` 表示本帧已处理完，包含狙击枪开镜这种“故意隐藏默认准心”的情况。
+- 扩展侧按职业或词条拆文件，聚合类只调用各 `register()`；准心只是客户端提示，服务端仍必须重新校验职业、存活、冷却、距离和目标合法性。
+
 手持物隐藏：
 
 - 某职业某物品隐藏：`HeldItemInvisibilityApi.registerHiddenItem(role, item)`
@@ -396,7 +405,7 @@ Harpymodloader.setRoleMaximum(MY_ROLE, 1);
 
 客户端代码：
 
-- HUD、屏幕、相机、模型谓词、按键、渲染混入放 `src/client/java`；普通屏幕 HUD 优先接 `HudOverlayApi` / `RoleNameHudApi`，只有 API 不够表达时才保留窄 mixin。
+- HUD、屏幕、相机、模型谓词、按键、渲染混入放 `src/client/java`；普通屏幕 HUD 优先接 `HudOverlayApi`，准心图标优先接 `CrosshairHudApi`，准心名字 / 目标文字优先接 `RoleNameHudApi`，只有 API 不够表达时才保留窄 mixin。
 - 服务端逻辑、物品行为、死亡、任务、胜利、组件注册放 `src/main/java`。
 - client mixin 注册到 `*.client.mixins.json`，common/server mixin 注册到主 mixin json。
 

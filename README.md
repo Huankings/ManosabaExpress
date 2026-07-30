@@ -461,7 +461,7 @@ ShopApi.registerRoleShop(MY_ROLE, player -> List.of(
 
 ### 通用 HUD 叠加 API
 
-职业/词条需要画“自由位置”的屏幕 HUD 时，优先接入 `dev.doctor4t.wathe.api.client.hud` 包，不要再给 `InGameHud` 写扩展 mixin。这个 API 面向右下角状态文字、全屏遮罩、狙击镜、开局安全提示等通用叠加内容；如果只是心情条、顶部时间、准心名字或背包按钮，应优先使用对应的专用 API。
+职业/词条需要画“自由位置”的屏幕 HUD 时，优先接入 `dev.doctor4t.wathe.api.client.hud` 包，不要再给 `InGameHud` 写扩展 mixin。这个 API 面向右下角状态文字、全屏遮罩、狙击镜、开局安全提示等通用叠加内容；如果只是心情条、顶部时间、准心图标、准心名字或背包按钮，应优先使用对应的专用 API。
 
 核心类型：
 
@@ -500,6 +500,19 @@ HudOverlayApi.register(MyMod.id("hud/my_role/scope"), HudOverlayLayer.AFTER_HUD,
     context.renderHotbar();
 });
 ```
+
+### 准心图标公开 API
+
+职业/物品需要替换屏幕中心的 crosshair 图标时，优先接入 `dev.doctor4t.wathe.api.client.gui.CrosshairHudApi`，不要再 mixin `CrosshairRenderer`。这个 API 只负责 3x3 准心和准心下方 10x7 小图标；准心名字、尸体文字和同伙提示仍然走 `RoleNameHudApi`，狙击镜大遮罩仍然走 `HudOverlayApi`。
+
+核心入口：
+
+- `CrosshairHudApi.registerProvider(id, priority, provider)`：短路接管默认准心。返回 `PASS` 继续交给低优先级 provider 或 Wathe 默认准心；返回 `HANDLED` 表示本帧已经处理完，可以是已绘制自定义准心，也可以是故意隐藏默认准心。
+- `CrosshairHudApi.registerOverlay(id, priority, renderer)`：默认准心后追加绘制，不会阻止默认准心和其他 overlay，适合怀表冷却条这类只补一条进度条的场景。
+- `CrosshairHudApi.Context`：提供 `client`、`player`、`drawContext`、`tickCounter`、主手物品、`tickDelta` 和屏幕中心坐标。
+- `renderStandardCrosshair(...)`、`renderKnifeProgressCrosshair(...)`、`renderBatProgressCrosshair(...)`、`renderIconProgressCrosshair(...)`：复用 Wathe 的准心纹理和 blend 设置，避免扩展复制渲染状态。
+
+准心只是客户端提示，不能作为玩法结果来源。扩展物品在 C2S 包、服务端 use/attack 逻辑里仍然必须重新校验职业、存活、冷却、距离和目标合法性。
 
 ## 主要物品和玩法效果
 
@@ -590,6 +603,7 @@ GameRecordManager.recordGlobalEvent(
 | `PlayerLifeStateApi` | 特殊玩法存活状态 | 旁观 / 创造但仍参与胜负和 HUD |
 | `MoodHudApi` | 心情 HUD 样式 | 特殊职业心情条 |
 | `HudOverlayApi` | 通用屏幕 HUD 叠加 | 右下角职业状态、全屏遮罩、狙击镜、开局安全提示 |
+| `CrosshairHudApi` | 准心图标 / 准心下方小进度条 | 扩展武器锁定提示、蓄力条、隐藏默认准心 |
 | `RoleNameHudApi` | 准心名字 / 实体名牌 / 准心额外 HUD | 扩展职业名显示规则、非玩家播放体名牌、准心附近提示 |
 | `PlayerAppearanceApi` | 玩家外观覆写 | 伪装、变形 |
 | `BodyAppearanceApi` | 尸体外观覆写 | 双重人格、伪尸体 |
@@ -784,7 +798,7 @@ Datagen 入口是 `WatheDatagen`，相关类包括：
 5. 如果职业和任务完成有关，用 `TaskCompletionApi.AFTER_TASK_COMPLETE` 或任务收益 provider。
 6. 如果职业改变胜负，用 `VictoryApi.registerRule`。
 7. 如果职业需要本能透视，用 `InstinctApi.registerAvailability` 和 `registerHighlight`。
-8. 如果职业需要普通屏幕 HUD，用 `HudOverlayApi.registerAliveRole`；准心名字、实体名牌或准心附近提示用 `RoleNameHudApi`。
+8. 如果职业需要普通屏幕 HUD，用 `HudOverlayApi.registerAliveRole`；准心图标和准心下方小进度条用 `CrosshairHudApi`；准心名字、实体名牌或准心附近提示用 `RoleNameHudApi`。
 9. 如果职业需要记录技能，用 `GameRecordManager.recordSkillUse` / `recordGlobalEvent`，再用 `ReplayRegistry` 注册格式器。
 10. 如果职业会伪装、换皮、伪尸体，用 `PlayerAppearanceApi` / `BodyAppearanceApi`。
 11. 如果职业会让旁观 / 创造玩家仍参与胜负，用 `PlayerLifeStateApi` 授权，并在清理时撤销。
@@ -820,7 +834,7 @@ VictoryApi.registerRule(MyMod.id("victory/my_role"), VictoryApi.DEFAULT_PRIORITY
 - 新增回放事件时同时考虑记录字段、格式器和翻译键。
 - 新增货币或商店价格时，优先阅读 `README_SHOP_CURRENCY_API.md`。
 - 新地图优先从 `map_datapack_template` 复制，再用 `/wathe:mapVariables` 配置坐标。
-- 普通职业 HUD 不要新增 `InGameHud` / `RoleNameRenderer` mixin；优先用 `HudOverlayApi`、`RoleNameHudApi`，并删除已被 API 替代的旧 mixin 配置。
+- 普通职业 HUD 不要新增 `InGameHud` / `CrosshairRenderer` / `RoleNameRenderer` mixin；优先用 `HudOverlayApi`、`CrosshairHudApi`、`RoleNameHudApi`，并删除已被 API 替代的旧 mixin 配置。
 - 涉及胜负、死亡、复活、旁观 / 创造存活状态时，务必统一使用 `GameFunctions.isPlayerAliveAndSurvival(...)` 和 `PlayerLifeStateApi`，不要只看原版 `isSpectator()`。
 - 涉及职业阵营时，优先使用 `role.getFaction()` 或 `GameWorldComponent.isFaction(...)`。
 
