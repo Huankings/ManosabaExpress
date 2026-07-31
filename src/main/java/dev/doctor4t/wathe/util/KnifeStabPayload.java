@@ -2,6 +2,7 @@ package dev.doctor4t.wathe.util;
 
 import dev.doctor4t.wathe.Wathe;
 import dev.doctor4t.wathe.api.WatheGameModes;
+import dev.doctor4t.wathe.api.visibility.TargetVisibilityApi;
 import dev.doctor4t.wathe.cca.GameWorldComponent;
 import dev.doctor4t.wathe.game.GameConstants;
 import dev.doctor4t.wathe.game.GameFunctions;
@@ -33,6 +34,7 @@ public record KnifeStabPayload(int target) implements CustomPayload {
             ServerPlayerEntity player = context.player();
             if (!(player.getServerWorld().getEntityById(payload.target()) instanceof PlayerEntity target)) return;
             if (target.distanceTo(player) > 3.0) return;
+            if (!TargetVisibilityApi.canAttackPlayer(player, target)) return;
 
             // 先记录“匕首命中”，再进入真正的死亡判定。
             if (target instanceof ServerPlayerEntity serverTarget) {

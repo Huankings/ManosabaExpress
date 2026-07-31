@@ -2,6 +2,7 @@ package dev.doctor4t.wathe.item;
 
 import dev.doctor4t.ratatouille.util.TextUtils;
 import dev.doctor4t.wathe.Wathe;
+import dev.doctor4t.wathe.api.visibility.TargetVisibilityApi;
 import dev.doctor4t.wathe.game.GameFunctions;
 import dev.doctor4t.wathe.index.WatheCosmetics;
 import dev.doctor4t.wathe.index.WatheSounds;
@@ -90,7 +91,13 @@ public class KnifeItem extends Item implements ItemWithSkin {
     }
 
     public static HitResult getKnifeTarget(PlayerEntity user) {
-        return ProjectileUtil.getCollision(user, entity -> entity instanceof PlayerEntity player && GameFunctions.isPlayerAliveAndSurvival(player), 3f);
+        return ProjectileUtil.getCollision(
+                user,
+                entity -> entity instanceof PlayerEntity player
+                        && GameFunctions.isPlayerAliveAndSurvival(player)
+                        && TargetVisibilityApi.canTargetPlayer(user, player),
+                3f
+        );
     }
 
     @Override

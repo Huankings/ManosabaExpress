@@ -2,6 +2,7 @@ package dev.doctor4t.wathe.client.gui;
 
 import dev.doctor4t.wathe.api.client.gui.CrosshairHudApi;
 import dev.doctor4t.wathe.api.psycho.PsychoModeApi;
+import dev.doctor4t.wathe.api.visibility.TargetVisibilityApi;
 import dev.doctor4t.wathe.index.WatheItems;
 import dev.doctor4t.wathe.item.DerringerItem;
 import dev.doctor4t.wathe.item.KnifeItem;
@@ -59,7 +60,10 @@ public class CrosshairRenderer {
             }
             return;
         } else if (PsychoModeApi.isMeleeKillWeapon(player, mainHandStack)) {
-            if (player.getAttackCooldownProgress(context.tickDelta()) >= 1f && context.client().crosshairTarget instanceof EntityHitResult result && result.getEntity() instanceof PlayerEntity) {
+            if (player.getAttackCooldownProgress(context.tickDelta()) >= 1f
+                    && context.client().crosshairTarget instanceof EntityHitResult result
+                    && result.getEntity() instanceof PlayerEntity targetPlayer
+                    && TargetVisibilityApi.canTargetPlayer(player, targetPlayer)) {
                 target = true;
                 CrosshairHudApi.renderBatProgressCrosshair(context, true, true, 1.0F);
             } else {

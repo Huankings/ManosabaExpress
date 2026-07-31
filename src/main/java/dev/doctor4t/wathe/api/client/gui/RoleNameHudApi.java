@@ -2,6 +2,7 @@ package dev.doctor4t.wathe.api.client.gui;
 
 import dev.doctor4t.wathe.entity.PlayerBodyEntity;
 import dev.doctor4t.wathe.game.GameFunctions;
+import dev.doctor4t.wathe.api.visibility.TargetVisibilityApi;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
 import net.minecraft.client.font.TextRenderer;
@@ -226,7 +227,11 @@ public final class RoleNameHudApi {
      * 不需要再 mixin 到 RoleNameRenderer 的某个局部变量位置。</p>
      */
     public static @Nullable PlayerBodyEntity findLookedAtBody(@NotNull ClientPlayerEntity player, float range) {
-        HitResult hitResult = ProjectileUtil.getCollision(player, entity -> entity instanceof PlayerBodyEntity, range);
+        HitResult hitResult = ProjectileUtil.getCollision(
+                player,
+                entity -> entity instanceof PlayerBodyEntity body && TargetVisibilityApi.canTargetBody(player, body),
+                range
+        );
         if (hitResult instanceof EntityHitResult entityHitResult && entityHitResult.getEntity() instanceof PlayerBodyEntity body) {
             return body;
         }

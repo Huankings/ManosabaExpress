@@ -10,6 +10,7 @@ import dev.doctor4t.wathe.api.bed.BedEffectRegistry;
 import dev.doctor4t.wathe.api.event.AllowPlayerPunching;
 import dev.doctor4t.wathe.api.psycho.PsychoModeApi;
 import dev.doctor4t.wathe.api.psycho.PsychoModeProfile;
+import dev.doctor4t.wathe.api.visibility.TargetVisibilityApi;
 import dev.doctor4t.wathe.cca.GameWorldComponent;
 import dev.doctor4t.wathe.cca.MapEnhancementsWorldComponent;
 import dev.doctor4t.wathe.cca.PlayerMoodComponent;
@@ -151,6 +152,14 @@ public abstract class PlayerEntityMixin extends LivingEntity {
 
         if (mainHandStack.isOf(WatheItems.KNIFE) && !(target instanceof PlayerEntity)) {
             // 匕首的左键用途只应该是推玩家，命中画、展示框、盔甲架等装饰实体时直接忽略，避免原版攻击把它们打掉。
+            return;
+        }
+
+        if (target instanceof PlayerEntity playerTarget && !TargetVisibilityApi.canAttackPlayer(self, playerTarget)) {
+            /*
+             * 客户端“看不见 / 选不中”不能作为权威防护，服务端左键攻击也要在这里重新过一遍。
+             * 这样隐藏玩家规则以后接入时，疯魔近战、普通推人和匕首左键都不会绕过目标可见性 API。
+             */
             return;
         }
 

@@ -3,6 +3,7 @@ package dev.doctor4t.wathe.item;
 import dev.doctor4t.wathe.Wathe;
 import dev.doctor4t.wathe.api.combat.GunShotApi;
 import dev.doctor4t.wathe.api.combat.GunTargetContext;
+import dev.doctor4t.wathe.api.visibility.TargetVisibilityApi;
 import dev.doctor4t.wathe.client.WatheClient;
 import dev.doctor4t.wathe.client.particle.HandParticle;
 import dev.doctor4t.wathe.client.render.WatheRenderLayers;
@@ -76,11 +77,22 @@ public class DerringerItem extends RevolverItem {
     }
 
     public static HitResult getGunTarget(PlayerEntity user) {
-        HitResult defaultTarget = ProjectileUtil.getCollision(user, entity -> entity instanceof PlayerEntity player && GameFunctions.isPlayerAliveAndSurvival(player), 7f);
+        HitResult defaultTarget = ProjectileUtil.getCollision(
+                user,
+                entity -> entity instanceof PlayerEntity player
+                        && GameFunctions.isPlayerAliveAndSurvival(player)
+                        && TargetVisibilityApi.canTargetPlayer(user, player),
+                7f
+        );
         /*
          * 德林加同样走 GunShotApi 的客户端目标覆写。
          * 它的默认距离只有 7 格，但扩展仍可以按物品或职业决定是否强制 miss 或替换目标。
          */
-        return GunShotApi.resolveTarget(new GunTargetContext(user, user.getMainHandStack(), 7F, defaultTarget));
+        HitResult resolvedTarget = GunShotApi.resolveTarget(new GunTargetContext(user, user.getMainHandStack(), 7F, defaultTarget));
+        if (resolvedTarget instanceof EntityHitResult entityHitResult
+                && !TargetVisibilityApi.canTargetEntity(user, entityHitResult.getEntity())) {
+            return null;
+        }
+        return resolvedTarget;
     }
 }

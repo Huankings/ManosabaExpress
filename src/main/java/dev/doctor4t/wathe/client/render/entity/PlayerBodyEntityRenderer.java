@@ -3,6 +3,7 @@ package dev.doctor4t.wathe.client.render.entity;
 import dev.doctor4t.ratatouille.client.lib.render.helpers.Easing;
 import dev.doctor4t.wathe.Wathe;
 import dev.doctor4t.wathe.api.client.appearance.PlayerAppearanceApi;
+import dev.doctor4t.wathe.api.visibility.TargetVisibilityApi;
 import dev.doctor4t.wathe.cca.PlayerMoodComponent;
 import dev.doctor4t.wathe.client.WatheClient;
 import dev.doctor4t.wathe.client.model.WatheModelLayers;
@@ -39,6 +40,10 @@ public class PlayerBodyEntityRenderer<T extends LivingEntity, M extends EntityMo
     }
 
     public void render(PlayerBodyEntity playerBodyEntity, float f, float g, MatrixStack matrixStack, VertexConsumerProvider vertexConsumerProvider, int light) {
+        if (!TargetVisibilityApi.canRenderBody(MinecraftClient.getInstance().player, playerBodyEntity)) {
+            return;
+        }
+
         this.setModelPose();
         boolean lowerThanDepressed = isLocalMoodLowerThanDepressed();
 

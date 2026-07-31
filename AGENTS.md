@@ -62,6 +62,7 @@
 - 击杀 / 死亡阶段：`DeathApi`、`DeathContext`、`BodySpawnContext`
 - 本能：`InstinctApi`
 - 玩家存活：`PlayerLifeStateApi`
+- 玩家 / 尸体可见与可选中：`TargetVisibilityApi`
 - 外观：`PlayerAppearanceApi`、`BodyAppearanceApi`
 - 通用屏幕 HUD：`HudOverlayApi`、`HudOverlayContext`、`HudOverlayLayer`、`HudOverlayLayout`
 - 准心图标 / 准心下方小进度条：`CrosshairHudApi`
@@ -267,8 +268,11 @@ Harpymodloader.setRoleMaximum(MY_ROLE, 1);
 - 非玩家实体名牌：`RoleNameHudApi.registerEntityName(...)`
 - 隐藏同伙提示：`RoleNameHudApi.registerCohortHint(...)`
 - 准心额外 HUD：`RoleNameHudApi.registerExtraHud(...)`
+- 玩家 / 尸体隐藏、不可准心选中、不可道具交互：`TargetVisibilityApi.registerPlayerRule(...)`、`TargetVisibilityApi.registerBodyRule(...)`
 
 `registerEntityName(...)` 只给魔术师播放体这类“非玩家实体也要在准心处显示名字”的窄场景使用；普通玩家名仍用 `registerName(...)`，避免绕开同伙提示、精神错乱混淆和玩家目标过滤。
+
+`TargetVisibilityApi` 面向“某个观察者是否能看见 / 选中 / 交互某个玩家或玩家尸体”。它会接入 Wathe 的玩家和尸体渲染、`LivingEntity#canHit` 客户端选中、RoleNameHud 尸体射线、默认刀枪准心目标、尸袋、匕首 / 枪击服务端命中和本能描边。扩展隐藏尸体或隐藏玩家时优先注册 API 规则，不要再 mixin `PlayerBodyEntityRenderer`、`LivingEntity#canHit`、`RoleNameRenderer` 或 `CrosshairRenderer`；服务端职业能力和物品仍必须在自己的 handler 里调用 `canInteractWithBody(...)`、`canInteractWithPlayer(...)`、`canAttackPlayer(...)` 重新校验。
 
 外观优先级经验：
 

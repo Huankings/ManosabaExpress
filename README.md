@@ -454,6 +454,13 @@ ShopApi.registerRoleShop(MY_ROLE, player -> List.of(
 - 默认杀手本能和旁观者本能只是 priority 0 的默认 handler；
 - 扩展职业可以给非杀手职业增加本能，也可以屏蔽或改写目标颜色。
 
+玩家和尸体隐藏也已经 API 化：
+
+- `TargetVisibilityApi.registerBodyRule(...)` 可决定某具 `PlayerBodyEntity` 是否对观察者渲染、可被准心选中、可被道具交互；
+- `TargetVisibilityApi.registerPlayerRule(...)` 预留给未来玩家实体隐藏、不可选中和不可交互规则；
+- Wathe 本体已经把默认尸体渲染、玩家渲染、客户端 `canHit`、RoleNameHud 尸体射线、刀枪默认目标、尸袋、匕首 / 枪击服务端命中和本能描边接入该 API；
+- 客户端隐藏不是权威防护，扩展职业自己的服务端 use / packet / attack handler 仍应调用 `canInteractWithBody(...)`、`canInteractWithPlayer(...)` 或 `canAttackPlayer(...)`。
+
 `/instinct key toggle|hold|check` 可切换本能键模式：
 
 - 开关模式：按一下打开，再按一下关闭；
@@ -601,6 +608,7 @@ GameRecordManager.recordGlobalEvent(
 | `DeathApi` | 击杀/死亡分阶段钩子、默认击杀收益规则、尸体生成回调 | 赏金奖励、时间狭缝、双重人格致死转化、验尸官尸体数据 |
 | `InstinctApi` | 本能资格和描边 | 新职业透视、状态高亮、本能压制 |
 | `PlayerLifeStateApi` | 特殊玩法存活状态 | 旁观 / 创造但仍参与胜负和 HUD |
+| `TargetVisibilityApi` | 玩家 / 尸体可见、可选中、可交互规则 | 隐藏刺客尸体、未来隐藏玩家、禁止对应道具交互 |
 | `MoodHudApi` | 心情 HUD 样式 | 特殊职业心情条 |
 | `HudOverlayApi` | 通用屏幕 HUD 叠加 | 右下角职业状态、全屏遮罩、狙击镜、开局安全提示 |
 | `CrosshairHudApi` | 准心图标 / 准心下方小进度条 | 扩展武器锁定提示、蓄力条、隐藏默认准心 |

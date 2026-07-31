@@ -1,6 +1,7 @@
 package dev.doctor4t.wathe.client.gui;
 
 import dev.doctor4t.wathe.api.client.gui.RoleNameHudApi;
+import dev.doctor4t.wathe.api.visibility.TargetVisibilityApi;
 import dev.doctor4t.wathe.cca.GameWorldComponent;
 import dev.doctor4t.wathe.cca.PlayerPsychoComponent;
 import dev.doctor4t.wathe.entity.NoteEntity;
@@ -47,9 +48,11 @@ public class RoleNameRenderer {
         Entity raycastSource = RoleNameHudApi.resolveRaycastSource(player);
         if (ProjectileUtil.getCollision(raycastSource, entity -> {
             if (entity instanceof PlayerEntity target) {
-                return RoleNameHudApi.shouldIncludePlayerTarget(player, target);
+                return TargetVisibilityApi.canTargetPlayer(player, target)
+                        && RoleNameHudApi.shouldIncludePlayerTarget(player, target);
             }
-            return RoleNameHudApi.resolveEntityName(player, entity) != null;
+            return TargetVisibilityApi.canTargetEntity(player, entity)
+                    && RoleNameHudApi.resolveEntityName(player, entity) != null;
         }, range) instanceof EntityHitResult entityHitResult) {
             Entity hitEntity = entityHitResult.getEntity();
             if (hitEntity instanceof PlayerEntity target) {

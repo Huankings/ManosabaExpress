@@ -3,6 +3,7 @@ package dev.doctor4t.wathe.api.combat;
 import dev.doctor4t.wathe.game.GameConstants;
 import dev.doctor4t.wathe.game.GameFunctions;
 import dev.doctor4t.wathe.index.WatheItems;
+import dev.doctor4t.wathe.api.visibility.TargetVisibilityApi;
 import dev.doctor4t.wathe.record.GameRecordManager;
 import dev.doctor4t.wathe.util.ShootMuzzleS2CPayload;
 import net.fabricmc.fabric.api.networking.v1.PlayerLookup;
@@ -73,6 +74,7 @@ public final class GunShotContext {
         Entity entity = targetEntity();
         if (!(entity instanceof PlayerEntity target)
                 || !GameFunctions.isPlayerAliveAndSurvival(target)
+                || !TargetVisibilityApi.canAttackPlayer(this.shooter, target)
                 || !isWithinRange(target, range, inclusive)) {
             this.cachedPlayerTarget = null;
             return null;
@@ -93,7 +95,9 @@ public final class GunShotContext {
 
     public @Nullable PlayerEntity playerTarget(double range, boolean inclusive) {
         Entity entity = targetEntity();
-        if (!(entity instanceof PlayerEntity target) || !isWithinRange(target, range, inclusive)) {
+        if (!(entity instanceof PlayerEntity target)
+                || !TargetVisibilityApi.canAttackPlayer(this.shooter, target)
+                || !isWithinRange(target, range, inclusive)) {
             this.cachedPlayerTarget = null;
             return null;
         }

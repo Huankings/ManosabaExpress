@@ -12,6 +12,7 @@ import dev.doctor4t.wathe.api.client.invisibility.HeldItemInvisibilityApi;
 import dev.doctor4t.wathe.api.client.psycho.PsychoModeClientApi;
 import dev.doctor4t.wathe.api.event.GameEvents;
 import dev.doctor4t.wathe.api.instinct.InstinctApi;
+import dev.doctor4t.wathe.api.visibility.TargetVisibilityApi;
 import dev.doctor4t.wathe.cca.GameWorldComponent;
 import dev.doctor4t.wathe.cca.MapEnhancementsWorldComponent;
 import dev.doctor4t.wathe.cca.MapVotingComponent;
@@ -729,6 +730,15 @@ public class WatheClient implements ClientModInitializer {
         ensureDefaultInstinctHandlersRegistered();
         ClientPlayerEntity player = MinecraftClient.getInstance().player;
         if (player == null) {
+            return -1;
+        }
+
+        if (!TargetVisibilityApi.canRenderEntity(player, target)) {
+            /*
+             * 隐藏玩家 / 隐藏尸体不应该被本能描边重新暴露。
+             * 具体职业如果希望“本体不可见但仍有特殊标记”，应注册更具体的 HUD 或粒子表现，
+             * 不要让通用 instinct outline 把不可见规则绕回来。
+             */
             return -1;
         }
 

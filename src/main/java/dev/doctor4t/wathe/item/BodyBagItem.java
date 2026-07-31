@@ -1,5 +1,6 @@
 package dev.doctor4t.wathe.item;
 
+import dev.doctor4t.wathe.api.visibility.TargetVisibilityApi;
 import dev.doctor4t.wathe.entity.PlayerBodyEntity;
 import dev.doctor4t.wathe.game.GameConstants;
 import dev.doctor4t.wathe.record.GameRecordManager;
@@ -22,6 +23,10 @@ public class BodyBagItem extends Item {
     @Override
     public ActionResult useOnEntity(ItemStack stack, PlayerEntity user, LivingEntity entity, Hand hand) {
         if (entity instanceof PlayerBodyEntity body) {
+            if (!TargetVisibilityApi.canInteractWithBody(user, body)) {
+                return ActionResult.PASS;
+            }
+
             if (user instanceof net.minecraft.server.network.ServerPlayerEntity serverPlayer) {
                 NbtCompound extra = new NbtCompound();
                 if (body.getPlayerUuid() != null) {

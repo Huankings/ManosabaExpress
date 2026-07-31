@@ -34,6 +34,7 @@
     "client.GameRendererMixin",
     "client.inventory.HandledScreenInventoryButtonMixin",
     "client.inventory.InventoryScreenMixin",
+    "client.LivingEntityTargetVisibilityMixin",
     "client.MinecraftClientMixin",
     "client.PlayerEntityRendererMixin",
     "client.ResourceTextureMixin",
