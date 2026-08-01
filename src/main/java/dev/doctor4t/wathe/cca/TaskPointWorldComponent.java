@@ -1,12 +1,13 @@
 package dev.doctor4t.wathe.cca;
 
 import dev.doctor4t.wathe.Wathe;
-import dev.doctor4t.wathe.task.TaskPointType;
+import dev.doctor4t.wathe.api.task.MoodTaskPointApi;
 import net.minecraft.nbt.NbtCompound;
 import net.minecraft.nbt.NbtElement;
 import net.minecraft.nbt.NbtList;
 import net.minecraft.nbt.NbtString;
 import net.minecraft.registry.RegistryWrapper;
+import net.minecraft.util.Identifier;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.world.World;
 import org.jetbrains.annotations.NotNull;
@@ -14,9 +15,10 @@ import org.ladysnake.cca.api.v3.component.ComponentKey;
 import org.ladysnake.cca.api.v3.component.ComponentRegistry;
 import org.ladysnake.cca.api.v3.component.sync.AutoSyncedComponent;
 
-import java.util.EnumSet;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * 世界级任务点缓存组件。
@@ -41,7 +43,7 @@ public class TaskPointWorldComponent implements AutoSyncedComponent {
      * 当前任务点缓存。
      * key 是任务点方块坐标，value 是这个坐标同时承担的任务点类型集合。
      */
-    private final HashMap<BlockPos, EnumSet<TaskPointType>> taskPoints = new HashMap<>();
+    private final HashMap<BlockPos, Set<Identifier>> taskPoints = new HashMap<>();
 
     /**
      * 是否在每局开始时自动重扫一次任务点。
@@ -58,14 +60,14 @@ public class TaskPointWorldComponent implements AutoSyncedComponent {
      *
      * <p>之所以不直接把内部 map 暴露出去，是为了避免外部调用方误改组件内部状态。
      */
-    public @NotNull HashMap<BlockPos, EnumSet<TaskPointType>> createSnapshot() {
+    public @NotNull HashMap<BlockPos, Set<Identifier>> createSnapshot() {
         return copyTaskPoints(this.taskPoints);
     }
 
     /**
      * 用新的扫描结果整体替换缓存。
      */
-    public void setTaskPoints(@NotNull Map<BlockPos, EnumSet<TaskPointType>> taskPoints) {
+    public void setTaskPoints(@NotNull Map<BlockPos, Set<Identifier>> taskPoints) {
         this.taskPoints.clear();
         this.taskPoints.putAll(copyTaskPoints(taskPoints));
     }
@@ -82,10 +84,10 @@ public class TaskPointWorldComponent implements AutoSyncedComponent {
         this.autoRefreshOnGameStart = autoRefreshOnGameStart;
     }
 
-    private static @NotNull HashMap<BlockPos, EnumSet<TaskPointType>> copyTaskPoints(@NotNull Map<BlockPos, EnumSet<TaskPointType>> source) {
-        HashMap<BlockPos, EnumSet<TaskPointType>> copy = new HashMap<>();
-        for (Map.Entry<BlockPos, EnumSet<TaskPointType>> entry : source.entrySet()) {
-            copy.put(entry.getKey().toImmutable(), EnumSet.copyOf(entry.getValue()));
+    private static @NotNull HashMap<BlockPos, Set<Identifier>> copyTaskPoints(@NotNull Map<BlockPos, Set<Identifier>> source) {
+        HashMap<BlockPos, Set<Identifier>> copy = new HashMap<>();
+        for (Map.Entry<BlockPos, Set<Identifier>> entry : source.entrySet()) {
+            copy.put(entry.getKey().toImmutable(), Set.copyOf(entry.getValue()));
         }
         return copy;
     }
@@ -112,7 +114,7 @@ public class TaskPointWorldComponent implements AutoSyncedComponent {
                     pointTag.getInt("Z")
             );
 
-            EnumSet<TaskPointType> types = EnumSet.noneOf(TaskPointType.class);
+            LinkedHashSet<Identifier> types = new LinkedHashSet<>();
             if (pointTag.contains("Types", NbtElement.LIST_TYPE)) {
                 NbtList typesTag = pointTag.getList("Types", NbtElement.STRING_TYPE);
                 for (NbtElement typeElement : typesTag) {
@@ -120,10 +122,9 @@ public class TaskPointWorldComponent implements AutoSyncedComponent {
                         continue;
                     }
 
-                    try {
-                        types.add(TaskPointType.valueOf(typeString.asString()));
-                    } catch (IllegalArgumentException ignored) {
-                        // 兼容未来删改任务点类型时的旧存档，读不到的旧类型直接跳过即可。
+                    Identifier taskPointId = MoodTaskPointApi.resolveSerializedId(typeString.asString());
+                    if (taskPointId != null) {
+                        types.add(taskPointId);
                     }
                 }
             }
@@ -139,15 +140,15 @@ public class TaskPointWorldComponent implements AutoSyncedComponent {
         tag.putBoolean("AutoRefreshOnGameStart", this.autoRefreshOnGameStart);
 
         NbtList taskPointList = new NbtList();
-        for (Map.Entry<BlockPos, EnumSet<TaskPointType>> entry : this.taskPoints.entrySet()) {
+        for (Map.Entry<BlockPos, Set<Identifier>> entry : this.taskPoints.entrySet()) {
             NbtCompound pointTag = new NbtCompound();
             pointTag.putInt("X", entry.getKey().getX());
             pointTag.putInt("Y", entry.getKey().getY());
             pointTag.putInt("Z", entry.getKey().getZ());
 
             NbtList typesTag = new NbtList();
-            for (TaskPointType type : entry.getValue()) {
-                typesTag.add(NbtString.of(type.name()));
+            for (Identifier type : entry.getValue()) {
+                typesTag.add(NbtString.of(type.toString()));
             }
             pointTag.put("Types", typesTag);
 

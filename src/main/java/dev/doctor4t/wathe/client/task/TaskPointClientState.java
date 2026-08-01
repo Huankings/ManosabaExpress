@@ -1,14 +1,15 @@
 package dev.doctor4t.wathe.client.task;
 
+import dev.doctor4t.wathe.api.task.MoodTaskApi;
 import dev.doctor4t.wathe.cca.PlayerMoodComponent;
-import dev.doctor4t.wathe.task.TaskPointType;
 import net.minecraft.entity.player.PlayerEntity;
+import net.minecraft.util.Identifier;
 import net.minecraft.util.math.BlockPos;
 import org.jetbrains.annotations.NotNull;
 
-import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * 客户端任务点透视状态。
@@ -19,7 +20,7 @@ import java.util.Map;
  */
 public final class TaskPointClientState {
     private static boolean taskPointOverlayEnabled = false;
-    private static final HashMap<BlockPos, EnumSet<TaskPointType>> TASK_POINTS = new HashMap<>();
+    private static final HashMap<BlockPos, Set<Identifier>> TASK_POINTS = new HashMap<>();
 
     private TaskPointClientState() {
     }
@@ -40,10 +41,10 @@ public final class TaskPointClientState {
     /**
      * 用服务端新发来的整张任务点表直接替换本地缓存。
      */
-    public static void replaceTaskPoints(@NotNull Map<BlockPos, EnumSet<TaskPointType>> taskPoints) {
+    public static void replaceTaskPoints(@NotNull Map<BlockPos, Set<Identifier>> taskPoints) {
         TASK_POINTS.clear();
-        for (Map.Entry<BlockPos, EnumSet<TaskPointType>> entry : taskPoints.entrySet()) {
-            TASK_POINTS.put(entry.getKey().toImmutable(), EnumSet.copyOf(entry.getValue()));
+        for (Map.Entry<BlockPos, Set<Identifier>> entry : taskPoints.entrySet()) {
+            TASK_POINTS.put(entry.getKey().toImmutable(), Set.copyOf(entry.getValue()));
         }
     }
 
@@ -55,10 +56,10 @@ public final class TaskPointClientState {
         TASK_POINTS.clear();
     }
 
-    public static @NotNull HashMap<BlockPos, EnumSet<TaskPointType>> createSnapshot() {
-        HashMap<BlockPos, EnumSet<TaskPointType>> copy = new HashMap<>();
-        for (Map.Entry<BlockPos, EnumSet<TaskPointType>> entry : TASK_POINTS.entrySet()) {
-            copy.put(entry.getKey().toImmutable(), EnumSet.copyOf(entry.getValue()));
+    public static @NotNull HashMap<BlockPos, Set<Identifier>> createSnapshot() {
+        HashMap<BlockPos, Set<Identifier>> copy = new HashMap<>();
+        for (Map.Entry<BlockPos, Set<Identifier>> entry : TASK_POINTS.entrySet()) {
+            copy.put(entry.getKey().toImmutable(), Set.copyOf(entry.getValue()));
         }
         return copy;
     }
@@ -69,11 +70,11 @@ public final class TaskPointClientState {
      * <p>如果玩家是局内存活玩家，就只返回“当前任务真正需要的点”；
      * 如果是旁观/创造一类非局内存活玩家，则由外层渲染逻辑直接显示全部类型。
      */
-    public static @NotNull EnumSet<TaskPointType> collectVisibleTypesForAlivePlayer(@NotNull PlayerEntity player) {
-        EnumSet<TaskPointType> visibleTypes = EnumSet.noneOf(TaskPointType.class);
+    public static @NotNull java.util.LinkedHashSet<Identifier> collectVisibleTypesForAlivePlayer(@NotNull PlayerEntity player) {
+        java.util.LinkedHashSet<Identifier> visibleTypes = new java.util.LinkedHashSet<>();
         PlayerMoodComponent moodComponent = PlayerMoodComponent.KEY.get(player);
-        for (PlayerMoodComponent.Task task : moodComponent.tasks.keySet()) {
-            visibleTypes.addAll(TaskPointType.getTypesForTask(task));
+        for (Identifier taskId : moodComponent.getActiveMoodTaskIds()) {
+            visibleTypes.addAll(MoodTaskApi.getTaskPointIds(taskId));
         }
         return visibleTypes;
     }

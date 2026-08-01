@@ -4,6 +4,7 @@ import dev.doctor4t.wathe.Wathe;
 import dev.doctor4t.wathe.api.psycho.PsychoModeApi;
 import dev.doctor4t.wathe.api.economy.CurrencyAmount;
 import dev.doctor4t.wathe.api.economy.EconomyApi;
+import dev.doctor4t.wathe.api.task.MoodTaskApi;
 import dev.doctor4t.wathe.record.GameRecordEvent;
 import dev.doctor4t.wathe.record.GameRecordManager;
 import net.minecraft.nbt.NbtCompound;
@@ -488,7 +489,10 @@ public final class DefaultReplayFormatters {
         }
 
         String taskName = event.data().getString("task");
-        String taskTranslationKey = taskName == null || taskName.isEmpty()
+        Identifier taskId = taskName == null ? null : Identifier.tryParse(taskName);
+        String taskTranslationKey = taskId != null && MoodTaskApi.isRegistered(taskId)
+                ? MoodTaskApi.getTranslationKey(taskId)
+                : taskName == null || taskName.isEmpty()
                 ? "replay.task.unknown"
                 : "task." + taskName;
         Text taskText = Text.translatable(taskTranslationKey);

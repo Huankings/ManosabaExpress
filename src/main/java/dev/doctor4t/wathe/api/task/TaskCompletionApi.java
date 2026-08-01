@@ -46,7 +46,12 @@ public final class TaskCompletionApi {
             Comparator.<PrioritizedTaskIncomeProvider>comparingInt(PrioritizedTaskIncomeProvider::priority)
                     .reversed()
                     .thenComparing(Comparator.comparingLong(PrioritizedTaskIncomeProvider::order).reversed());
+    private static final Comparator<PrioritizedTaskIncomeRule> TASK_INCOME_RULE_COMPARATOR =
+            Comparator.<PrioritizedTaskIncomeRule>comparingInt(PrioritizedTaskIncomeRule::priority)
+                    .reversed()
+                    .thenComparing(Comparator.comparingLong(PrioritizedTaskIncomeRule::order).reversed());
     private static final List<PrioritizedTaskIncomeProvider> TASK_INCOME_PROVIDERS = new ArrayList<>();
+    private static final List<PrioritizedTaskIncomeRule> TASK_INCOME_RULES = new ArrayList<>();
     private static long nextOrder = 0L;
 
     private TaskCompletionApi() {
@@ -72,6 +77,28 @@ public final class TaskCompletionApi {
     }
 
     /**
+     * 注册任务收入流程规则。
+     *
+     * <p>这个入口用于“任务确实完成了，但默认金币/任务币收入需要被跳过”的窄场景。
+     * 例如 NoellesRoles 服务员帮别人完成任务时，目标玩家应该获得心情回复和任务完成事件，
+     * 但不应该再拿 Wathe 默认任务收入；服务员自己的奖励由服务员逻辑单独发放。</p>
+     *
+     * <p>返回 {@link TaskIncomeDecision#SUPPRESS_DEFAULT_INCOME} 只会跳过 Wathe 默认收入计算，
+     * 不会取消 {@link #AFTER_TASK_COMPLETE} 事件。</p>
+     */
+    public static synchronized void registerTaskIncomeRule(
+            @NotNull Identifier id,
+            int priority,
+            @NotNull TaskIncomeRule rule
+    ) {
+        Objects.requireNonNull(id, "id");
+        Objects.requireNonNull(rule, "rule");
+        TASK_INCOME_RULES.removeIf(entry -> entry.id().equals(id));
+        TASK_INCOME_RULES.add(new PrioritizedTaskIncomeRule(id, priority, nextOrder++, rule));
+        TASK_INCOME_RULES.sort(TASK_INCOME_RULE_COMPARATOR);
+    }
+
+    /**
      * Wathe 本体在任务完成点调用的统一分发方法。
      *
      * <p>扩展模组不应该直接调用这个方法；它是给
@@ -83,26 +110,44 @@ public final class TaskCompletionApi {
             @NotNull PlayerMoodComponent.Task task,
             boolean rewardedMood
     ) {
+        handleTaskCompleted(player, gameWorld, MoodTaskApi.getTaskId(task), task, rewardedMood);
+    }
+
+    /**
+     * Wathe 本体在注册式任务完成点调用的统一分发方法。
+     *
+     * <p>这里用 taskId 作为主语义，legacy task 只给旧扩展读取 {@link TaskCompletionContext#task()} 时兼容。</p>
+     */
+    public static void handleTaskCompleted(
+            @NotNull ServerPlayerEntity player,
+            @NotNull GameWorldComponent gameWorld,
+            @NotNull Identifier taskId,
+            @Nullable PlayerMoodComponent.Task legacyTask,
+            boolean rewardedMood
+    ) {
         Role role = gameWorld.getRole(player);
-        TaskCompletionContext context = new TaskCompletionContext(player, gameWorld, role, task, rewardedMood);
+        MoodTaskDefinition definition = MoodTaskApi.getDefinition(taskId);
+        TaskCompletionContext context = new TaskCompletionContext(player, gameWorld, role, taskId, definition, legacyTask, rewardedMood);
 
-        if (gameWorld.canUseKillerFeatures(player)) {
-            /*
-             * 任务币收益目前随杀手商店任务币交易一起暂停。
-             * 常量保留在 GameConstants 中，后续重新启用任务币玩法时只需要把数值调回正数。
-             * 这里加一层判断，避免 0 收益时还触发无意义同步。
-             */
-            if (GameConstants.TASK_MONEY_PER_KILLER_TASK > 0) {
-                PlayerShopComponent.KEY.get(player).addCurrencyAmount(EconomyApi.TASK_MONEY, GameConstants.TASK_MONEY_PER_KILLER_TASK);
-            }
-        } else {
-            int totalIncome = 0;
-            for (PrioritizedTaskIncomeProvider entry : taskIncomeProviderSnapshot()) {
-                totalIncome += Math.max(0, entry.provider().getTaskIncome(context));
-            }
+        if (!shouldSuppressDefaultTaskIncome(context)) {
+            if (gameWorld.canUseKillerFeatures(player)) {
+                /*
+                 * 任务币收益目前随杀手商店任务币交易一起暂停。
+                 * 常量保留在 GameConstants 中，后续重新启用任务币玩法时只需要把数值调回正数。
+                 * 这里加一层判断，避免 0 收益时还触发无意义同步。
+                 */
+                if (GameConstants.TASK_MONEY_PER_KILLER_TASK > 0) {
+                    PlayerShopComponent.KEY.get(player).addCurrencyAmount(EconomyApi.TASK_MONEY, GameConstants.TASK_MONEY_PER_KILLER_TASK);
+                }
+            } else {
+                int totalIncome = 0;
+                for (PrioritizedTaskIncomeProvider entry : taskIncomeProviderSnapshot()) {
+                    totalIncome += Math.max(0, entry.provider().getTaskIncome(context));
+                }
 
-            if (totalIncome > 0) {
-                PlayerShopComponent.KEY.get(player).addToBalance(totalIncome);
+                if (totalIncome > 0) {
+                    PlayerShopComponent.KEY.get(player).addToBalance(totalIncome);
+                }
             }
         }
 
@@ -113,9 +158,27 @@ public final class TaskCompletionApi {
         return List.copyOf(TASK_INCOME_PROVIDERS);
     }
 
+    private static synchronized List<PrioritizedTaskIncomeRule> taskIncomeRuleSnapshot() {
+        return List.copyOf(TASK_INCOME_RULES);
+    }
+
+    private static boolean shouldSuppressDefaultTaskIncome(@NotNull TaskCompletionContext context) {
+        for (PrioritizedTaskIncomeRule entry : taskIncomeRuleSnapshot()) {
+            if (entry.rule().getTaskIncomeDecision(context) == TaskIncomeDecision.SUPPRESS_DEFAULT_INCOME) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     @FunctionalInterface
     public interface TaskIncomeProvider {
         int getTaskIncome(@NotNull TaskCompletionContext context);
+    }
+
+    @FunctionalInterface
+    public interface TaskIncomeRule {
+        @NotNull TaskIncomeDecision getTaskIncomeDecision(@NotNull TaskCompletionContext context);
     }
 
     @FunctionalInterface
@@ -127,9 +190,25 @@ public final class TaskCompletionApi {
             @NotNull ServerPlayerEntity player,
             @NotNull GameWorldComponent gameWorld,
             @Nullable Role role,
-            @NotNull PlayerMoodComponent.Task task,
+            @NotNull Identifier taskId,
+            @Nullable MoodTaskDefinition taskDefinition,
+            @Nullable PlayerMoodComponent.Task task,
             boolean rewardedMood
     ) {
+        public TaskCompletionContext(
+                @NotNull ServerPlayerEntity player,
+                @NotNull GameWorldComponent gameWorld,
+                @Nullable Role role,
+                @NotNull PlayerMoodComponent.Task task,
+                boolean rewardedMood
+        ) {
+            this(player, gameWorld, role, MoodTaskApi.getTaskId(task), MoodTaskApi.getDefinition(MoodTaskApi.getTaskId(task)), task, rewardedMood);
+        }
+    }
+
+    public enum TaskIncomeDecision {
+        PASS,
+        SUPPRESS_DEFAULT_INCOME
     }
 
     private record PrioritizedTaskIncomeProvider(
@@ -137,6 +216,14 @@ public final class TaskCompletionApi {
             int priority,
             long order,
             @NotNull TaskIncomeProvider provider
+    ) {
+    }
+
+    private record PrioritizedTaskIncomeRule(
+            @NotNull Identifier id,
+            int priority,
+            long order,
+            @NotNull TaskIncomeRule rule
     ) {
     }
 }

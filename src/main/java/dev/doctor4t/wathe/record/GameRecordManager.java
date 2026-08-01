@@ -309,6 +309,19 @@ public final class GameRecordManager {
         addEvent(player.getServerWorld(), GameRecordTypes.TASK_COMPLETE, player, null, data);
     }
 
+    public static void recordTaskComplete(ServerPlayerEntity player, Identifier taskId) {
+        if (!hasActiveMatch()) {
+            return;
+        }
+        NbtCompound data = new NbtCompound();
+        /*
+         * 新任务回放保存完整 Identifier，扩展任务不会再被压成 task.<短名>。
+         * 同时保留字段名 "task"，让旧回放解析器或旧数据结构还能按同一个字段读取。
+         */
+        data.putString("task", taskId.toString());
+        addEvent(player.getServerWorld(), GameRecordTypes.TASK_COMPLETE, player, null, data);
+    }
+
     public static void recordRoleChange(ServerWorld world, UUID playerUuid, @Nullable Role oldRole, @Nullable Role newRole) {
         if (!hasActiveMatch() || !isInitialSnapshotComplete()) {
             return;

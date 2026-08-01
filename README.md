@@ -352,7 +352,8 @@ Wathe 的地图通常是“模板区复制到游戏区”。配置项来自：
 - 只要身上有任意任务，就按单任务速度掉心情，不再按任务数量叠加掉心情；
 - 第一个任务仍按冷却刷新；
 - 低心情会按阈值临时开放第二 / 第三个并行任务槽；
-- 扩展 Mod 可以通过 `MoodTaskApi.assignRandomTasks(...)` / `fillRandomTaskSlots(...)` 主动发放随机心情任务，不必等待心情跌到阈值；
+- 扩展 Mod 可以通过 `MoodTaskApi.assignRandomTasks(...)` / `fillRandomTaskSlots(...)` 主动发放随机心情任务，也可以用 `MoodTaskApi.assignTask(player, taskId)` 指定发放某个注册任务；
+- 心情任务现在按 `Identifier` 注册，内置任务默认进入随机池，扩展任务默认只允许指定发放，除非定义里显式启用随机池；
 - 外部主动发放任务仍然和自动任务共用最多 3 个同时任务的上限；
 - 心情回升后不会强行删除已有任务，但不会继续补新任务；
 - 完成一个任务只移除该任务，不会清空全部任务；
@@ -384,6 +385,8 @@ Wathe 的地图通常是“模板区复制到游戏区”。配置项来自：
 ### 任务点透视
 
 `TaskPointScanner` 会扫描当前地图实际游戏区域，找出床、火源、水、座位、音符盒、讲台、炉子、托盘、带钥匙门等任务点。扫描范围不是全世界，而是根据 `resetTemplateArea + resetPasteOffset` 推导当前列车区域，并且必须落在 `playArea` 内。
+
+任务点类型现在由 `MoodTaskPointApi` 按 `Identifier` 注册，同步包直接发送 id 集合，不再受旧 enum bitmask 限制。扩展任务可以在自己的 `MoodTaskDefinition` 里绑定任务点 id，并用 `MoodTaskPointApi.registerScanHandler(...)` 为地图扫描追加自己的任务点。
 
 客户端按 `Y` 可切换任务点透视。管理员可以用：
 
@@ -602,8 +605,9 @@ GameRecordManager.recordGlobalEvent(
 | `VictoryApi` | 胜利仲裁 | 独立胜利、保活、共胜 |
 | `EconomyApi` | 金币 HUD、被动收入、多货币 | 富豪、任务大师、自定义货币 |
 | `ShopApi` | 职业商店和商店修改器 | 给某职业专属商品，或改默认杀手商品 |
-| `MoodTaskApi` | 主动发放心情任务 | 技能给目标直接追加随机任务、补满任务槽 |
-| `TaskCompletionApi` | 任务完成事件和任务收益 | 任务大师、完成任务减冷却、职业充能 |
+| `MoodTaskApi` | 注册、指定发放、移除和完成心情任务 | 职业专属任务、技能给目标追加指定任务、补满任务槽、阻止特殊状态完成任务 |
+| `MoodTaskPointApi` | 注册任务点类型和扫描 handler | 扩展任务点透视、新任务点颜色和名称 |
+| `TaskCompletionApi` | 任务完成事件、任务收益和默认收入抑制规则 | 任务大师、完成任务减冷却、服务员帮人完成任务时跳过目标默认收入 |
 | `GunShotApi` | 枪击接管、客户端目标覆写、左轮误伤惩罚、冷却修正 | 自定义手枪、假枪、无声枪、按状态调整左轮冷却 |
 | `DeathApi` | 击杀/死亡分阶段钩子、默认击杀收益规则、尸体生成回调 | 赏金奖励、时间狭缝、双重人格致死转化、验尸官尸体数据 |
 | `InstinctApi` | 本能资格和描边 | 新职业透视、状态高亮、本能压制 |
@@ -737,6 +741,10 @@ HarpyModLoader 的思路是“先让 Wathe 开一局 modded murder，再由加�
 | `/wathe:setVisual resetMapEffects` | 重置地图视觉效果 |
 | `/wathe:lockToSupporters <true|false>` | 原 supporter 锁指令，当前源码实际始终不锁 |
 | `/wathe:moodEffectDeath <true|false|check>` | 开关心情归零死亡 |
+| `/wathe:moodTask list` | 列出当前注册的心情任务 id |
+| `/wathe:moodTask assign <task> [player]` | 指定发放某个心情任务，不写玩家时默认自己 |
+| `/wathe:moodTask remove <task> [player]` | 只移除某个心情任务，不加心情、不触发任务完成 |
+| `/wathe:moodTask complete <task> [player]` | 按完成流程完成某个心情任务，会加心情并触发任务完成 API |
 | `/wathe:allowjump <true|false|check>` | 开关局内存活玩家跳跃 |
 | `/wathe:playerCollision <true|false|check>` | 开关局内存活玩家碰撞 |
 | `/wathe:startnoCollision <seconds|check>` | 设置开局无碰撞保护时间 |
@@ -802,14 +810,16 @@ Datagen 入口是 `WatheDatagen`，相关类包括：
 1. 在扩展 Mod 初始化时用 `WatheRoles.registerCivilianRole` / `registerKillerRole` / `registerNeutralRole` 注册职业。
 2. 如果职业需要专属商店，用 `ShopApi.registerRoleShop` 或 `registerShopModifier`。
 3. 如果职业需要金币 HUD / 被动收入，用 `EconomyApi` 注册。
-4. 如果职业需要主动给玩家追加心情任务，用 `MoodTaskApi.assignRandomTasks` 或 `fillRandomTaskSlots`。
-5. 如果职业和任务完成有关，用 `TaskCompletionApi.AFTER_TASK_COMPLETE` 或任务收益 provider。
-6. 如果职业改变胜负，用 `VictoryApi.registerRule`。
-7. 如果职业需要本能透视，用 `InstinctApi.registerAvailability` 和 `registerHighlight`。
-8. 如果职业需要普通屏幕 HUD，用 `HudOverlayApi.registerAliveRole`；准心图标和准心下方小进度条用 `CrosshairHudApi`；准心名字、实体名牌或准心附近提示用 `RoleNameHudApi`。
-9. 如果职业需要记录技能，用 `GameRecordManager.recordSkillUse` / `recordGlobalEvent`，再用 `ReplayRegistry` 注册格式器。
-10. 如果职业会伪装、换皮、伪尸体，用 `PlayerAppearanceApi` / `BodyAppearanceApi`。
-11. 如果职业会让旁观 / 创造玩家仍参与胜负，用 `PlayerLifeStateApi` 授权，并在清理时撤销。
+4. 如果职业需要新增心情任务，用 `MoodTaskApi.registerTask` 注册 `MoodTaskDefinition`；专属任务默认只指定发放，只有明确需要普通随机出现时才启用随机池。
+5. 如果职业需要主动给玩家追加心情任务，用 `MoodTaskApi.assignTask`、`assignRandomTasks` 或 `fillRandomTaskSlots`。
+6. 如果职业需要任务点透视，用 `MoodTaskPointApi.registerTaskPoint` 和 `registerScanHandler`，并把任务点 id 绑定到任务定义。
+7. 如果职业和任务完成有关，用 `TaskCompletionApi.AFTER_TASK_COMPLETE`、任务收益 provider、任务收入规则或 `MoodTaskApi.registerCompletionRule`。
+8. 如果职业改变胜负，用 `VictoryApi.registerRule`。
+9. 如果职业需要本能透视，用 `InstinctApi.registerAvailability` 和 `registerHighlight`。
+10. 如果职业需要普通屏幕 HUD，用 `HudOverlayApi.registerAliveRole`；准心图标和准心下方小进度条用 `CrosshairHudApi`；准心名字、实体名牌或准心附近提示用 `RoleNameHudApi`。
+11. 如果职业需要记录技能，用 `GameRecordManager.recordSkillUse` / `recordGlobalEvent`，再用 `ReplayRegistry` 注册格式器。
+12. 如果职业会伪装、换皮、伪尸体，用 `PlayerAppearanceApi` / `BodyAppearanceApi`。
+13. 如果职业会让旁观 / 创造玩家仍参与胜负，用 `PlayerLifeStateApi` 授权，并在清理时撤销。
 
 一个最小的独立胜利规则示例：
 
@@ -838,7 +848,7 @@ VictoryApi.registerRule(MyMod.id("victory/my_role"), VictoryApi.DEFAULT_PRIORITY
 ## 维护建议
 
 - 优先使用 `api` 包里的公开入口，尽量减少对 `game`、`cca` 内部字段的 mixin 注入。
-- 新增任务枚举时追加到 `PlayerMoodComponent.Task` 末尾，避免旧存档 ordinal 错位。
+- 新增心情任务时注册 `MoodTaskDefinition`，不要再往 `PlayerMoodComponent.Task` 追加 enum；旧 enum 只保留给 Wathe 内置任务和旧扩展兼容。
 - 新增回放事件时同时考虑记录字段、格式器和翻译键。
 - 新增货币或商店价格时，优先阅读 `README_SHOP_CURRENCY_API.md`。
 - 新地图优先从 `map_datapack_template` 复制，再用 `/wathe:mapVariables` 配置坐标。

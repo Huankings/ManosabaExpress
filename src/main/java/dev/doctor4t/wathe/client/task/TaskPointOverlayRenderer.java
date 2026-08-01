@@ -2,9 +2,9 @@ package dev.doctor4t.wathe.client.task;
 
 import dev.doctor4t.wathe.block.SmallDoorBlock;
 import dev.doctor4t.wathe.block_entity.SmallDoorBlockEntity;
+import dev.doctor4t.wathe.api.task.MoodTaskPointApi;
 import dev.doctor4t.wathe.client.WatheClient;
 import dev.doctor4t.wathe.index.WatheItems;
-import dev.doctor4t.wathe.task.TaskPointType;
 import net.fabricmc.fabric.api.client.rendering.v1.WorldRenderContext;
 import net.minecraft.block.BedBlock;
 import net.minecraft.block.BlockState;
@@ -26,6 +26,7 @@ import net.minecraft.component.type.LoreComponent;
 import net.minecraft.item.ItemStack;
 import net.minecraft.text.MutableText;
 import net.minecraft.text.Text;
+import net.minecraft.util.Identifier;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Box;
 import net.minecraft.util.math.Direction;
@@ -34,9 +35,10 @@ import net.minecraft.util.shape.VoxelShape;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
-import java.util.EnumSet;
+import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.OptionalDouble;
+import java.util.Set;
 
 /**
  * 客户端任务点透视渲染器。
@@ -97,11 +99,11 @@ public final class TaskPointOverlayRenderer {
             return;
         }
 
-        EnumSet<TaskPointType> allowedTypes = WatheClient.isPlayerAliveAndInSurvival()
+        LinkedHashSet<Identifier> allowedTypes = WatheClient.isPlayerAliveAndInSurvival()
                 ? TaskPointClientState.collectVisibleTypesForAlivePlayer(client.player)
-                : EnumSet.allOf(TaskPointType.class);
+                : new LinkedHashSet<>(MoodTaskPointApi.getRegisteredIds());
         // 钥匙门透视不走“默认允许类型”，而是必须额外满足“当前手持匹配钥匙”这个条件。
-        allowedTypes.remove(TaskPointType.KEYED_DOOR);
+        allowedTypes.remove(MoodTaskPointApi.KEYED_DOOR);
         String heldKeyName = getHeldKeyName(client.player.getMainHandStack());
 
         if (allowedTypes.isEmpty()) {
@@ -111,8 +113,8 @@ public final class TaskPointOverlayRenderer {
             }
         }
 
-        for (Map.Entry<BlockPos, EnumSet<TaskPointType>> entry : TaskPointClientState.createSnapshot().entrySet()) {
-            EnumSet<TaskPointType> visibleTypes = EnumSet.copyOf(entry.getValue());
+        for (Map.Entry<BlockPos, Set<Identifier>> entry : TaskPointClientState.createSnapshot().entrySet()) {
+            LinkedHashSet<Identifier> visibleTypes = new LinkedHashSet<>(entry.getValue());
             visibleTypes.retainAll(allowedTypes);
 
             /**
@@ -120,8 +122,8 @@ public final class TaskPointOverlayRenderer {
              * 只要任务点透视开着，并且玩家当前主手拿着有名字的钥匙，
              * 就会把能匹配上这把钥匙名字的门额外加入可见集合。
              */
-            if (entry.getValue().contains(TaskPointType.KEYED_DOOR) && isMatchingHeldKeyDoor(client, entry.getKey(), heldKeyName)) {
-                visibleTypes.add(TaskPointType.KEYED_DOOR);
+            if (entry.getValue().contains(MoodTaskPointApi.KEYED_DOOR) && isMatchingHeldKeyDoor(client, entry.getKey(), heldKeyName)) {
+                visibleTypes.add(MoodTaskPointApi.KEYED_DOOR);
             }
 
             if (visibleTypes.isEmpty()) {
@@ -138,7 +140,7 @@ public final class TaskPointOverlayRenderer {
     private static void renderTaskPoint(
             @NotNull WorldRenderContext context,
             @NotNull BlockPos pos,
-            @NotNull EnumSet<TaskPointType> visibleTypes
+            @NotNull Set<Identifier> visibleTypes
     ) {
         MinecraftClient client = MinecraftClient.getInstance();
         if (client.world == null || client.player == null || context.consumers() == null || context.matrixStack() == null) {
@@ -234,29 +236,30 @@ public final class TaskPointOverlayRenderer {
      * <p>例如同一个托盘同时既是“生食托盘”又是“燃料托盘”时，
      * 靠近后会直接显示两个用途，方便你一眼看懂这个点为什么被高亮。
      */
-    private static @NotNull Text buildTaskPointLabel(@NotNull BlockPos pos, @NotNull EnumSet<TaskPointType> visibleTypes) {
+    private static @NotNull Text buildTaskPointLabel(@NotNull BlockPos pos, @NotNull Set<Identifier> visibleTypes) {
         MinecraftClient client = MinecraftClient.getInstance();
 
         /**
          * 对于钥匙门，靠近后优先显示门上实际绑定的房间名 / 钥匙名，
          * 这样玩家不需要额外猜“这扇高亮的门到底是哪把钥匙对应的门”。
          */
-        if (visibleTypes.size() == 1 && visibleTypes.contains(TaskPointType.KEYED_DOOR) && client.world != null
+        if (visibleTypes.size() == 1 && visibleTypes.contains(MoodTaskPointApi.KEYED_DOOR) && client.world != null
                 && client.world.getBlockEntity(pos) instanceof SmallDoorBlockEntity doorBlockEntity
                 && !doorBlockEntity.getKeyName().isEmpty()) {
-            return Text.translatable(TaskPointType.KEYED_DOOR.getTranslationKey())
+            return Text.translatable(MoodTaskPointApi.getTranslationKey(MoodTaskPointApi.KEYED_DOOR))
                     .append(Text.literal(": "))
                     .append(Text.literal(doorBlockEntity.getKeyName()));
         }
 
         MutableText label = Text.empty();
-        ArrayList<TaskPointType> orderedTypes = new ArrayList<>(visibleTypes);
+        ArrayList<Identifier> orderedTypes = new ArrayList<>(visibleTypes);
+        orderedTypes.sort(java.util.Comparator.comparing(Identifier::toString));
 
         for (int i = 0; i < orderedTypes.size(); i++) {
             if (i > 0) {
                 label.append(Text.literal(" / "));
             }
-            label.append(Text.translatable(orderedTypes.get(i).getTranslationKey()));
+            label.append(Text.translatable(MoodTaskPointApi.getTranslationKey(orderedTypes.get(i))));
         }
 
         return label;
@@ -265,13 +268,13 @@ public final class TaskPointOverlayRenderer {
     /**
      * 取多个可见任务点类型的平均颜色，让多用途点不会只表现成某一种任务颜色。
      */
-    private static int blendColors(@NotNull EnumSet<TaskPointType> visibleTypes) {
+    private static int blendColors(@NotNull Set<Identifier> visibleTypes) {
         int red = 0;
         int green = 0;
         int blue = 0;
 
-        for (TaskPointType type : visibleTypes) {
-            int color = type.getColor();
+        for (Identifier type : visibleTypes) {
+            int color = MoodTaskPointApi.getColor(type);
             red += (color >> 16) & 0xFF;
             green += (color >> 8) & 0xFF;
             blue += color & 0xFF;

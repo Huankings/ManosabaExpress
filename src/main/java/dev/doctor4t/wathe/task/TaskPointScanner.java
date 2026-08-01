@@ -3,6 +3,8 @@ package dev.doctor4t.wathe.task;
 import dev.doctor4t.wathe.block.MountableBlock;
 import dev.doctor4t.wathe.block_entity.BeveragePlateBlockEntity;
 import dev.doctor4t.wathe.block_entity.SmallDoorBlockEntity;
+import dev.doctor4t.wathe.api.task.MoodTaskPointApi;
+import dev.doctor4t.wathe.api.task.TaskPointScanContext;
 import dev.doctor4t.wathe.cca.MapVariablesWorldComponent;
 import dev.doctor4t.wathe.game.GameConstants;
 import dev.doctor4t.wathe.item.CocktailItem;
@@ -23,17 +25,19 @@ import net.minecraft.recipe.input.SingleStackRecipeInput;
 import net.minecraft.registry.tag.FluidTags;
 import net.minecraft.registry.tag.BlockTags;
 import net.minecraft.server.world.ServerWorld;
+import net.minecraft.util.Identifier;
 import net.minecraft.util.math.BlockBox;
 import net.minecraft.util.math.BlockPos;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
-import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * 服务端任务点扫描器。
@@ -51,10 +55,10 @@ public final class TaskPointScanner {
     /**
      * 扫描当前世界里的所有任务点。
      */
-    public static @NotNull Map<BlockPos, EnumSet<TaskPointType>> scan(@NotNull ServerWorld world) {
+    public static @NotNull Map<BlockPos, Set<Identifier>> scan(@NotNull ServerWorld world) {
         MapVariablesWorldComponent areas = MapVariablesWorldComponent.KEY.get(world);
         BlockBox scanArea = getCurrentTrainScanArea(areas);
-        HashMap<BlockPos, EnumSet<TaskPointType>> taskPoints = new HashMap<>();
+        HashMap<BlockPos, Set<Identifier>> taskPoints = new HashMap<>();
         HashSet<BlockPos> waterBlocks = new HashSet<>();
 
         /**
@@ -91,11 +95,23 @@ public final class TaskPointScanner {
                          * <p>之所以服务端先把这些门坐标记录下来，是为了避免客户端每帧自己扫整张地图找门。
                          * 客户端只需要在现有缓存上做一次“当前手持钥匙能不能对应上这扇门”的轻量过滤即可。
                          */
-                        addTaskPoint(taskPoints, pos, TaskPointType.KEYED_DOOR);
+                        addTaskPoint(taskPoints, pos, MoodTaskPointApi.KEYED_DOOR);
                     }
                     if (blockEntity instanceof BeveragePlateBlockEntity plateBlockEntity) {
                         scanPlateTaskPoints(world, pos, plateBlockEntity, cookableFoodCache, taskPoints);
                     }
+                    /*
+                     * 扩展任务点扫描入口。
+                     * Wathe 已经在外层限制了扫描区域和游戏区域，扩展只需要判断当前格是否属于自己的任务点。
+                     */
+                    MoodTaskPointApi.scanExtraTaskPoints(new TaskPointScanContext(
+                            world,
+                            areas,
+                            pos,
+                            state,
+                            blockEntity,
+                            taskPointId -> addTaskPoint(taskPoints, pos, taskPointId)
+                    ));
                 }
             }
         }
@@ -127,39 +143,39 @@ public final class TaskPointScanner {
             @NotNull ServerWorld world,
             @NotNull BlockPos pos,
             @NotNull BlockState state,
-            @NotNull Map<BlockPos, EnumSet<TaskPointType>> taskPoints
+            @NotNull Map<BlockPos, Set<Identifier>> taskPoints
     ) {
         if (state.isIn(BlockTags.BEDS)) {
-            addTaskPoint(taskPoints, getCanonicalBedPos(pos, state), TaskPointType.BED);
+            addTaskPoint(taskPoints, getCanonicalBedPos(pos, state), MoodTaskPointApi.BED);
         }
 
         boolean isLitCampfire = state.isOf(Blocks.CAMPFIRE)
                 && state.contains(CampfireBlock.LIT)
                 && state.get(CampfireBlock.LIT);
         if (state.isOf(Blocks.FIRE) || isLitCampfire) {
-            addTaskPoint(taskPoints, pos, TaskPointType.FIRE_SOURCE);
+            addTaskPoint(taskPoints, pos, MoodTaskPointApi.FIRE_SOURCE);
         }
 
         if (state.getBlock() instanceof MountableBlock) {
-            addTaskPoint(taskPoints, pos, TaskPointType.SEAT);
+            addTaskPoint(taskPoints, pos, MoodTaskPointApi.SEAT);
         }
 
         if (state.isOf(Blocks.NOTE_BLOCK)) {
-            addTaskPoint(taskPoints, pos, TaskPointType.NOTE_BLOCK);
+            addTaskPoint(taskPoints, pos, MoodTaskPointApi.NOTE_BLOCK);
         }
 
         if (state.isOf(Blocks.LECTERN)
                 && state.contains(LecternBlock.HAS_BOOK)
                 && state.get(LecternBlock.HAS_BOOK)) {
-            addTaskPoint(taskPoints, pos, TaskPointType.LECTERN);
+            addTaskPoint(taskPoints, pos, MoodTaskPointApi.LECTERN);
         }
 
         if (state.isOf(Blocks.FURNACE)) {
-            addTaskPoint(taskPoints, pos, TaskPointType.FURNACE);
+            addTaskPoint(taskPoints, pos, MoodTaskPointApi.FURNACE);
         }
 
         if (state.isOf(Blocks.SMOKER)) {
-            addTaskPoint(taskPoints, pos, TaskPointType.SMOKER);
+            addTaskPoint(taskPoints, pos, MoodTaskPointApi.SMOKER);
         }
     }
 
@@ -176,7 +192,7 @@ public final class TaskPointScanner {
      */
     private static void scanWaterTaskPoints(
             @NotNull HashSet<BlockPos> waterBlocks,
-            @NotNull Map<BlockPos, EnumSet<TaskPointType>> taskPoints
+            @NotNull Map<BlockPos, Set<Identifier>> taskPoints
     ) {
         if (waterBlocks.isEmpty()) {
             return;
@@ -191,7 +207,7 @@ public final class TaskPointScanner {
          */
         if (maxHeight == -1 && maxConnectedBlocks == -1) {
             for (BlockPos pos : waterBlocks) {
-                addTaskPoint(taskPoints, pos, TaskPointType.WATER_SOURCE);
+                addTaskPoint(taskPoints, pos, MoodTaskPointApi.WATER_SOURCE);
             }
             return;
         }
@@ -234,7 +250,7 @@ public final class TaskPointScanner {
             }
 
             for (BlockPos regionPos : connectedWaterRegion) {
-                addTaskPoint(taskPoints, regionPos, TaskPointType.WATER_SOURCE);
+                addTaskPoint(taskPoints, regionPos, MoodTaskPointApi.WATER_SOURCE);
             }
         }
     }
@@ -247,7 +263,7 @@ public final class TaskPointScanner {
             @NotNull BlockPos pos,
             @NotNull BeveragePlateBlockEntity plateBlockEntity,
             @NotNull Map<Item, Boolean> cookableFoodCache,
-            @NotNull Map<BlockPos, EnumSet<TaskPointType>> taskPoints
+            @NotNull Map<BlockPos, Set<Identifier>> taskPoints
     ) {
         boolean hasFood = false;
         boolean hasCocktail = false;
@@ -299,22 +315,22 @@ public final class TaskPointScanner {
         }
 
         if (hasFood) {
-            addTaskPoint(taskPoints, pos, TaskPointType.FOOD_TRAY);
+            addTaskPoint(taskPoints, pos, MoodTaskPointApi.FOOD_TRAY);
         }
         if (hasCocktail) {
-            addTaskPoint(taskPoints, pos, TaskPointType.COCKTAIL_TRAY);
+            addTaskPoint(taskPoints, pos, MoodTaskPointApi.COCKTAIL_TRAY);
         }
         if (hasPotion) {
-            addTaskPoint(taskPoints, pos, TaskPointType.POTION_TRAY);
+            addTaskPoint(taskPoints, pos, MoodTaskPointApi.POTION_TRAY);
         }
         if (hasFishingRod) {
-            addTaskPoint(taskPoints, pos, TaskPointType.FISHING_ROD_TRAY);
+            addTaskPoint(taskPoints, pos, MoodTaskPointApi.FISHING_ROD_TRAY);
         }
         if (hasCookableRawFood) {
-            addTaskPoint(taskPoints, pos, TaskPointType.RAW_FOOD_TRAY);
+            addTaskPoint(taskPoints, pos, MoodTaskPointApi.RAW_FOOD_TRAY);
         }
         if (hasFuel) {
-            addTaskPoint(taskPoints, pos, TaskPointType.FUEL_TRAY);
+            addTaskPoint(taskPoints, pos, MoodTaskPointApi.FUEL_TRAY);
         }
     }
 
@@ -392,10 +408,10 @@ public final class TaskPointScanner {
      * <p>如果同一坐标已经存在别的用途，就把类型并进去，而不是覆盖掉原来的类型。
      */
     private static void addTaskPoint(
-            @NotNull Map<BlockPos, EnumSet<TaskPointType>> taskPoints,
+            @NotNull Map<BlockPos, Set<Identifier>> taskPoints,
             @NotNull BlockPos pos,
-            @NotNull TaskPointType type
+            @NotNull Identifier type
     ) {
-        taskPoints.computeIfAbsent(pos.toImmutable(), ignored -> EnumSet.noneOf(TaskPointType.class)).add(type);
+        taskPoints.computeIfAbsent(pos.toImmutable(), ignored -> new LinkedHashSet<>()).add(type);
     }
 }

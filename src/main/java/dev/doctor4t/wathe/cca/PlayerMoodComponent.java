@@ -3,6 +3,8 @@ package dev.doctor4t.wathe.cca;
 import dev.doctor4t.wathe.Wathe;
 import dev.doctor4t.wathe.api.PlayerLifeStateApi;
 import dev.doctor4t.wathe.api.Role;
+import dev.doctor4t.wathe.api.task.MoodTaskApi;
+import dev.doctor4t.wathe.api.task.MoodTaskDefinition;
 import dev.doctor4t.wathe.api.task.TaskCompletionApi;
 import dev.doctor4t.wathe.block.entity.SeatEntity;
 import dev.doctor4t.wathe.client.WatheClient;
@@ -30,6 +32,7 @@ import net.minecraft.registry.entry.RegistryEntry;
 import net.minecraft.registry.entry.RegistryEntryList;
 import net.minecraft.screen.LecternScreenHandler;
 import net.minecraft.server.network.ServerPlayerEntity;
+import net.minecraft.util.Identifier;
 import net.minecraft.util.Util;
 import net.minecraft.util.hit.EntityHitResult;
 import net.minecraft.util.math.BlockPos;
@@ -44,6 +47,7 @@ import org.ladysnake.cca.api.v3.component.tick.ServerTickingComponent;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -76,22 +80,42 @@ public class PlayerMoodComponent implements AutoSyncedComponent, ServerTickingCo
     private final PlayerEntity player;
 
     /**
-     * 当前激活中的任务。
-     * 依旧保留 Map 结构，方便 HUD 与序列化逻辑直接沿用。
+     * 当前激活中的 Wathe 内置任务兼容视图。
+     *
+     * <p>真正的任务表已经迁移到 {@link #activeTasks}，key 是稳定的 {@link Identifier}。
+     * 这里仍然保留旧 Map，是为了兼容 NoellesRoles / StarryExpress 等旧扩展里直接读取
+     * {@code PlayerMoodComponent#tasks} 的内置任务逻辑。扩展新增任务不会出现在这个旧 Map 里，
+     * 后续新代码应改用 {@link #getActiveMoodTaskIds()}、{@link #hasMoodTask(Identifier)} 等 id 入口。</p>
      */
     public final Map<Task, TrainTask> tasks = new HashMap<>();
+
+    /**
+     * 当前激活中的全部任务。
+     *
+     * <p>key 使用任务注册 id，value 是该任务在这个玩家身上的运行时状态。
+     * 内置任务和扩展任务都在这里统一 tick、保存、完成和渲染。</p>
+     */
+    private final Map<Identifier, TrainTask> activeTasks = new LinkedHashMap<>();
+
+    /**
+     * 旧内置任务被抽到过多少次的兼容视图。
+     *
+     * <p>真正的重复计数保存在 {@link #timesGottenById}。这个旧 Map 只同步内置任务，
+     * 避免旧扩展读取字段时看不到 Wathe 原有任务数据。</p>
+     */
+    public final Map<Task, Integer> timesGotten = new HashMap<>();
 
     /**
      * 记录某类任务被抽到过多少次。
      * 次数越高，下次再抽到时权重越低，用于避免过度重复。
      */
-    public final Map<Task, Integer> timesGotten = new HashMap<>();
+    private final Map<Identifier, Integer> timesGottenById = new HashMap<>();
 
     /**
      * 记录“某个任务挂在任务栏期间，其他任务已经完成了多少次”。
      * 这是卡死任务自动删除机制的核心累计值。
      */
-    private final Map<Task, Integer> stuckTaskCompletionCounts = new HashMap<>();
+    private final Map<Identifier, Integer> stuckTaskCompletionCounts = new HashMap<>();
 
     /**
      * 第一个任务槽位的刷新倒计时。
@@ -159,7 +183,9 @@ public class PlayerMoodComponent implements AutoSyncedComponent, ServerTickingCo
      * 会在开局、停局、玩家死亡等流程里调用。
      */
     public void reset() {
+        this.activeTasks.clear();
         this.tasks.clear();
+        this.timesGottenById.clear();
         this.timesGotten.clear();
         this.stuckTaskCompletionCounts.clear();
         this.nextTaskTimer = GameConstants.TIME_TO_FIRST_TASK;
@@ -313,7 +339,7 @@ public class PlayerMoodComponent implements AutoSyncedComponent, ServerTickingCo
      * 在任务栏为空时，为第一个任务槽位推进时间冷却。
      */
     private void tickPrimaryTaskCooldown(boolean allowExtraTaskSlots) {
-        if (!this.tasks.isEmpty()) {
+        if (!this.activeTasks.isEmpty()) {
             return;
         }
 
@@ -338,13 +364,13 @@ public class PlayerMoodComponent implements AutoSyncedComponent, ServerTickingCo
      * 3. 因此心情回升后不会继续补替代任务，但原本没做完的任务仍会留在任务栏里。
      */
     private int fillTasksUpToExpectedCount(int expectedTaskCount) {
-        if (this.tasks.isEmpty()) {
+        if (this.activeTasks.isEmpty()) {
             return 0;
         }
 
         int cappedExpectedTaskCount = Math.min(expectedTaskCount, GameConstants.MAX_CONCURRENT_MOOD_TASKS);
         int filled = 0;
-        while (this.tasks.size() < cappedExpectedTaskCount) {
+        while (this.activeTasks.size() < cappedExpectedTaskCount) {
             TrainTask task = this.assignRandomTask();
             if (task == null) {
                 break;
@@ -358,15 +384,15 @@ public class PlayerMoodComponent implements AutoSyncedComponent, ServerTickingCo
      * 抽取并挂上一个新任务。
      */
     private @Nullable TrainTask assignRandomTask() {
-        TrainTask task = this.generateTask();
-        if (task == null) {
+        MoodTaskDefinition definition = this.generateTaskDefinition();
+        if (definition == null) {
             return null;
         }
 
-        this.tasks.put(task.getType(), task);
-        this.timesGotten.merge(task.getType(), 1, Integer::sum);
-        this.stuckTaskCompletionCounts.put(task.getType(), 0);
-        this.markDirty();
+        TrainTask task = definition.create(this.player);
+        this.putActiveTask(definition.id(), task);
+        this.timesGottenById.merge(definition.id(), 1, Integer::sum);
+        syncLegacyTimesGotten(definition.id());
         return task;
     }
 
@@ -386,7 +412,7 @@ public class PlayerMoodComponent implements AutoSyncedComponent, ServerTickingCo
      * <p>这个读入口给扩展 API 和调试逻辑使用，避免外部为了看数量直接依赖 {@link #tasks} 的可变 Map。</p>
      */
     public int getActiveMoodTaskCount() {
-        return this.tasks.size();
+        return this.activeTasks.size();
     }
 
     /**
@@ -395,7 +421,67 @@ public class PlayerMoodComponent implements AutoSyncedComponent, ServerTickingCo
      * <p>这里统一使用 {@link GameConstants#MAX_CONCURRENT_MOOD_TASKS}，确保低心情自动任务和扩展主动任务都共用同一条上限规则。</p>
      */
     public int getRemainingMoodTaskSlots() {
-        return Math.max(0, GameConstants.MAX_CONCURRENT_MOOD_TASKS - this.tasks.size());
+        return Math.max(0, GameConstants.MAX_CONCURRENT_MOOD_TASKS - this.activeTasks.size());
+    }
+
+    /**
+     * 返回当前全部任务 id 的只读快照。
+     *
+     * <p>HUD、任务点透视和扩展调试逻辑都应使用这个入口读取任务，
+     * 不要再直接依赖旧的 enum Map，否则扩展注册的新任务会被漏掉。</p>
+     */
+    public @NotNull List<Identifier> getActiveMoodTaskIds() {
+        return List.copyOf(this.activeTasks.keySet());
+    }
+
+    public @Nullable TrainTask getMoodTask(@NotNull Identifier taskId) {
+        return this.activeTasks.get(taskId);
+    }
+
+    public boolean hasMoodTask(@NotNull Identifier taskId) {
+        return this.activeTasks.containsKey(taskId);
+    }
+
+    /**
+     * 统一添加任务到新任务表，并同步旧 enum 兼容视图。
+     */
+    private void putActiveTask(@NotNull Identifier taskId, @NotNull TrainTask task) {
+        this.putActiveTask(taskId, task, true);
+    }
+
+    private void putActiveTask(@NotNull Identifier taskId, @NotNull TrainTask task, boolean markDirty) {
+        this.activeTasks.put(taskId, task);
+        PlayerMoodComponent.Task legacyTask = MoodTaskApi.getLegacyTask(taskId);
+        if (legacyTask != null) {
+            this.tasks.put(legacyTask, task);
+        }
+        this.stuckTaskCompletionCounts.put(taskId, 0);
+        if (markDirty) {
+            this.markDirty();
+        }
+    }
+
+    /**
+     * 统一移除任务，并同步清理旧 enum 兼容视图。
+     */
+    private @Nullable TrainTask removeActiveTask(@NotNull Identifier taskId) {
+        TrainTask removed = this.activeTasks.remove(taskId);
+        if (removed != null) {
+            PlayerMoodComponent.Task legacyTask = MoodTaskApi.getLegacyTask(taskId);
+            if (legacyTask != null) {
+                this.tasks.remove(legacyTask);
+            }
+            this.stuckTaskCompletionCounts.remove(taskId);
+            this.markDirty();
+        }
+        return removed;
+    }
+
+    private void syncLegacyTimesGotten(@NotNull Identifier taskId) {
+        PlayerMoodComponent.Task legacyTask = MoodTaskApi.getLegacyTask(taskId);
+        if (legacyTask != null) {
+            this.timesGotten.put(legacyTask, this.timesGottenById.getOrDefault(taskId, 0));
+        }
     }
 
     /**
@@ -433,19 +519,22 @@ public class PlayerMoodComponent implements AutoSyncedComponent, ServerTickingCo
      * <p>注意：这里“只是发任务”，不会触发任务完成事件，也不会额外改心情值。
      * 扩展如果需要奖励/惩罚，应在自己的技能逻辑里单独处理。</p>
      */
-    public @NotNull List<Task> assignExternalRandomTasks(int requestedCount) {
+    public @NotNull List<Identifier> assignExternalRandomTasks(int requestedCount) {
         if (requestedCount <= 0 || !this.canReceiveExternalMoodTask()) {
             return List.of();
         }
 
         int tasksToAssign = Math.min(requestedCount, this.getRemainingMoodTaskSlots());
-        ArrayList<Task> assignedTasks = new ArrayList<>();
+        ArrayList<Identifier> assignedTasks = new ArrayList<>();
         while (assignedTasks.size() < tasksToAssign) {
-            TrainTask task = this.assignRandomTask();
-            if (task == null) {
+            MoodTaskDefinition definition = this.generateTaskDefinition();
+            if (definition == null) {
                 break;
             }
-            assignedTasks.add(task.getType());
+            this.putActiveTask(definition.id(), definition.create(this.player));
+            this.timesGottenById.merge(definition.id(), 1, Integer::sum);
+            syncLegacyTimesGotten(definition.id());
+            assignedTasks.add(definition.id());
         }
 
         if (!assignedTasks.isEmpty()) {
@@ -453,6 +542,54 @@ public class PlayerMoodComponent implements AutoSyncedComponent, ServerTickingCo
             this.dirty = false;
         }
         return List.copyOf(assignedTasks);
+    }
+
+    /**
+     * 指定发放某个注册任务。
+     *
+     * <p>这个入口由 {@link MoodTaskApi} 调用。它不会检查任务是否在随机池中，
+     * 因为扩展职业专属任务的默认语义就是“注册后只允许指定发放”。</p>
+     */
+    public boolean assignExternalTask(@NotNull Identifier taskId) {
+        if (!this.canReceiveExternalMoodTask() || this.activeTasks.containsKey(taskId)) {
+            return false;
+        }
+
+        MoodTaskDefinition definition = MoodTaskApi.getDefinition(taskId);
+        if (definition == null) {
+            return false;
+        }
+
+        this.putActiveTask(taskId, definition.create(this.player));
+        this.sync();
+        this.dirty = false;
+        return true;
+    }
+
+    /**
+     * 外部 API 的“只删除任务”入口。
+     *
+     * <p>删除不代表完成，因此不会加心情、不会给金币、不会写回放，也不会触发任务完成事件。</p>
+     */
+    public boolean removeExternalTask(@NotNull Identifier taskId) {
+        boolean removed = this.removeActiveTask(taskId) != null;
+        if (removed) {
+            this.sync();
+            this.dirty = false;
+        }
+        return removed;
+    }
+
+    /**
+     * 外部 API 的“按完成语义完成任务”入口。
+     */
+    public boolean completeExternalTask(@NotNull Identifier taskId, boolean rewardMood) {
+        boolean completed = this.completeTask(taskId, rewardMood);
+        if (completed && this.dirty) {
+            this.sync();
+            this.dirty = false;
+        }
+        return completed;
     }
 
     /**
@@ -466,13 +603,37 @@ public class PlayerMoodComponent implements AutoSyncedComponent, ServerTickingCo
      * 6. 如果当前心情阈值仍然要求存在更多任务，则只补到“当前应有数量”为止。
      */
     private void completeTask(@NotNull Task taskType, boolean rewardMood) {
-        if (!this.tasks.containsKey(taskType)) {
-            return;
+        this.completeTask(MoodTaskApi.getTaskId(taskType), rewardMood);
+    }
+
+    private boolean completeTask(@NotNull Identifier taskId, boolean rewardMood) {
+        if (!this.activeTasks.containsKey(taskId)) {
+            return false;
         }
 
-        this.tasks.remove(taskType);
-        this.stuckTaskCompletionCounts.remove(taskType);
-        this.markDirty();
+        if (this.player instanceof ServerPlayerEntity serverPlayer) {
+            GameWorldComponent gameWorld = GameWorldComponent.KEY.get(serverPlayer.getWorld());
+            MoodTaskDefinition definition = MoodTaskApi.getDefinition(taskId);
+            Task legacyTask = MoodTaskApi.getLegacyTask(taskId);
+            MoodTaskApi.MoodTaskCompletionContext completionContext = new MoodTaskApi.MoodTaskCompletionContext(
+                    serverPlayer,
+                    gameWorld,
+                    gameWorld.getRole(serverPlayer),
+                    taskId,
+                    definition,
+                    legacyTask,
+                    rewardMood
+            );
+            /*
+             * 任务完成拦截放在真正移除任务之前。
+             * 灵术师附身这类效果只是不允许“确认完成”，不应该破坏任务当前的进度状态。
+             */
+            if (!MoodTaskApi.canCompleteTask(completionContext)) {
+                return false;
+            }
+        }
+
+        this.removeActiveTask(taskId);
 
         if (rewardMood) {
             /**
@@ -489,24 +650,25 @@ public class PlayerMoodComponent implements AutoSyncedComponent, ServerTickingCo
 
         if (this.player instanceof ServerPlayerEntity serverPlayer) {
             ServerPlayNetworking.send(serverPlayer, new TaskCompletePayload());
-            GameRecordManager.recordTaskComplete(serverPlayer, taskType.name().toLowerCase());
+            GameRecordManager.recordTaskComplete(serverPlayer, taskId);
             /*
              * 这是 Wathe 对外公开的“真实任务完成”事件点。
              * 旧扩展常用 setMood 注入或监听 TaskCompletePayload 来推断任务完成，
              * 但这两种方式都不是稳定语义：setMood 会被非任务来源触发，网络包监听又依赖内部同步细节。
              * 因此这里在任务已经移除、提示与回放都记录完之后统一分发 API 事件。
              */
-            TaskCompletionApi.handleTaskCompleted(serverPlayer, GameWorldComponent.KEY.get(serverPlayer.getWorld()), taskType, rewardMood);
+            TaskCompletionApi.handleTaskCompleted(serverPlayer, GameWorldComponent.KEY.get(serverPlayer.getWorld()), taskId, MoodTaskApi.getLegacyTask(taskId), rewardMood);
         }
 
         this.incrementStuckTaskCounters();
         this.clearStuckTasksIfNeeded();
 
-        if (this.tasks.isEmpty()) {
+        if (this.activeTasks.isEmpty()) {
             this.nextTaskTimer = this.getRandomTaskCooldown();
         } else {
             this.fillTasksUpToExpectedCount(this.getExpectedConcurrentTaskCount(getCurrentRole()));
         }
+        return true;
     }
 
     /**
@@ -514,10 +676,10 @@ public class PlayerMoodComponent implements AutoSyncedComponent, ServerTickingCo
      * 谁一直赖在任务栏上，谁的计数就会一直上涨。
      */
     private void incrementStuckTaskCounters() {
-        for (Task task : this.tasks.keySet()) {
-            this.stuckTaskCompletionCounts.merge(task, 1, Integer::sum);
+        for (Identifier taskId : this.activeTasks.keySet()) {
+            this.stuckTaskCompletionCounts.merge(taskId, 1, Integer::sum);
         }
-        if (!this.tasks.isEmpty()) {
+        if (!this.activeTasks.isEmpty()) {
             this.markDirty();
         }
     }
@@ -530,34 +692,32 @@ public class PlayerMoodComponent implements AutoSyncedComponent, ServerTickingCo
      * 4. 一旦触发删除，就把其余任务的累计清零，避免旧累计继续影响后续判断。
      */
     private void clearStuckTasksIfNeeded() {
-        ArrayList<Task> twoStuckCandidates = new ArrayList<>();
-        for (Task task : this.tasks.keySet()) {
-            if (this.stuckTaskCompletionCounts.getOrDefault(task, 0) >= GameConstants.TASK_COMPLETIONS_TO_CLEAR_TWO_STUCK_TASKS) {
-                twoStuckCandidates.add(task);
+        ArrayList<Identifier> twoStuckCandidates = new ArrayList<>();
+        for (Identifier taskId : this.activeTasks.keySet()) {
+            if (this.stuckTaskCompletionCounts.getOrDefault(taskId, 0) >= GameConstants.TASK_COMPLETIONS_TO_CLEAR_TWO_STUCK_TASKS) {
+                twoStuckCandidates.add(taskId);
             }
         }
 
         if (twoStuckCandidates.size() >= 2) {
-            for (Task task : twoStuckCandidates) {
-                this.tasks.remove(task);
-                this.stuckTaskCompletionCounts.remove(task);
+            for (Identifier taskId : twoStuckCandidates) {
+                this.removeActiveTask(taskId);
             }
             this.resetRemainingStuckCounters();
             this.markDirty();
             return;
         }
 
-        ArrayList<Task> oneStuckCandidates = new ArrayList<>();
-        for (Task task : this.tasks.keySet()) {
-            if (this.stuckTaskCompletionCounts.getOrDefault(task, 0) >= GameConstants.TASK_COMPLETIONS_TO_CLEAR_ONE_STUCK_TASK) {
-                oneStuckCandidates.add(task);
+        ArrayList<Identifier> oneStuckCandidates = new ArrayList<>();
+        for (Identifier taskId : this.activeTasks.keySet()) {
+            if (this.stuckTaskCompletionCounts.getOrDefault(taskId, 0) >= GameConstants.TASK_COMPLETIONS_TO_CLEAR_ONE_STUCK_TASK) {
+                oneStuckCandidates.add(taskId);
             }
         }
 
         if (oneStuckCandidates.size() == 1) {
-            Task task = oneStuckCandidates.get(0);
-            this.tasks.remove(task);
-            this.stuckTaskCompletionCounts.remove(task);
+            Identifier taskId = oneStuckCandidates.get(0);
+            this.removeActiveTask(taskId);
             this.resetRemainingStuckCounters();
             this.markDirty();
         }
@@ -569,8 +729,8 @@ public class PlayerMoodComponent implements AutoSyncedComponent, ServerTickingCo
      */
     private void resetRemainingStuckCounters() {
         this.stuckTaskCompletionCounts.clear();
-        for (Task task : this.tasks.keySet()) {
-            this.stuckTaskCompletionCounts.put(task, 0);
+        for (Identifier taskId : this.activeTasks.keySet()) {
+            this.stuckTaskCompletionCounts.put(taskId, 0);
         }
     }
 
@@ -602,7 +762,7 @@ public class PlayerMoodComponent implements AutoSyncedComponent, ServerTickingCo
 
         // 客户端做一次本地预测，让心情 HUD 的下降更平滑。
         // 掉速保持原版：只要身上有任务，就按单任务速度扣一次。
-        if (hasRealMood(role) && !this.tasks.isEmpty() && !this.hasMoodDrainProtection()) {
+        if (hasRealMood(role) && !this.activeTasks.isEmpty() && !this.hasMoodDrainProtection()) {
             this.mood = MathHelper.clamp(this.mood - this.getCurrentMoodDrainPerTick(), 0f, 1f);
         }
 
@@ -648,7 +808,7 @@ public class PlayerMoodComponent implements AutoSyncedComponent, ServerTickingCo
         }
 
         // 真实心情角色只要身上还有任务，就按原版单任务速度掉心情。
-        if (hasRealMood && !this.tasks.isEmpty() && !this.hasMoodDrainProtection()) {
+        if (hasRealMood && !this.activeTasks.isEmpty() && !this.hasMoodDrainProtection()) {
             this.setMoodSilently(this.mood - this.getCurrentMoodDrainPerTick());
         }
 
@@ -665,17 +825,18 @@ public class PlayerMoodComponent implements AutoSyncedComponent, ServerTickingCo
         // 第一个任务槽位仍然走时间刷新机制。
         this.tickPrimaryTaskCooldown(hasRealMood);
 
-        ArrayList<Task> completedTasks = new ArrayList<>();
-        ArrayList<TrainTask> currentTasks = new ArrayList<>(this.tasks.values());
-        for (TrainTask task : currentTasks) {
+        ArrayList<Identifier> completedTasks = new ArrayList<>();
+        ArrayList<Map.Entry<Identifier, TrainTask>> currentTasks = new ArrayList<>(this.activeTasks.entrySet());
+        for (Map.Entry<Identifier, TrainTask> entry : currentTasks) {
+            TrainTask task = entry.getValue();
             task.tick(this.player);
             if (task.isFulfilled(this.player)) {
-                completedTasks.add(task.getType());
+                completedTasks.add(entry.getKey());
             }
         }
 
-        for (Task taskType : completedTasks) {
-            this.completeTask(taskType, hasRealMood);
+        for (Identifier taskId : completedTasks) {
+            this.completeTask(taskId, hasRealMood);
         }
 
         // 心情死亡机制开启时，真实心情归零会立刻精神崩溃死亡。
@@ -694,17 +855,18 @@ public class PlayerMoodComponent implements AutoSyncedComponent, ServerTickingCo
      * 随机生成一个新任务。
      * 这里依然沿用“出现次数越多，下一次权重越低”的抽取逻辑，只是不再限制同时只能存在一个任务。
      */
-    private @Nullable TrainTask generateTask() {
-        HashMap<Task, Float> weights = new HashMap<>();
+    private @Nullable MoodTaskDefinition generateTaskDefinition() {
+        HashMap<Identifier, Float> weights = new HashMap<>();
         float total = 0f;
 
-        for (Task task : Task.values()) {
-            if (this.tasks.containsKey(task)) {
+        for (MoodTaskDefinition definition : MoodTaskApi.getRandomAssignableDefinitions()) {
+            Identifier taskId = definition.id();
+            if (this.activeTasks.containsKey(taskId)) {
                 continue;
             }
 
-            float weight = 1f / Math.max(1, this.timesGotten.getOrDefault(task, 0) + 1);
-            weights.put(task, weight);
+            float weight = definition.randomWeight() / Math.max(1, this.timesGottenById.getOrDefault(taskId, 0) + 1);
+            weights.put(taskId, weight);
             total += weight;
         }
 
@@ -713,28 +875,10 @@ public class PlayerMoodComponent implements AutoSyncedComponent, ServerTickingCo
         }
 
         float random = this.player.getRandom().nextFloat() * total;
-        for (Map.Entry<Task, Float> entry : weights.entrySet()) {
+        for (Map.Entry<Identifier, Float> entry : weights.entrySet()) {
             random -= entry.getValue();
             if (random <= 0f) {
-                return switch (entry.getKey()) {
-                    case SLEEP -> new SleepTask(GameConstants.SLEEP_TASK_DURATION);
-                    case OUTSIDE -> new OutsideTask(GameConstants.OUTSIDE_TASK_DURATION);
-                    case WATER -> new WaterTask(GameConstants.WATER_TASK_DURATION);
-                    case FIRE -> new FireTask(GameConstants.FIRE_TASK_DURATION);
-                    case SHIFT -> new ShiftTask(GameConstants.SHIFT_TASK_DURATION);
-                    case STARE -> new StareTask(GameConstants.STARE_TASK_DURATION);
-                    case AWAY -> new AwayTask(GameConstants.AWAY_TASK_DURATION);
-                    case EAT -> new EatTask();
-                    case DRINK -> new DrinkTask();
-                    case RUN -> new RunTask(GameConstants.RUN_TASK_DURATION);
-                    case SIT -> new SitTask(GameConstants.SIT_TASK_DURATION);
-                    case POTION -> new PotionTask();
-                    case MUSIC -> new MusicTask();
-                    case BOOK -> new BookTask(GameConstants.BOOK_TASK_DURATION);
-                    case STAY -> new StayTask(GameConstants.STAY_TASK_DURATION);
-                    case FISH -> new FishTask();
-                    case COOK -> new CookTask();
-                };
+                return MoodTaskApi.getDefinition(entry.getKey());
             }
         }
 
@@ -940,20 +1084,35 @@ public class PlayerMoodComponent implements AutoSyncedComponent, ServerTickingCo
         tag.putInt("externalMoodDrainProtectionTicks", this.externalMoodDrainProtectionTicks);
 
         NbtList tasks = new NbtList();
-        for (TrainTask task : this.tasks.values()) {
-            tasks.add(task.toNbt());
+        for (Map.Entry<Identifier, TrainTask> entry : this.activeTasks.entrySet()) {
+            NbtCompound taskTag = entry.getValue().toNbt();
+            /*
+             * 新任务存档统一写稳定 Identifier。
+             * 内置任务自己的 toNbt 仍会写旧 type ordinal，用于兼容旧版读取；
+             * 扩展任务只需要写自己的运行时字段，任务类型由这里的 id 负责保存。
+             */
+            taskTag.putString("id", entry.getKey().toString());
+            tasks.add(taskTag);
         }
         tag.put("tasks", tasks);
 
         NbtCompound timesTag = new NbtCompound();
-        for (Map.Entry<Task, Integer> entry : this.timesGotten.entrySet()) {
-            timesTag.putInt(entry.getKey().name(), entry.getValue());
+        for (Map.Entry<Identifier, Integer> entry : this.timesGottenById.entrySet()) {
+            timesTag.putInt(entry.getKey().toString(), entry.getValue());
+            Task legacyTask = MoodTaskApi.getLegacyTask(entry.getKey());
+            if (legacyTask != null) {
+                timesTag.putInt(legacyTask.name(), entry.getValue());
+            }
         }
         tag.put("timesGotten", timesTag);
 
         NbtCompound stuckCountersTag = new NbtCompound();
-        for (Map.Entry<Task, Integer> entry : this.stuckTaskCompletionCounts.entrySet()) {
-            stuckCountersTag.putInt(entry.getKey().name(), entry.getValue());
+        for (Map.Entry<Identifier, Integer> entry : this.stuckTaskCompletionCounts.entrySet()) {
+            stuckCountersTag.putInt(entry.getKey().toString(), entry.getValue());
+            Task legacyTask = MoodTaskApi.getLegacyTask(entry.getKey());
+            if (legacyTask != null) {
+                stuckCountersTag.putInt(legacyTask.name(), entry.getValue());
+            }
         }
         tag.put("stuckTaskCompletionCounts", stuckCountersTag);
     }
@@ -975,26 +1134,31 @@ public class PlayerMoodComponent implements AutoSyncedComponent, ServerTickingCo
          */
         this.dirty = false;
 
+        this.activeTasks.clear();
         this.tasks.clear();
         if (tag.contains("tasks", NbtElement.LIST_TYPE)) {
             for (NbtElement element : tag.getList("tasks", NbtElement.COMPOUND_TYPE)) {
-                if (element instanceof NbtCompound compound && compound.contains("type", NbtElement.INT_TYPE)) {
-                    int type = compound.getInt("type");
-                    if (type < 0 || type >= Task.values().length) {
-                        continue;
-                    }
-                    Task taskType = Task.values()[type];
-                    this.tasks.put(taskType, taskType.setFunction.apply(compound));
+                if (!(element instanceof NbtCompound compound)) {
+                    continue;
+                }
+
+                Identifier taskId = readTaskId(compound);
+                MoodTaskDefinition definition = taskId == null ? null : MoodTaskApi.getDefinition(taskId);
+                if (taskId != null && definition != null) {
+                    this.putActiveTask(taskId, definition.read(this.player, compound), false);
                 }
             }
         }
 
+        this.timesGottenById.clear();
         this.timesGotten.clear();
         if (tag.contains("timesGotten", NbtElement.COMPOUND_TYPE)) {
             NbtCompound timesTag = tag.getCompound("timesGotten");
-            for (Task task : Task.values()) {
-                if (timesTag.contains(task.name(), NbtElement.INT_TYPE)) {
-                    this.timesGotten.put(task, timesTag.getInt(task.name()));
+            for (String key : timesTag.getKeys()) {
+                Identifier taskId = readTaskId(key);
+                if (taskId != null && timesTag.contains(key, NbtElement.INT_TYPE)) {
+                    this.timesGottenById.put(taskId, timesTag.getInt(key));
+                    syncLegacyTimesGotten(taskId);
                 }
             }
         }
@@ -1002,16 +1166,44 @@ public class PlayerMoodComponent implements AutoSyncedComponent, ServerTickingCo
         this.stuckTaskCompletionCounts.clear();
         if (tag.contains("stuckTaskCompletionCounts", NbtElement.COMPOUND_TYPE)) {
             NbtCompound stuckCountersTag = tag.getCompound("stuckTaskCompletionCounts");
-            for (Task task : Task.values()) {
-                if (stuckCountersTag.contains(task.name(), NbtElement.INT_TYPE)) {
-                    this.stuckTaskCompletionCounts.put(task, stuckCountersTag.getInt(task.name()));
+            for (String key : stuckCountersTag.getKeys()) {
+                Identifier taskId = readTaskId(key);
+                if (taskId != null && stuckCountersTag.contains(key, NbtElement.INT_TYPE)) {
+                    this.stuckTaskCompletionCounts.put(taskId, stuckCountersTag.getInt(key));
                 }
             }
         }
 
         // 为了兼容旧存档或缺失字段的情况，确保现存任务一定有对应的累计计数槽。
-        for (Task task : this.tasks.keySet()) {
-            this.stuckTaskCompletionCounts.putIfAbsent(task, 0);
+        for (Identifier taskId : this.activeTasks.keySet()) {
+            this.stuckTaskCompletionCounts.putIfAbsent(taskId, 0);
+        }
+    }
+
+    private static @Nullable Identifier readTaskId(@NotNull NbtCompound taskTag) {
+        if (taskTag.contains("id", NbtElement.STRING_TYPE)) {
+            return readTaskId(taskTag.getString("id"));
+        }
+
+        if (taskTag.contains("type", NbtElement.INT_TYPE)) {
+            int type = taskTag.getInt("type");
+            if (type >= 0 && type < Task.values().length) {
+                return MoodTaskApi.getTaskId(Task.values()[type]);
+            }
+        }
+        return null;
+    }
+
+    private static @Nullable Identifier readTaskId(@NotNull String serializedId) {
+        Identifier parsed = Identifier.tryParse(serializedId);
+        if (parsed != null && MoodTaskApi.isRegistered(parsed)) {
+            return parsed;
+        }
+
+        try {
+            return MoodTaskApi.getTaskId(Task.valueOf(serializedId));
+        } catch (IllegalArgumentException ignored) {
+            return null;
         }
     }
 
@@ -1681,9 +1873,38 @@ public class PlayerMoodComponent implements AutoSyncedComponent, ServerTickingCo
 
         boolean isFulfilled(PlayerEntity player);
 
-        String getName();
+        /**
+         * 任务注册 id。
+         *
+         * <p>新扩展任务应优先覆写这个方法，返回自己注册到 {@link MoodTaskApi} 的 id。
+         * 旧内置任务没有这个方法时，会继续通过 {@link #getType()} 映射到 Wathe 的内置 id。</p>
+         */
+        default @NotNull Identifier getId() {
+            Task legacyTask = this.getType();
+            return legacyTask == null ? Wathe.id("unknown") : MoodTaskApi.getTaskId(legacyTask);
+        }
 
-        Task getType();
+        /**
+         * 旧版任务短名。
+         *
+         * <p>HUD 已经改为读取任务定义里的 translation key。
+         * 这里保留默认实现，是为了旧扩展仍然能调用 {@code getName()} 调试内置任务。</p>
+         */
+        default String getName() {
+            Identifier id = this.getId();
+            String path = id.getPath();
+            return path.isEmpty() ? "unknown" : path;
+        }
+
+        /**
+         * 旧 enum 任务类型。
+         *
+         * <p>扩展新任务没有对应 enum，可以返回 null；所有新逻辑都应使用 {@link #getId()}。</p>
+         */
+        @Nullable
+        default Task getType() {
+            return MoodTaskApi.getLegacyTask(this.getId());
+        }
 
         NbtCompound toNbt();
     }

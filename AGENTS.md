@@ -56,7 +56,9 @@
 - 职业与阵营：`Role`、`Faction`、`WatheRoles`、`WatheGameModes`
 - 商店：`ShopApi`、`ShopPrice`、`ShopPayment`、`RoleShopProvider`、`ShopPurchaseContext`
 - 经济：`EconomyApi`、`CurrencyDefinition`、`CurrencyAmount`
-- 任务：`TaskCompletionApi`
+- 心情任务：`MoodTaskApi`、`MoodTaskDefinition`
+- 心情任务点透视：`MoodTaskPointApi`、`TaskPointDefinition`、`TaskPointScanContext`
+- 任务完成：`TaskCompletionApi`
 - 胜利：`VictoryApi`
 - 枪击 / 左轮反火：`GunShotApi`、`GunShotContext`、`GunTargetContext`、`RevolverPenaltyContext`
 - 击杀 / 死亡阶段：`DeathApi`、`DeathContext`、`BodySpawnContext`
@@ -243,8 +245,15 @@ Harpymodloader.setRoleMaximum(MY_ROLE, 1);
 
 任务收入：
 
+- 新增心情任务优先用 `MoodTaskApi.registerTask(...)` 注册 `MoodTaskDefinition`，不要继续往 `PlayerMoodComponent.Task` 追加 enum；旧 enum 只作为 Wathe 内置任务和旧扩展兼容层保留。
+- 内置任务默认进入随机池；扩展任务默认只允许指定发放，只有明确希望进入普通随机任务池时才在定义里显式启用随机。
+- 指定发任务用 `MoodTaskApi.assignTask(player, taskId)`；随机发放和补槽继续用 `assignRandomTasks(...)` / `fillRandomTaskSlots(...)`。
+- 单纯删除任务用 `MoodTaskApi.removeTask(...)`；按完成流程完成任务用 `MoodTaskApi.completeTask(...)`，后者会加心情、写回放、触发任务完成 API。
+- 阻止特殊状态完成任务，例如附身/控制/失控，用 `MoodTaskApi.registerCompletionRule(...)`，不要再 mixin `PlayerMoodComponent#completeTask(...)`。
+- 新任务点透视类型用 `MoodTaskPointApi.registerTaskPoint(...)`，地图扫描追加用 `MoodTaskPointApi.registerScanHandler(...)`，任务定义里绑定对应任务点 id。
 - 普通任务完成监听：`TaskCompletionApi.AFTER_TASK_COMPLETE`
 - 旧金币收入兼容：`TaskCompletionApi.registerTaskIncomeProvider(...)`
+- “任务完成但跳过 Wathe 默认收入”的特殊场景用 `TaskCompletionApi.registerTaskIncomeRule(...)` 返回 `SUPPRESS_DEFAULT_INCOME`，不要再 mixin `TaskCompletionApi.handleTaskCompleted(...)`。
 - 拥有杀手能力的玩家不会叠加旧任务金币 provider；Taskmaster 这类“杀手完成任务也额外给金币”的设计，应像 kinssaba 一样用 `AFTER_TASK_COMPLETE` 单独补发。
 
 集合去重坑：

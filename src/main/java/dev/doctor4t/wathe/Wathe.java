@@ -98,6 +98,7 @@ public class Wathe implements ModInitializer {
             SetGameModeCommand.register(dispatcher);
             SetGradualResetCommand.register(dispatcher);
             MoodEffectDeathCommand.register(dispatcher);
+            MoodTaskCommand.register(dispatcher);
             TaskPointCommand.register(dispatcher);
             AllowJumpCommand.register(dispatcher);
             PlayerCollisionCommand.register(dispatcher);

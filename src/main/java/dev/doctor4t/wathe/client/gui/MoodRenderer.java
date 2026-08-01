@@ -6,6 +6,7 @@ import dev.doctor4t.wathe.api.client.mood.MoodHudContext;
 import dev.doctor4t.wathe.api.client.mood.MoodHudStyle;
 import dev.doctor4t.wathe.api.client.mood.PsychoMoodHudStyle;
 import dev.doctor4t.wathe.api.Role;
+import dev.doctor4t.wathe.api.task.MoodTaskApi;
 import dev.doctor4t.wathe.cca.GameWorldComponent;
 import dev.doctor4t.wathe.cca.PlayerMoodComponent;
 import dev.doctor4t.wathe.cca.PlayerPsychoComponent;
@@ -40,7 +41,7 @@ public class MoodRenderer {
     public static final Identifier MOOD_PSYCHO_HIT = Wathe.id("hud/mood_psycho_hit");
     public static final Identifier MOOD_PSYCHO_EYES = Wathe.id("hud/mood_psycho_eyes");
 
-    private static final Map<PlayerMoodComponent.Task, TaskRenderer> renderers = new HashMap<>();
+    private static final Map<Identifier, TaskRenderer> renderers = new HashMap<>();
     public static final Random random = new Random();
     public static float arrowProgress = 1f;
     public static float moodRender = 0f;
@@ -124,28 +125,29 @@ public class MoodRenderer {
             return;
         }
 
-        for (PlayerMoodComponent.Task task : component.tasks.keySet()) {
-            if (!renderers.containsKey(task)) {
+        for (Identifier taskId : component.getActiveMoodTaskIds()) {
+            if (!renderers.containsKey(taskId)) {
                 for (TaskRenderer renderer : renderers.values()) {
                     renderer.index++;
                 }
-                renderers.put(task, new TaskRenderer());
+                renderers.put(taskId, new TaskRenderer());
             }
         }
 
-        ArrayList<PlayerMoodComponent.Task> toRemove = new ArrayList<>();
-        for (PlayerMoodComponent.Task taskType : PlayerMoodComponent.Task.values()) {
-            TaskRenderer task = renderers.get(taskType);
+        ArrayList<Identifier> toRemove = new ArrayList<>();
+        for (Map.Entry<Identifier, TaskRenderer> entry : new ArrayList<>(renderers.entrySet())) {
+            Identifier taskId = entry.getKey();
+            TaskRenderer task = entry.getValue();
             if (task != null) {
                 task.present = false;
-                if (task.tick(component.tasks.get(taskType), tickCounter.getTickDelta(true), isFakeMood)) {
-                    toRemove.add(taskType);
+                if (task.tick(taskId, component.getMoodTask(taskId), tickCounter.getTickDelta(true), isFakeMood)) {
+                    toRemove.add(taskId);
                 }
             }
         }
 
-        for (PlayerMoodComponent.Task task : toRemove) {
-            renderers.remove(task);
+        for (Identifier taskId : toRemove) {
+            renderers.remove(taskId);
         }
 
         if (!toRemove.isEmpty()) {
@@ -576,9 +578,10 @@ public class MoodRenderer {
         public boolean present = false;
         public Text text = Text.empty();
 
-        public boolean tick(@Nullable PlayerMoodComponent.TrainTask present, float delta, boolean isFakeMood) {
+        public boolean tick(@NotNull Identifier taskId, @Nullable PlayerMoodComponent.TrainTask present, float delta, boolean isFakeMood) {
             if (present != null) {
-                this.text = Text.translatable("task." + (isFakeMood ? "fake" : "feel")).append(Text.translatable("task." + present.getName()));
+                this.text = Text.translatable("task." + (isFakeMood ? "fake" : "feel"))
+                        .append(Text.translatable(MoodTaskApi.getTranslationKey(taskId)));
             }
             this.present = present != null;
             this.alpha = MathHelper.lerp(delta / 16, this.alpha, present != null ? 1f : 0f);
