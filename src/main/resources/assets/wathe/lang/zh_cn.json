@@ -475,4 +475,13 @@
   ,"gui.wathe.map_voting.votes": "%s票"
   ,"gui.wathe.map_voting.voted_stamp": "已投"
   ,"game.start_error.voting_active": "地图投票进行中，暂时无法开始游戏"
+  ,"command.wathe.blackout.triggered": "已触发停电"
+  ,"command.wathe.blackout.already_active": "当前已经处于停电状态"
+  ,"command.wathe.blackout.restored": "电力已恢复"
+  ,"command.wathe.blackout.overlay.query": "停电黑幕不透明度：%s%%"
+  ,"command.wathe.blackout.overlay.set": "停电黑幕不透明度已设置为：%s%%"
+  ,"command.wathe.blackout.potion_effects.query.enabled": "停电药水效果当前已开启"
+  ,"command.wathe.blackout.potion_effects.query.disabled": "停电药水效果当前已关闭"
+  ,"command.wathe.blackout.potion_effects.set.enabled": "停电药水效果已开启"
+  ,"command.wathe.blackout.potion_effects.set.disabled": "停电药水效果已关闭"
 }

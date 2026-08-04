@@ -106,6 +106,7 @@ public class Wathe implements ModInitializer {
             InstinctCommand.register(dispatcher);
             GameplayAliveGameModeCommand.register(dispatcher);
             MapVoteCommand.register(dispatcher);
+            BlackoutCommand.register(dispatcher);
         }));
 
         /*

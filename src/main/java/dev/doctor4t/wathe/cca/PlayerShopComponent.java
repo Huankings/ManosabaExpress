@@ -1,6 +1,7 @@
 package dev.doctor4t.wathe.cca;
 
 import dev.doctor4t.wathe.Wathe;
+import dev.doctor4t.wathe.api.blackout.BlackoutApi;
 import dev.doctor4t.wathe.api.economy.CurrencyAmount;
 import dev.doctor4t.wathe.api.economy.EconomyApi;
 import dev.doctor4t.wathe.api.shop.ShopApi;
@@ -16,6 +17,7 @@ import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.nbt.NbtCompound;
 import net.minecraft.nbt.NbtElement;
 import net.minecraft.registry.RegistryWrapper;
+import net.minecraft.server.world.ServerWorld;
 import net.minecraft.util.Identifier;
 import org.jetbrains.annotations.NotNull;
 import org.ladysnake.cca.api.v3.component.ComponentKey;
@@ -193,7 +195,7 @@ public class PlayerShopComponent implements AutoSyncedComponent, ServerTickingCo
 
     public static boolean useBlackout(@NotNull PlayerEntity player) {
         player.getItemCooldownManager().set(WatheItems.BLACKOUT, GameConstants.ITEM_COOLDOWNS.getOrDefault(WatheItems.BLACKOUT, 0));
-        return WorldBlackoutComponent.KEY.get(player.getWorld()).triggerBlackout();
+        return player.getWorld() instanceof ServerWorld serverWorld && BlackoutApi.trigger(serverWorld);
     }
 
     public static boolean usePsychoMode(@NotNull PlayerEntity player) {

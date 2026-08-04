@@ -45,6 +45,7 @@
 - `src/main/java/dev/doctor4t/wathe/client/gui/StoreRenderer.java`：右上角货币和商店价格渲染。
 - `src/main/java/dev/doctor4t/wathe/client/gui/CrosshairRenderer.java`：Wathe 局内准心图标、武器锁定和小进度图标渲染。
 - `src/main/java/dev/doctor4t/wathe/client/gui/RoleNameRenderer.java`：准心玩家名 / 同伙提示 / 额外 HUD。
+- `src/main/java/dev/doctor4t/wathe/client/gui/BlackoutOverlayRenderer.java`：Wathe 本体停电黑幕 HUD，使用服务端同步的 `WorldBlackoutComponent`，不要再让扩展监听音效计时黑幕。
 - `src/main/java/dev/doctor4t/wathe/client/gui/MoodRenderer.java`、`TimeRenderer.java`：心情和时间 HUD。
 - `src/main/java/dev/doctor4t/wathe/api/client/hud/*`：通用屏幕 HUD 叠加 API，扩展职业右下角状态、全屏遮罩和狙击镜优先看这里。
 - `src/main/java/dev/doctor4t/wathe/mixin/client/ui/InGameHudMixin.java`：Wathe 统一调度 `HudOverlayApi` 的客户端注入点，扩展侧一般不应再直接 mixin 这个类。
@@ -62,6 +63,7 @@
 - 胜利：`VictoryApi`
 - 枪击 / 左轮反火：`GunShotApi`、`GunShotContext`、`GunTargetContext`、`RevolverPenaltyContext`
 - 击杀 / 死亡阶段：`DeathApi`、`DeathContext`、`BodySpawnContext`
+- 停电机制：`BlackoutApi`、`BlackoutDuration`、`BlackoutEffectContext`、`BlackoutEffectResult`
 - 本能：`InstinctApi`
 - 玩家存活：`PlayerLifeStateApi`
 - 玩家 / 尸体可见与可选中：`TargetVisibilityApi`
@@ -75,6 +77,18 @@
 - 手持物隐藏：`HeldItemInvisibilityApi`
 - 背包按钮：`InventoryButtonApi`、`InventoryScreenType`、`InventoryButtonContext`、`InventoryPageState`、`InventoryPageSwitchWidget`
 - 床 / 托盘 / 毒药 / 回放：`BedEffectRegistry`、`TrayEffectRegistry`、`CanSeePoison`、`ReplayRegistry`
+
+## 停电机制 API
+
+停电机制优先接 `dev.doctor4t.wathe.api.blackout`，不要再 mixin `WorldBlackoutComponent` 私有 ticks，也不要在扩展客户端监听 `WatheSounds.AMBIENT_BLACKOUT` 自己计时黑幕。
+
+- 触发停电：服务端用 `BlackoutApi.trigger(world)`。
+- 恢复电力：服务端用 `BlackoutApi.restorePower(world)`，它会恢复灯光、清空停电倒计时、同步客户端黑幕并清理 Wathe 自己发放的停电夜视/失明。
+- 修改“开始恢复 / 完全恢复”时间：`BlackoutApi.registerDurationModifier(id, priority, handler)`，返回 `BlackoutDuration.of(minTicks, maxTicks)`。
+- 修改药水效果：`BlackoutApi.registerEffectRule(id, priority, handler)`，返回 `BlackoutEffectResult.nightVision()` / `blindness()` / `none()` / `pass()`。
+- 默认规则：杀手阵营获得夜视；平民、义警、中立获得失明。玩家只要拥有夜视，停电黑幕完全消失，Wathe 停电自己发放的失明也会让位并解除。
+- 调试指令：`/wathe:blackout trigger`、`/wathe:blackout restore`、`/wathe:blackout overlay <0-100>`、`/wathe:blackout potionEffects <true|false>`。
+- 扩展代码组织：按职业或词条拆到 `roles/<role>/<RoleName>BlackoutHandler` 或 `modifiers/<modifier>/*BlackoutHandler`，聚合 bootstrap 只调用各 handler 的 `init()`。NoellesRoles 的杀手侧中立 / 独立中立示例见 `NoellesRolesBlackoutBootstrap`。
 
 ### HarpyModLoader
 

@@ -288,6 +288,7 @@ public class GameFunctions {
             PlayerPoisonComponent.KEY.get(serverPlayerEntity).reset();
             PlayerPsychoComponent.KEY.get(serverPlayerEntity).reset();
             PlayerNoteComponent.KEY.get(serverPlayerEntity).reset();
+            PlayerBlackoutEffectComponent.KEY.get(serverPlayerEntity).clearOwnedEffect();
             PlayerShopComponent.KEY.get(serverPlayerEntity).reset();
             TrainVoicePlugin.resetPlayer(serverPlayerEntity.getUuid());
 
@@ -509,6 +510,7 @@ public class GameFunctions {
         PlayerPoisonComponent.KEY.get(player).reset();
         PlayerPsychoComponent.KEY.get(player).reset();
         PlayerNoteComponent.KEY.get(player).reset();
+        PlayerBlackoutEffectComponent.KEY.get(player).clearOwnedEffect();
         PlayerLifeStateApi.clearAliveOverride(player);
         TrainVoicePlugin.resetPlayer(player.getUuid());
 

@@ -246,6 +246,16 @@ public class WatheLangGen extends FabricLanguageProvider {
                 """);
         builder.add("wathe.map_variables.set", "Map variable %s successfully set to %s");
 
+        builder.add("command.wathe.blackout.triggered", "Blackout triggered");
+        builder.add("command.wathe.blackout.already_active", "Blackout is already active");
+        builder.add("command.wathe.blackout.restored", "Power restored");
+        builder.add("command.wathe.blackout.overlay.query", "Blackout overlay opacity: %s%%");
+        builder.add("command.wathe.blackout.overlay.set", "Blackout overlay opacity set to %s%%");
+        builder.add("command.wathe.blackout.potion_effects.query.enabled", "Blackout potion effects are enabled");
+        builder.add("command.wathe.blackout.potion_effects.query.disabled", "Blackout potion effects are disabled");
+        builder.add("command.wathe.blackout.potion_effects.set.enabled", "Blackout potion effects enabled");
+        builder.add("command.wathe.blackout.potion_effects.set.disabled", "Blackout potion effects disabled");
+
         builder.add("wathe.game_settings.help", """
                     weights: The role weight system that keeps track of the roles players got and favorizes players who did not get vigilante / killer yet to get those roles. Disable if you wish for full-random.
                     autoStart: Time before the game starts automatically when enough players are boarded in seconds.

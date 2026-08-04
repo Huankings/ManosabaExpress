@@ -37,6 +37,12 @@ public class WatheComponents implements WorldComponentInitializer, EntityCompone
         registry.beginRegistration(PlayerEntity.class, PlayerPsychoComponent.KEY).respawnStrategy(RespawnCopyStrategy.NEVER_COPY).end(PlayerPsychoComponent::new);
         registry.beginRegistration(PlayerEntity.class, PlayerNoteComponent.KEY).respawnStrategy(RespawnCopyStrategy.NEVER_COPY).end(PlayerNoteComponent::new);
         /*
+         * 停电药水归属是单局临时状态：
+         * 它只用于区分“Wathe 停电系统自己刷出的短时夜视/失明”，
+         * 死亡、重生或新局初始化都不应该继承。
+         */
+        registry.beginRegistration(PlayerEntity.class, PlayerBlackoutEffectComponent.KEY).respawnStrategy(RespawnCopyStrategy.NEVER_COPY).end(PlayerBlackoutEffectComponent::new);
+        /*
          * 手雷投掷模式属于“玩家个人偏好”，不是一局内临时状态。
          *
          * 这里使用 CHARACTER 复制策略，目的是：

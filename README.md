@@ -197,7 +197,7 @@ Wathe 用 Cardinal Components API 保存大量状态，入口是 `WatheComponent
 | `GameWorldComponent` | 当前世界的对局状态、职业映射、模式、地图效果、房间、碰撞、跳跃、渐进式重置等 |
 | `MapVariablesWorldComponent` | 地图坐标：出生点、旁观点、准备区、游戏区、模板区、粘贴偏移 |
 | `MapEnhancementsWorldComponent` | 当前维度地图增强配置的同步缓存 |
-| `WorldBlackoutComponent` | 停电状态 |
+| `WorldBlackoutComponent` | 停电状态、黑幕调试配置、停电药水开关和同步倒计时 |
 | `GameTimeComponent` | 对局倒计时 |
 | `AutoStartComponent` | 自动开局设置 |
 | `GameRoundEndComponent` | 结算数据 |
@@ -213,6 +213,7 @@ Wathe 用 Cardinal Components API 保存大量状态，入口是 `WatheComponent
 | `PlayerPoisonComponent` | 毒药来源、毒发计时、毒药回放数据 |
 | `PlayerPsychoComponent` | 疯魔模式状态 |
 | `PlayerNoteComponent` | 纸条编辑状态 |
+| `PlayerBlackoutEffectComponent` | Wathe 停电系统发放的短时夜视 / 失明归属，防止误删其它来源药水 |
 | `PlayerGrenadeComponent` | 手雷直投 / 蓄力模式偏好 |
 | `PlayerInstinctComponent` | 本能键开关 / 长按模式偏好 |
 
@@ -610,6 +611,7 @@ GameRecordManager.recordGlobalEvent(
 | `TaskCompletionApi` | 任务完成事件、任务收益和默认收入抑制规则 | 任务大师、完成任务减冷却、服务员帮人完成任务时跳过目标默认收入 |
 | `GunShotApi` | 枪击接管、客户端目标覆写、左轮误伤惩罚、冷却修正 | 自定义手枪、假枪、无声枪、按状态调整左轮冷却 |
 | `DeathApi` | 击杀/死亡分阶段钩子、默认击杀收益规则、尸体生成回调 | 赏金奖励、时间狭缝、双重人格致死转化、验尸官尸体数据 |
+| `BlackoutApi` | 停电触发/恢复、恢复时间修改、停电药水分配 | 工程师恢复电力、杀手侧中立夜视、独立中立失明、地图或职业改停电时长 |
 | `InstinctApi` | 本能资格和描边 | 新职业透视、状态高亮、本能压制 |
 | `PlayerLifeStateApi` | 特殊玩法存活状态 | 旁观 / 创造但仍参与胜负和 HUD |
 | `TargetVisibilityApi` | 玩家 / 尸体可见、可选中、可交互规则 | 隐藏刺客尸体、未来隐藏玩家、禁止对应道具交互 |
@@ -631,6 +633,17 @@ GameRecordManager.recordGlobalEvent(
 | `CanSeePoison` | 毒药可见性 | 验毒职业、特殊视觉 |
 | `RecordEvents` | 对局记录完成 | 生成额外回放、统计数据 |
 | `ReplayRegistry` | 回放文本格式器 | 自定义技能 / 物品 / 死亡原因文本 |
+
+### 停电机制公开 API
+
+停电机制由 Wathe 本体统一管理，扩展 Mod 不应再靠客户端监听 `ambient.blackout` 音效或 mixin `WorldBlackoutComponent` 私有字段来判断黑幕时间。核心入口在 `dev.doctor4t.wathe.api.blackout`：
+
+- `BlackoutApi.trigger(world)`：触发停电，商店里的停电器也走这个入口。
+- `BlackoutApi.restorePower(world)`：恢复电力，统一恢复灯光、清理停电倒计时、同步客户端黑幕并清掉 Wathe 自己发放的停电药水。
+- `BlackoutApi.registerDurationModifier(id, priority, handler)`：修改本轮停电“开始恢复”和“完全恢复”的 tick。
+- `BlackoutApi.registerEffectRule(id, priority, handler)`：按玩家/职业/分组分配 `NIGHT_VISION`、`BLINDNESS` 或 `NONE`，`PASS` 表示交给后续规则。
+
+默认规则是杀手阵营获得夜视，平民、义警和中立获得失明；如果玩家在停电期间拥有夜视，客户端黑幕会完全消失，Wathe 停电系统自己给出的失明也会立即解除。黑幕不透明度和药水效果可用 `/wathe:blackout overlay <0-100>`、`/wathe:blackout potionEffects <true|false>` 调试。
 
 ### 背包按钮公开 API
 
@@ -753,6 +766,10 @@ HarpyModLoader 的思路是“先让 Wathe 开一局 modded murder，再由加�
 | `/wathe:taskPoints reload` | 重扫任务点并广播 |
 | `/wathe:taskPoints refresh` | 广播当前任务点缓存 |
 | `/wathe:taskPoints autoRefresh <true|false|check>` | 开关开局自动重扫任务点 |
+| `/wathe:blackout trigger` | 调试用：立即触发停电 |
+| `/wathe:blackout restore` | 调试用：立即恢复电力并清理停电黑幕 / 药水 |
+| `/wathe:blackout overlay [0-100]` | 查看或设置停电黑幕不透明度，0 为关闭，100 为完全不透明 |
+| `/wathe:blackout potionEffects [true|false]` | 查看或开关停电期间 Wathe 统一发放的夜视 / 失明 |
 | `/wathe:mapvoting restart` | 重新开始地图投票 |
 | `/wathe:mapvoting onlyop <true|false>` | 是否只允许 OP 投票 |
 | `/wathe:mapvoting randommapcount <count>` | 每轮随机候选地图数量 |
@@ -801,7 +818,8 @@ Datagen 入口是 `WatheDatagen`，相关类包括：
 12. 胜利系统改成 `VictoryApi`，独立胜利、保活、共胜不必再 mixin Murder 模式。
 13. 本能系统改成 `InstinctApi`，扩展职业可注册自己的可用性和描边颜色。
 14. 通用屏幕 HUD 改成 `HudOverlayApi`，扩展职业的右下角状态、全屏遮罩和狙击镜可以统一接入，并默认按 Wathe 存活定义过滤。
-15. 玩家跳跃、碰撞、开局无碰撞、心情死亡、渐进式重置都可用指令动态配置。
+15. 停电机制改成 `BlackoutApi`，黑幕、夜视/失明、恢复电力和停电时长都由 Wathe 本体统一同步，扩展只注册规则。
+16. 玩家跳跃、碰撞、开局无碰撞、心情死亡、渐进式重置都可用指令动态配置。
 
 ## 新扩展职业的推荐接入顺序
 
