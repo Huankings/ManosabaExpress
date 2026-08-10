@@ -67,6 +67,7 @@
 - 本能：`InstinctApi`
 - 玩家存活：`PlayerLifeStateApi`
 - 玩家 / 尸体可见与可选中：`TargetVisibilityApi`
+- 玩家物理碰撞：`PlayerCollisionApi`、`PlayerCollisionContext`、`PlayerCollisionMode`
 - 外观：`PlayerAppearanceApi`、`BodyAppearanceApi`
 - 通用屏幕 HUD：`HudOverlayApi`、`HudOverlayContext`、`HudOverlayLayer`、`HudOverlayLayout`
 - 准心图标 / 准心下方小进度条：`CrosshairHudApi`
@@ -296,6 +297,19 @@ Harpymodloader.setRoleMaximum(MY_ROLE, 1);
 `registerEntityName(...)` 只给魔术师播放体这类“非玩家实体也要在准心处显示名字”的窄场景使用；普通玩家名仍用 `registerName(...)`，避免绕开同伙提示、精神错乱混淆和玩家目标过滤。
 
 `TargetVisibilityApi` 面向“某个观察者是否能看见 / 选中 / 交互某个玩家或玩家尸体”。它会接入 Wathe 的玩家和尸体渲染、`LivingEntity#canHit` 客户端选中、RoleNameHud 尸体射线、默认刀枪准心目标、尸袋、匕首 / 枪击服务端命中和本能描边。扩展隐藏尸体或隐藏玩家时优先注册 API 规则，不要再 mixin `PlayerBodyEntityRenderer`、`LivingEntity#canHit`、`RoleNameRenderer` 或 `CrosshairRenderer`；服务端职业能力和物品仍必须在自己的 handler 里调用 `canInteractWithBody(...)`、`canInteractWithPlayer(...)`、`canAttackPlayer(...)` 重新校验。
+
+## 玩家碰撞机制 API
+
+玩家之间的物理碰撞优先接 `dev.doctor4t.wathe.api.collision`，不要再让扩展 mixin `Entity#collidesWith`、`EntityView#getEntityCollisions`、`Entity#pushAwayFrom` 或 `LivingEntity#pushAway`。
+
+- 注册规则：`PlayerCollisionApi.registerRule(id, priority, handler)`。
+- handler 返回 `PASS` 表示继续低优先级规则和 Wathe 默认规则。
+- `SOLID`：像 spark 魔改 Wathe 一样把玩家当实体墙，真正阻挡移动；只在两个玩家已经重叠时保留原版轻微推挤，用于解卡。
+- `VANILLA_PUSH`：原版 MC 玩家推挤，可穿过但仍有轻微推挤，例如 NoellesRoles 的 FEATHER。
+- `NO_COLLISION`：完全无碰撞、无推挤，玩家之间像空气一样穿过，例如 NoellesRoles 灵术师脱体本体。
+- `PlayerCollisionContext` 是有方向的 `self -> other`；单向规则只判断 `self`，双向规则判断任意一方。由于原版推挤一次会同时改双方速度，只要任意方向返回 `NO_COLLISION`，Wathe 就会取消该次推挤。
+- Wathe 默认规则仍由 `/wathe:playerCollision` 和 `/wathe:startnoCollision` 控制：对局运行中、碰撞开关开启、开局免碰撞结束、双方都是局内存活玩家时返回 `SOLID`；开局免碰撞窗口返回 `VANILLA_PUSH`。
+- 扩展侧按职业或词条拆到 `roles/<role>/<RoleName>PlayerCollisionHandler` 或 `modifiers/<modifier>/*PlayerCollisionHandler`，聚合类只调用各 handler 的 `init()`。
 
 外观优先级经验：
 

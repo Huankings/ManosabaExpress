@@ -9,6 +9,7 @@
     "AbstractBlockSettingsMixin",
     "DedicatedPlayerManagerMixin",
     "EntityMixin",
+    "EntityViewMixin",
     "FishingBobberEntityMixin",
     "FurnaceOutputSlotMixin",
     "HungerManagerMixin",

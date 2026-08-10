@@ -1,11 +1,13 @@
 package dev.doctor4t.wathe.mixin;
 
 import dev.doctor4t.wathe.Wathe;
+import dev.doctor4t.wathe.api.collision.PlayerCollisionApi;
 import dev.doctor4t.wathe.cca.GameWorldComponent;
 import dev.doctor4t.wathe.cca.MapEnhancementsWorldComponent;
 import dev.doctor4t.wathe.config.datapack.MapEnhancementsConfiguration.GravityConfig;
 import dev.doctor4t.wathe.game.GameFunctions;
 import dev.doctor4t.wathe.index.WatheItems;
+import net.minecraft.entity.Entity;
 import net.minecraft.entity.LivingEntity;
 import net.minecraft.entity.attribute.EntityAttribute;
 import net.minecraft.entity.attribute.EntityAttributeInstance;
@@ -82,6 +84,19 @@ public abstract class LivingEntityMixin extends EntityMixin {
             ));
         }
         this.wathe$lastGravityMultiplier = targetMultiplier;
+    }
+
+    @Inject(method = "pushAway(Lnet/minecraft/entity/Entity;)V", at = @At("HEAD"), cancellable = true)
+    private void wathe$skipNoCollisionLivingPush(Entity other, CallbackInfo ci) {
+        if ((Object) this instanceof PlayerEntity selfPlayer
+                && other instanceof PlayerEntity otherPlayer
+                && PlayerCollisionApi.suppressesPush(selfPlayer, otherPlayer)) {
+            /*
+             * LivingEntity#pushAway 是活体扫描附近实体后发起推挤的入口。
+             * Entity#pushAwayFrom 已经有底层兜底，这里提前取消一次，让 NO_COLLISION 玩家不会产生任何原版轻推手感。
+             */
+            ci.cancel();
+        }
     }
 
     @Unique

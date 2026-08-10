@@ -712,6 +712,21 @@ final class MyRoleInventoryButtons implements InventoryButtonExtension {
 
 HarpyModLoader 的思路是“先让 Wathe 开一局 modded murder，再由加载层按阵营替换默认职业”。例如先给所有人设成 `WatheRoles.CIVILIAN`，再从扩展职业池里挑选杀手、中立、义警、平民职业覆盖。Wathe 本体提供稳定的职业映射、结算、回放和 API，扩展加载层负责“这局到底出现哪些职业”。
 
+## 玩家碰撞 API
+
+Wathe 玩家之间的物理碰撞统一通过 `dev.doctor4t.wathe.api.collision.PlayerCollisionApi` 暴露，扩展职业不要再 mixin `Entity#collidesWith`、`EntityView#getEntityCollisions`、`Entity#pushAwayFrom` 或 `LivingEntity#pushAway`。
+
+规则按 priority 从高到低执行，同 priority 后注册者先执行。`PlayerCollisionContext` 是有方向的 `self -> other`：如果只判断 `self`，就是单向规则；如果判断任意一方满足条件，就是双向规则。
+
+可返回的模式：
+
+- `PASS`：不接管，继续询问低优先级规则或原版逻辑。
+- `SOLID`：像 spark 版本一样把另一名玩家当实体墙，真正阻挡移动；只在两个玩家已经重叠时保留原版轻微推挤，用于解卡。
+- `VANILLA_PUSH`：恢复原版 MC 玩家手感，可穿过但仍有轻微推挤。
+- `NO_COLLISION`：完全无碰撞、无推挤，像空气一样穿过。
+
+Wathe 默认规则仍受 `/wathe:playerCollision` 和 `/wathe:startnoCollision` 控制：对局运行中、碰撞开关开启、开局免碰撞结束、双方都是局内存活玩家时返回 `SOLID`；开局免碰撞窗口内返回 `VANILLA_PUSH`；其它情况交回原版。
+
 ## 管理员与玩家指令
 
 大多数 `/wathe:*` 指令要求 OP 权限等级 2。当前源码已经取消 supporter 二次限制，因此管理员和控制台可直接调试。
@@ -820,6 +835,7 @@ Datagen 入口是 `WatheDatagen`，相关类包括：
 14. 通用屏幕 HUD 改成 `HudOverlayApi`，扩展职业的右下角状态、全屏遮罩和狙击镜可以统一接入，并默认按 Wathe 存活定义过滤。
 15. 停电机制改成 `BlackoutApi`，黑幕、夜视/失明、恢复电力和停电时长都由 Wathe 本体统一同步，扩展只注册规则。
 16. 玩家跳跃、碰撞、开局无碰撞、心情死亡、渐进式重置都可用指令动态配置。
+17. 玩家之间的物理碰撞改成 `PlayerCollisionApi`，Wathe 默认硬阻挡、原版推挤可穿过、完全无碰撞无推挤三种模式都可由扩展按优先级覆盖。
 
 ## 新扩展职业的推荐接入顺序
 
@@ -838,6 +854,7 @@ Datagen 入口是 `WatheDatagen`，相关类包括：
 11. 如果职业需要记录技能，用 `GameRecordManager.recordSkillUse` / `recordGlobalEvent`，再用 `ReplayRegistry` 注册格式器。
 12. 如果职业会伪装、换皮、伪尸体，用 `PlayerAppearanceApi` / `BodyAppearanceApi`。
 13. 如果职业会让旁观 / 创造玩家仍参与胜负，用 `PlayerLifeStateApi` 授权，并在清理时撤销。
+14. 如果职业或词条要改变玩家之间的物理碰撞，用 `PlayerCollisionApi.registerRule(...)`，不要再新增 Entity / EntityView / LivingEntity 的碰撞 mixin。
 
 一个最小的独立胜利规则示例：
 
