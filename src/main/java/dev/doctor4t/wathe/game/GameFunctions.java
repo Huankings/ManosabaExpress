@@ -284,6 +284,7 @@ public class GameFunctions {
         for (ServerPlayerEntity serverPlayerEntity : players) {
             serverPlayerEntity.getInventory().clear();
             PlayerMoodComponent.KEY.get(serverPlayerEntity).reset();
+            PlayerStaminaComponent.KEY.get(serverPlayerEntity).reset();
             PlayerShopComponent.KEY.get(serverPlayerEntity).reset();
             PlayerPoisonComponent.KEY.get(serverPlayerEntity).reset();
             PlayerPsychoComponent.KEY.get(serverPlayerEntity).reset();
@@ -506,6 +507,7 @@ public class GameFunctions {
         player.dismountVehicle();
         player.getInventory().clear();
         PlayerMoodComponent.KEY.get(player).reset();
+        PlayerStaminaComponent.KEY.get(player).reset();
         PlayerShopComponent.KEY.get(player).reset();
         PlayerPoisonComponent.KEY.get(player).reset();
         PlayerPsychoComponent.KEY.get(player).reset();

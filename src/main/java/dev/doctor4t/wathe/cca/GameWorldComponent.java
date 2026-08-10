@@ -50,6 +50,21 @@ public int getFixedKillerCount() { return this.fixedKillerCount; }
      */
     private boolean moodEffectDeathEnabled = true;
     /**
+     * 中等心情体力惩罚开关。
+     *
+     * <p>默认关闭。开启后，心情低于 MID 阈值时会使用中等惩罚：
+     * 疾跑消耗提高、恢复速度降低，但走路仍然可以恢复体力。
+     * 如果低落惩罚关闭，而这个开关开启，则低落心情也会沿用中等惩罚。</p>
+     */
+    private boolean midMoodStaminaPenaltyEnabled = GameConstants.DEFAULT_MID_MOOD_STAMINA_PENALTY_ENABLED;
+    /**
+     * 低落心情体力惩罚开关。
+     *
+     * <p>默认关闭。开启后，心情到达并低于 DEPRESSIVE 阈值时会禁止疾跑，
+     * 走路改为消耗体力，静止休息按低速恢复体力。</p>
+     */
+    private boolean depressiveMoodStaminaPenaltyEnabled = GameConstants.DEFAULT_DEPRESSIVE_MOOD_STAMINA_PENALTY_ENABLED;
+    /**
      * 控制“正在进行中的 Wathe 对局”里，存活玩家是否允许跳跃。
      *
      * <p>这里的“存活玩家”沿用 Wathe 现有定义：
@@ -104,6 +119,24 @@ public int getFixedKillerCount() { return this.fixedKillerCount; }
      */
     public void setMoodEffectDeathEnabled(boolean moodEffectDeathEnabled) {
         this.moodEffectDeathEnabled = moodEffectDeathEnabled;
+        this.sync();
+    }
+
+    public boolean isMidMoodStaminaPenaltyEnabled() {
+        return midMoodStaminaPenaltyEnabled;
+    }
+
+    public void setMidMoodStaminaPenaltyEnabled(boolean midMoodStaminaPenaltyEnabled) {
+        this.midMoodStaminaPenaltyEnabled = midMoodStaminaPenaltyEnabled;
+        this.sync();
+    }
+
+    public boolean isDepressiveMoodStaminaPenaltyEnabled() {
+        return depressiveMoodStaminaPenaltyEnabled;
+    }
+
+    public void setDepressiveMoodStaminaPenaltyEnabled(boolean depressiveMoodStaminaPenaltyEnabled) {
+        this.depressiveMoodStaminaPenaltyEnabled = depressiveMoodStaminaPenaltyEnabled;
         this.sync();
     }
 
@@ -653,6 +686,12 @@ this.fixedKillerCount = nbtCompound.contains("FixedKillerCount") ? nbtCompound.g
         this.lockedToSupporters = false;
         this.enableWeights = nbtCompound.getBoolean("EnableWeights");
         this.moodEffectDeathEnabled = !nbtCompound.contains("MoodEffectDeathEnabled") || nbtCompound.getBoolean("MoodEffectDeathEnabled");
+        this.midMoodStaminaPenaltyEnabled = nbtCompound.contains("MidMoodStaminaPenaltyEnabled")
+                ? nbtCompound.getBoolean("MidMoodStaminaPenaltyEnabled")
+                : GameConstants.DEFAULT_MID_MOOD_STAMINA_PENALTY_ENABLED;
+        this.depressiveMoodStaminaPenaltyEnabled = nbtCompound.contains("DepressiveMoodStaminaPenaltyEnabled")
+                ? nbtCompound.getBoolean("DepressiveMoodStaminaPenaltyEnabled")
+                : GameConstants.DEFAULT_DEPRESSIVE_MOOD_STAMINA_PENALTY_ENABLED;
         this.allowAlivePlayersJump = !nbtCompound.contains("AllowAlivePlayersJump") || nbtCompound.getBoolean("AllowAlivePlayersJump");
         this.alivePlayersCollisionEnabled = !nbtCompound.contains("AlivePlayersCollisionEnabled") || nbtCompound.getBoolean("AlivePlayersCollisionEnabled");
         this.alivePlayersCollisionStartDelaySeconds = nbtCompound.contains("AlivePlayersCollisionStartDelaySeconds") ? Math.max(0, nbtCompound.getInt("AlivePlayersCollisionStartDelaySeconds")) : 30;
@@ -729,6 +768,8 @@ this.fixedKillerCount = nbtCompound.contains("FixedKillerCount") ? nbtCompound.g
         nbtCompound.putBoolean("LockedToSupporters", lockedToSupporters);
         nbtCompound.putBoolean("EnableWeights", enableWeights);
         nbtCompound.putBoolean("MoodEffectDeathEnabled", moodEffectDeathEnabled);
+        nbtCompound.putBoolean("MidMoodStaminaPenaltyEnabled", midMoodStaminaPenaltyEnabled);
+        nbtCompound.putBoolean("DepressiveMoodStaminaPenaltyEnabled", depressiveMoodStaminaPenaltyEnabled);
         nbtCompound.putBoolean("AllowAlivePlayersJump", allowAlivePlayersJump);
         nbtCompound.putBoolean("AlivePlayersCollisionEnabled", alivePlayersCollisionEnabled);
         nbtCompound.putInt("AlivePlayersCollisionStartDelaySeconds", alivePlayersCollisionStartDelaySeconds);

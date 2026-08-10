@@ -51,6 +51,7 @@
 			"wathe:life_state",
 			"wathe:role",
 			"wathe:mood",
+			"wathe:stamina",
 			"wathe:shop",
 			"wathe:poison",
 			"wathe:psycho",

@@ -32,6 +32,7 @@ public class WatheComponents implements WorldComponentInitializer, EntityCompone
          */
         registry.beginRegistration(PlayerEntity.class, PlayerLifeStateComponent.KEY).respawnStrategy(RespawnCopyStrategy.NEVER_COPY).end(PlayerLifeStateComponent::new);
         registry.beginRegistration(PlayerEntity.class, PlayerMoodComponent.KEY).respawnStrategy(RespawnCopyStrategy.NEVER_COPY).end(PlayerMoodComponent::new);
+        registry.beginRegistration(PlayerEntity.class, PlayerStaminaComponent.KEY).respawnStrategy(RespawnCopyStrategy.NEVER_COPY).end(PlayerStaminaComponent::new);
         registry.beginRegistration(PlayerEntity.class, PlayerShopComponent.KEY).respawnStrategy(RespawnCopyStrategy.NEVER_COPY).end(PlayerShopComponent::new);
         registry.beginRegistration(PlayerEntity.class, PlayerPoisonComponent.KEY).respawnStrategy(RespawnCopyStrategy.NEVER_COPY).end(PlayerPoisonComponent::new);
         registry.beginRegistration(PlayerEntity.class, PlayerPsychoComponent.KEY).respawnStrategy(RespawnCopyStrategy.NEVER_COPY).end(PlayerPsychoComponent::new);

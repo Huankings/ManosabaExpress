@@ -146,6 +146,51 @@ public interface GameConstants {
 
     float MID_MOOD_THRESHOLD = 0.55f;
     float DEPRESSIVE_MOOD_THRESHOLD = 0.2f;
+    /**
+     * 心情濒临崩溃时 HUD 抖动的“标准差”。
+     *
+     * <p>这里使用高斯噪声而不是方形随机，能让抖动看起来更接近 Spark 的手感：
+     * 1. 中心位置更稳定，不会像随机方块一样左右跳格子；
+     * 2. 偶尔会出现稍大的自然偏移，让“崩溃前摇”更有呼吸感。
+     */
+    float MOOD_BREAKDOWN_SHAKE_STDDEV = 3.0f;
+    /**
+     * HUD 抖动的最大偏移保护值，避免高斯分布的极端样本把图标或文字甩得过远。
+     *
+     * <p>这个值只是视觉兜底，不会影响正常的抖动核心手感。</p>
+     */
+    float MOOD_BREAKDOWN_SHAKE_MAX_OFFSET = 6.0f;
+
+    // 玩家移动 / 体力基础数值
+    float BASE_WALK_MOVEMENT_SPEED = 0.07f;
+    float BASE_SPRINT_MOVEMENT_SPEED = 0.1f;
+    /**
+     * 高心情或未启用心情体力惩罚时，疾跑每 tick 消耗的体力。
+     */
+    float STAMINA_SPRINT_DRAIN_HIGH_MOOD = 1.0f;
+    /**
+     * 高心情或未启用心情体力惩罚时，非疾跑每 tick 恢复的体力。
+     */
+    float STAMINA_RECOVERY_HIGH_MOOD = 0.8f;
+    /**
+     * 中等心情惩罚开启后，疾跑每 tick 消耗的体力。
+     *
+     * <p>该阶段不让走路消耗体力：走路和静止都按恢复处理。</p>
+     */
+    float STAMINA_SPRINT_DRAIN_MID_MOOD = 1.2f;
+    float STAMINA_RECOVERY_MID_MOOD = 0.6f;
+    /**
+     * 低落心情惩罚开启后，玩家不能疾跑；这里保留疾跑消耗常量，
+     * 是为了后续如果要允许特殊职业突破禁跑，也能沿用同一套调参入口。
+     */
+    float STAMINA_SPRINT_DRAIN_DEPRESSIVE_MOOD = 1.5f;
+    float STAMINA_WALK_DRAIN_DEPRESSIVE_MOOD = 1.5f;
+    float STAMINA_RECOVERY_DEPRESSIVE_MOOD = 0.4f;
+    /**
+     * 两个心情体力惩罚默认关闭，必须通过调试/配置指令显式打开。
+     */
+    boolean DEFAULT_MID_MOOD_STAMINA_PENALTY_ENABLED = false;
+    boolean DEFAULT_DEPRESSIVE_MOOD_STAMINA_PENALTY_ENABLED = false;
     float ITEM_PSYCHOSIS_CHANCE = .5f; // in percent
     int ITEM_PSYCHOSIS_REROLL_TIME = 200;
 

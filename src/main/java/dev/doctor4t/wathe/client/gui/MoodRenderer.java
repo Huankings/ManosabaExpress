@@ -257,17 +257,30 @@ public class MoodRenderer {
 
     /**
      * 警告阶段所有与心情相关的 HUD 都会统一抖动。
-     * 使用玩家年龄做随机种子，保证同一 tick 内整体抖动一致，不会文字和图标各抖各的。
+     *
+     * <p>这里改成按渲染帧重新采样高斯噪声，而不是按 {@code player.age} 锁在 20Hz：
+     * 这样抖动会更连续、更像 Spark 的濒临崩溃效果，而不是一帧一格地跳。</p>
      */
     private static float[] getWarningShake(@NotNull PlayerEntity player, float warningProgress) {
         if (warningProgress <= 0f) {
             return new float[]{0f, 0f};
         }
 
-        random.setSeed(player.age * 31L + 17L);
-        float amplitude = 0.35f + warningProgress * 1.65f;
-        float shakeX = (random.nextFloat() - 0.5f) * 2f * amplitude;
-        float shakeY = (random.nextFloat() - 0.5f) * 2f * amplitude;
+        // Spark 的手感关键点之一：每次渲染都重新采样，而不是跟着 tick 走。
+        // 这样同一个 tick 内也会有细微变化，画面不会显得卡顿。
+        random.setSeed(System.currentTimeMillis());
+
+        float shakeStrength = MathHelper.clamp(warningProgress, 0f, 1f) * GameConstants.MOOD_BREAKDOWN_SHAKE_STDDEV;
+        float shakeX = MathHelper.clamp(
+                (float) (random.nextGaussian() * shakeStrength),
+                -GameConstants.MOOD_BREAKDOWN_SHAKE_MAX_OFFSET,
+                GameConstants.MOOD_BREAKDOWN_SHAKE_MAX_OFFSET
+        );
+        float shakeY = MathHelper.clamp(
+                (float) (random.nextGaussian() * shakeStrength),
+                -GameConstants.MOOD_BREAKDOWN_SHAKE_MAX_OFFSET,
+                GameConstants.MOOD_BREAKDOWN_SHAKE_MAX_OFFSET
+        );
         return new float[]{shakeX, shakeY};
     }
 

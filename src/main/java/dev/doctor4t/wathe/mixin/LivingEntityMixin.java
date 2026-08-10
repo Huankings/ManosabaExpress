@@ -2,11 +2,13 @@ package dev.doctor4t.wathe.mixin;
 
 import dev.doctor4t.wathe.Wathe;
 import dev.doctor4t.wathe.api.collision.PlayerCollisionApi;
+import dev.doctor4t.wathe.api.movement.PlayerMovementApi;
 import dev.doctor4t.wathe.cca.GameWorldComponent;
 import dev.doctor4t.wathe.cca.MapEnhancementsWorldComponent;
 import dev.doctor4t.wathe.config.datapack.MapEnhancementsConfiguration.GravityConfig;
 import dev.doctor4t.wathe.game.GameFunctions;
 import dev.doctor4t.wathe.index.WatheItems;
+import dev.doctor4t.wathe.util.WatheMovementInputAccess;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.LivingEntity;
 import net.minecraft.entity.attribute.EntityAttribute;
@@ -16,16 +18,18 @@ import net.minecraft.entity.attribute.EntityAttributes;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.registry.entry.RegistryEntry;
 import net.minecraft.sound.SoundEvent;
+import net.minecraft.util.math.Vec3d;
 import org.jetbrains.annotations.Nullable;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.ModifyVariable;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 @Mixin(LivingEntity.class)
-public abstract class LivingEntityMixin extends EntityMixin {
+public abstract class LivingEntityMixin extends EntityMixin implements WatheMovementInputAccess {
     @Unique
     private static final EntityAttributeModifier KNIFE_KNOCKBACK_MODIFIER = new EntityAttributeModifier(Wathe.id("knife_knockback_modifier"), 1, EntityAttributeModifier.Operation.ADD_MULTIPLIED_TOTAL);
     @Unique
@@ -35,6 +39,12 @@ public abstract class LivingEntityMixin extends EntityMixin {
 
     @Shadow
     protected boolean jumping;
+
+    @Shadow
+    public float sidewaysSpeed;
+
+    @Shadow
+    public float forwardSpeed;
 
     @Shadow
     public abstract void playSound(@Nullable SoundEvent sound);
@@ -97,6 +107,41 @@ public abstract class LivingEntityMixin extends EntityMixin {
              */
             ci.cancel();
         }
+    }
+
+    @ModifyVariable(method = "travel", at = @At("HEAD"), argsOnly = true)
+    private Vec3d wathe$blockExhaustedHorizontalInput(Vec3d movementInput) {
+        if ((Object) this instanceof PlayerEntity player && !PlayerMovementApi.canSelfMove(player)) {
+            /*
+             * 体力归零时只拦玩家自己的水平输入。
+             * 这里不能清实体 velocity，也不能取消 travel 整个方法，否则击退、推挤、传送残留速度、
+             * 水流/载具等外力位移都会被误删。保留 y 分量可以避免破坏下落、流体浮力等竖直处理。
+             */
+            return new Vec3d(0.0D, movementInput.y, 0.0D);
+        }
+        return movementInput;
+    }
+
+    @Inject(method = "jump", at = @At("HEAD"), cancellable = true)
+    private void wathe$blockExhaustedJump(CallbackInfo ci) {
+        if ((Object) this instanceof PlayerEntity player && !PlayerMovementApi.canJump(player)) {
+            /*
+             * 自主跳跃属于玩家输入行为，体力归零时直接取消。
+             * 外部给玩家的向上速度不经过这里，因此爆炸/击退/传送等竖直位移仍然保留。
+             */
+            this.jumping = false;
+            ci.cancel();
+        }
+    }
+
+    @Override
+    public boolean wathe$isTryingHorizontalSelfMove() {
+        /*
+         * 这两个字段是玩家本帧的水平移动输入，来源是 LivingEntity。
+         * 体力低落惩罚只按“自主按键移动”扣体力，不能用 velocity 判断，
+         * 否则击退、推挤、传送、水流等外力位移会被误认为玩家在走路。
+         */
+        return Math.abs(this.forwardSpeed) > 0.0F || Math.abs(this.sidewaysSpeed) > 0.0F;
     }
 
     @Unique

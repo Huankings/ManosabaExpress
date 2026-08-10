@@ -45,11 +45,14 @@ Wathe 是一个基于 **Minecraft 1.21.1 + Fabric** 的列车狼人杀 / 社交�
 | --- | --- |
 | `src/main/java/dev/doctor4t/wathe/Wathe.java` | Mod 总初始化：注册物品、方块、命令、网络包、数据包重载、回放格式器、任务点系统等 |
 | `src/main/java/dev/doctor4t/wathe/api` | 给本体和扩展 Mod 使用的公开 API：职业、阵营、游戏模式、商店、经济、胜利、任务完成、本能、HUD 等 |
+| `src/main/java/dev/doctor4t/wathe/api/stamina` | 玩家体力公开 API：清空、回满、增减体力、调整体力上限、解析心情惩罚档位 |
+| `src/main/java/dev/doctor4t/wathe/api/movement` | 玩家移动速度公开 API：叠加、倍率、覆盖和优先级修正 |
 | `src/main/java/dev/doctor4t/wathe/api/client/inventory` | 背包按钮公开 API：扩展按钮注册、三类背包 screen type、动态分组、分页和头像辅助 |
 | `src/main/java/dev/doctor4t/wathe/api/client/hud` | 通用屏幕 HUD 叠加 API：右下角职业状态、全屏遮罩、狙击镜等自由绘制入口 |
 | `src/main/java/dev/doctor4t/wathe/cca` | Cardinal Components 状态组件：世界状态、玩家状态、计分板全局状态 |
+| `src/main/java/dev/doctor4t/wathe/cca/PlayerStaminaComponent.java` | 玩家体力、额外上限修正、本局初始化标记 |
 | `src/main/java/dev/doctor4t/wathe/game` | 对局生命周期、游戏模式、地图效果、地图重置任务 |
-| `src/main/java/dev/doctor4t/wathe/command` | 管理员和玩家指令 |
+| `src/main/java/dev/doctor4t/wathe/command` | 管理员和玩家指令：心情、体力、碰撞、地图和调试开关 |
 | `src/main/java/dev/doctor4t/wathe/client` | 客户端 HUD、界面、渲染、模型、按键逻辑 |
 | `src/main/java/dev/doctor4t/wathe/config/datapack` | 地图投票和地图增强 JSON 读取 |
 | `src/main/java/dev/doctor4t/wathe/item` | 匕首、枪、毒药、鸡尾酒、钥匙、手雷等物品逻辑 |
@@ -335,6 +338,8 @@ Wathe 的地图通常是“模板区复制到游戏区”。配置项来自：
 
 核心组件是 `PlayerMoodComponent`。
 
+心情值现在还会直接联动体力恢复和移动速度惩罚，相关数值和阈值见下一节。
+
 ### 心情类型
 
 `Role.MoodType` 有三种：
@@ -382,6 +387,20 @@ Wathe 的地图通常是“模板区复制到游戏区”。配置项来自：
 | `stay` | 原地静止 |
 | `fish` | 钓鱼收获 |
 | `cook` | 从熔炉 / 烟熏炉取出熟食 |
+
+## 玩家体力与移动速度系统
+
+核心组件是 `PlayerStaminaComponent`，公开 API 是 `PlayerStaminaApi` 和 `PlayerMovementApi`。
+
+- `PlayerStaminaComponent` 保存当前体力、额外上限修正、本局初始化标记，并通过 `wathe:stamina` 同步。
+- `PlayerStaminaApi` 提供 `setStamina(...)`、`addStamina(...)`、`drainStamina(...)`、`clearStamina()`、`fillStamina()`、`increaseMaxStamina(...)`、`decreaseMaxStamina(...)`、`resetMaxStaminaBonus()`、`getMaxStamina()`、`isExhausted()`、`canSprint(...)`、`canSelfMove(...)`、`canJump(...)` 和 `resolveMoodPenaltyProfile(...)`。
+- `PlayerMovementApi` 提供 `registerSpeedModifier(...)` 和 `resolveMovementSpeed(...)`；如果扩展职业要叠加加速、减速或覆盖速度，不要再自己 mixin `PlayerEntity#getMovementSpeed()`。
+- 当前基础走路速度是 `0.07`，基础疾跑速度是 `0.1`。高心情或未启用惩罚时，疾跑每 tick 消耗 `1.0`，非疾跑每 tick 恢复 `0.8`。
+- 中等心情惩罚开启后，`mood < MID_MOOD_THRESHOLD (0.55)` 时疾跑每 tick 消耗 `1.2`，恢复速度变为 `0.6`，走路和静止都可以恢复。
+- 低落心情惩罚开启后，`mood <= DEPRESSIVE_MOOD_THRESHOLD (0.2)` 时直接禁止疾跑；若还在移动，走路每 tick 消耗 `1.5`，静止每 tick 恢复 `0.4`。
+- 如果只开启中等惩罚，低落心情也会沿用中等惩罚；两个惩罚开关默认都关闭，必须通过调试指令显式开启。
+- 体力归零只会阻止玩家自主水平移动和跳跃，击退、传送、水流、载具等外力位移仍然保留。
+- 调试心情用 `/wathe:setMood <0-1> [players]`，调试体力惩罚开关用 `/wathe:moodStaminaPenalty`。
 
 ### 任务点透视
 
@@ -769,6 +788,10 @@ Wathe 默认规则仍受 `/wathe:playerCollision` 和 `/wathe:startnoCollision` 
 | `/wathe:setVisual resetMapEffects` | 重置地图视觉效果 |
 | `/wathe:lockToSupporters <true|false>` | 原 supporter 锁指令，当前源码实际始终不锁 |
 | `/wathe:moodEffectDeath <true|false|check>` | 开关心情归零死亡 |
+| `/wathe:setMood <0-1> [players]` | 设置自己或指定玩家的心情值 |
+| `/wathe:moodStaminaPenalty` | 查看中等 / 低落心情体力惩罚开关状态 |
+| `/wathe:moodStaminaPenalty mid <true|false>` | 开关中等心情体力惩罚 |
+| `/wathe:moodStaminaPenalty depressive <true|false>` | 开关低落心情体力惩罚 |
 | `/wathe:moodTask list` | 列出当前注册的心情任务 id |
 | `/wathe:moodTask assign <task> [player]` | 指定发放某个心情任务，不写玩家时默认自己 |
 | `/wathe:moodTask remove <task> [player]` | 只移除某个心情任务，不加心情、不触发任务完成 |
@@ -836,6 +859,7 @@ Datagen 入口是 `WatheDatagen`，相关类包括：
 15. 停电机制改成 `BlackoutApi`，黑幕、夜视/失明、恢复电力和停电时长都由 Wathe 本体统一同步，扩展只注册规则。
 16. 玩家跳跃、碰撞、开局无碰撞、心情死亡、渐进式重置都可用指令动态配置。
 17. 玩家之间的物理碰撞改成 `PlayerCollisionApi`，Wathe 默认硬阻挡、原版推挤可穿过、完全无碰撞无推挤三种模式都可由扩展按优先级覆盖。
+18. 玩家体力已经迁到 `PlayerStaminaComponent`，移动速度和心情惩罚也已经公开化；扩展不需要再 shadow `PlayerEntity` 的输入字段或重写 `travel/jump/getMovementSpeed`。
 
 ## 新扩展职业的推荐接入顺序
 

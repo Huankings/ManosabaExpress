@@ -93,11 +93,13 @@ public class Wathe implements ModInitializer {
             SetTimerCommand.register(dispatcher);
             SetMoneyCommand.register(dispatcher);
             SetTaskMoneyCommand.register(dispatcher);
+            SetMoodCommand.register(dispatcher);
             LockToSupportersCommand.register(dispatcher);
             SetKillerCountCommand.register(dispatcher);
             SetGameModeCommand.register(dispatcher);
             SetGradualResetCommand.register(dispatcher);
             MoodEffectDeathCommand.register(dispatcher);
+            MoodStaminaPenaltyCommand.register(dispatcher);
             MoodTaskCommand.register(dispatcher);
             TaskPointCommand.register(dispatcher);
             AllowJumpCommand.register(dispatcher);

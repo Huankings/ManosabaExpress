@@ -24,7 +24,7 @@
 3. 读取当前工程 README、`build.gradle`、`gradle.properties`、`fabric.mod.json` 和相关源码入口。不要只靠历史提示词或记忆判断。
 4. 用 `rg` 搜类名、方法名、物品 id、mixin 名、翻译 key、回放事件 id，再定位最小修改范围。
 5. 能用 Wathe 公开 API 时优先用 API，少写深层 mixin；确实要 mixin 时，条件必须尽量窄，并区分服务端 / 客户端环境。
-6. 玩法数值、价格、时长、距离、颜色以外的平衡参数，优先集中放进 `GameConstants` 或对应职业 `*Constants`。
+6. 玩法数值、价格、时长、距离、体力、速度、心情惩罚等平衡参数，优先集中放进 `GameConstants` 或对应职业 `*Constants`。
 7. 关键代码必须写详细中文注释，尤其是 API 接入理由、服务端 / 客户端边界、同步、回合清理、胜利仲裁、商店扣款、外观优先级这些容易误解的位置。
 8. 如果改了 Wathe API，先编译 Wathe，把新 jar 放进相关扩展 `libs`，再编译受影响扩展，不能只编译单个工程就结束。
 9. 如果用户提到旧会话 id，但当前无法读取到完整会话内容，不要猜；应先说明缺失并询问，或者只基于本地未提交改动和源码事实继续。
@@ -36,12 +36,19 @@
 - `README.md`：当前自改 Wathe 的总说明。
 - `README_SHOP_CURRENCY_API.md`：商店多货币、默认价格读取和扩展接入教程。
 - `src/main/java/dev/doctor4t/wathe/Wathe.java`：总初始化、命令、网络包和系统注册。
-- `src/main/java/dev/doctor4t/wathe/game/GameConstants.java`：核心常量、默认商店、冷却、被动收入上限、任务币实验开关。
+- `src/main/java/dev/doctor4t/wathe/game/GameConstants.java`：核心常量、默认商店、冷却、体力、移动速度、心情惩罚、被动收入上限、任务币实验开关。
 - `src/main/java/dev/doctor4t/wathe/game/GameFunctions.java`：开局、死亡、停局、地图重置、玩家存活判定。
 - `src/main/java/dev/doctor4t/wathe/game/gamemode/MurderGameMode.java`：Murder 模式胜负、被动收入和循环。
 - `src/main/java/dev/doctor4t/wathe/cca/GameWorldComponent.java`：对局状态、角色表、跳跃 / 碰撞 / 地图状态。
 - `src/main/java/dev/doctor4t/wathe/cca/PlayerShopComponent.java`：金币、多货币余额、购买结算。
 - `src/main/java/dev/doctor4t/wathe/cca/PlayerMoodComponent.java`：心情和任务完成入口。
+- `src/main/java/dev/doctor4t/wathe/cca/PlayerStaminaComponent.java`：玩家体力、额外体力上限修正、本局初始化标记。
+- `src/main/java/dev/doctor4t/wathe/api/stamina/PlayerStaminaApi.java`：玩家体力公开 API。
+- `src/main/java/dev/doctor4t/wathe/api/movement/PlayerMovementApi.java`：玩家移动速度公开 API。
+- `src/main/java/dev/doctor4t/wathe/command/SetMoodCommand.java`：调试用设置玩家心情值。
+- `src/main/java/dev/doctor4t/wathe/command/MoodStaminaPenaltyCommand.java`：中等 / 低落心情体力惩罚开关。
+- `src/main/java/dev/doctor4t/wathe/mixin/PlayerEntityMixin.java`：Wathe 玩家速度和体力 tick 主入口。
+- `src/main/java/dev/doctor4t/wathe/mixin/LivingEntityMixin.java`：体力归零时拦截自主移动输入和跳跃。
 - `src/main/java/dev/doctor4t/wathe/client/gui/StoreRenderer.java`：右上角货币和商店价格渲染。
 - `src/main/java/dev/doctor4t/wathe/client/gui/CrosshairRenderer.java`：Wathe 局内准心图标、武器锁定和小进度图标渲染。
 - `src/main/java/dev/doctor4t/wathe/client/gui/RoleNameRenderer.java`：准心玩家名 / 同伙提示 / 额外 HUD。
@@ -66,6 +73,8 @@
 - 停电机制：`BlackoutApi`、`BlackoutDuration`、`BlackoutEffectContext`、`BlackoutEffectResult`
 - 本能：`InstinctApi`
 - 玩家存活：`PlayerLifeStateApi`
+- 玩家体力：`PlayerStaminaApi`、`PlayerStaminaComponent`
+- 玩家移动速度：`PlayerMovementApi`
 - 玩家 / 尸体可见与可选中：`TargetVisibilityApi`
 - 玩家物理碰撞：`PlayerCollisionApi`、`PlayerCollisionContext`、`PlayerCollisionMode`
 - 外观：`PlayerAppearanceApi`、`BodyAppearanceApi`
@@ -320,6 +329,20 @@ Harpymodloader.setRoleMaximum(MY_ROLE, 1);
 - 双重人格这类低优先级外观应给主动变形让路。
 - `PlayerAppearanceApi.resolveOriginalSkinTextures(...)` 用于防止伪装套娃，不要读取目标实体当前已经被覆盖过的皮肤再二次套用。
 
+## 玩家体力和移动速度 API
+
+玩家体力优先接 `dev.doctor4t.wathe.api.stamina.PlayerStaminaApi`，玩家速度优先接 `dev.doctor4t.wathe.api.movement.PlayerMovementApi`。扩展不应再读取旧 `sprintingTicks` NBT，也不要再自己 shadow `forwardSpeed` / `sidewaysSpeed` 或 mixin `travel()`、`jump()`、`getMovementSpeed()` 来覆盖 Wathe 的统一逻辑。
+
+- `PlayerStaminaComponent` 保存当前体力、额外体力上限修正和本局初始化标记，CCA id 是 `wathe:stamina`。
+- `PlayerStaminaApi` 负责清空、回满、增减体力、增加 / 减少体力上限、重置上限修正、判断是否耗尽、是否能疾跑、是否能自主水平移动和是否能跳跃。
+- `PlayerMovementApi.registerSpeedModifier(id, priority, handler)` 负责速度修正规则；handler 返回 `ADD`、`MULTIPLY`、`OVERRIDE` 或 `PASS`，Wathe 会按 priority 从高到低累计。
+- `GameConstants` 集中存基础走路速度、基础疾跑速度、三档疾跑消耗、三档恢复、低落走路消耗、`MID_MOOD_THRESHOLD`、`DEPRESSIVE_MOOD_THRESHOLD` 和两个默认关闭的心情体力惩罚开关。
+- 中等惩罚开启时，低于 `MID_MOOD_THRESHOLD` 使用中等规则：疾跑消耗增加、恢复降低，走路和静止都可以恢复。
+- 低落惩罚开启时，到达并低于 `DEPRESSIVE_MOOD_THRESHOLD` 会禁跑；走路消耗体力，静止恢复。体力归零时不能自主水平移动和跳跃，但击退、传送、水流、载具等外力位移仍保留。
+- 如果只开启中等惩罚而没有开启低落惩罚，低落心情也沿用中等规则。
+- 调试指令：`/wathe:setMood <0-1> [players]`、`/wathe:moodStaminaPenalty`、`/wathe:moodStaminaPenalty mid <true|false>`、`/wathe:moodStaminaPenalty depressive <true|false>`。
+- 扩展侧按职业或词条拆到 `roles/<role>/<RoleName>MovementHandler` 或 `modifiers/<modifier>/*MovementHandler`，聚合 bootstrap 只调用各 handler 的 `init()`。
+
 ## 疯魔模式 API
 
 扩展职业要接入疯魔机制时，优先使用 `dev.doctor4t.wathe.api.psycho`，不要再 mixin `PlayerPsychoComponent`、球棒命中音效、`psycho_drone` 背景音或疯魔皮肤渲染器。
@@ -470,6 +493,14 @@ Harpymodloader.setRoleMaximum(MY_ROLE, 1);
 3. 判断扩展是否应完整继承价格，还是只读某个 option 的某种货币。
 4. 价格、收入、HUD 坐标和阈值放常量。
 5. 渲染改动必须关注背景框、居中、多行向上扩展、余额到 0 的过渡动画。
+
+### 玩家体力 / 移动机制改动
+
+1. 先读 `PlayerStaminaComponent`、`PlayerStaminaApi`、`PlayerMovementApi`、`GameConstants`、`GameWorldComponent`、`PlayerEntityMixin` 和 `LivingEntityMixin`。
+2. 明确要改的是体力存储、体力消耗 / 恢复、体力上限、速度叠加、心情惩罚档位，还是体力归零后的自主移动 / 跳跃限制。
+3. 所有体力、速度、心情阈值和惩罚数值放 `GameConstants`；需要跨世界保存 / 同步的开关放 `GameWorldComponent`。
+4. 扩展侧只调用 `PlayerStaminaApi` 或注册 `PlayerMovementApi.registerSpeedModifier(...)`，不要再新增 `PlayerEntity#getMovementSpeed`、`LivingEntity#travel`、`LivingEntity#jump` 这类重复 mixin。
+5. 改了 Wathe API 后，先编译 Wathe，复制新 jar，再编译 NoellesRoles / kinssaba 等受影响扩展。
 
 ### 新职业 / 新词条
 

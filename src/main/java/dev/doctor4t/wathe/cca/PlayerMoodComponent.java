@@ -956,7 +956,7 @@ public class PlayerMoodComponent implements AutoSyncedComponent, ServerTickingCo
     }
 
     public boolean isLowerThanDepressed() {
-        return this.getMood() < GameConstants.DEPRESSIVE_MOOD_THRESHOLD;
+        return this.getMood() <= GameConstants.DEPRESSIVE_MOOD_THRESHOLD;
     }
 
     public HashMap<UUID, ItemStack> getPsychosisItems() {

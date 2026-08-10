@@ -8,13 +8,16 @@ import com.mojang.datafixers.util.Either;
 import dev.doctor4t.wathe.api.Role;
 import dev.doctor4t.wathe.api.bed.BedEffectRegistry;
 import dev.doctor4t.wathe.api.event.AllowPlayerPunching;
+import dev.doctor4t.wathe.api.movement.PlayerMovementApi;
 import dev.doctor4t.wathe.api.psycho.PsychoModeApi;
 import dev.doctor4t.wathe.api.psycho.PsychoModeProfile;
+import dev.doctor4t.wathe.api.stamina.PlayerStaminaApi;
 import dev.doctor4t.wathe.api.visibility.TargetVisibilityApi;
 import dev.doctor4t.wathe.cca.GameWorldComponent;
 import dev.doctor4t.wathe.cca.MapEnhancementsWorldComponent;
 import dev.doctor4t.wathe.cca.PlayerMoodComponent;
 import dev.doctor4t.wathe.cca.PlayerPoisonComponent;
+import dev.doctor4t.wathe.cca.PlayerStaminaComponent;
 import dev.doctor4t.wathe.config.datapack.MapEnhancementsConfiguration.MovementConfig;
 import dev.doctor4t.wathe.game.GameConstants;
 import dev.doctor4t.wathe.game.GameFunctions;
@@ -25,6 +28,7 @@ import dev.doctor4t.wathe.item.CocktailItem;
 import dev.doctor4t.wathe.record.GameRecordManager;
 import dev.doctor4t.wathe.util.Scheduler;
 import dev.doctor4t.wathe.util.TrayEffectUtils;
+import dev.doctor4t.wathe.util.WatheMovementInputAccess;
 import net.minecraft.component.type.FoodComponent;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.EntityType;
@@ -61,10 +65,6 @@ public abstract class PlayerEntityMixin extends LivingEntity {
     public abstract float getAttackCooldownProgress(float baseTime);
 
     @Unique
-    private float sprintingTicks;
-    @Unique
-    private boolean sprintingTicksResetForCurrentRound;
-    @Unique
     private Scheduler.ScheduledTask poisonSleepTask;
 
     protected PlayerEntityMixin(EntityType<? extends LivingEntity> entityType, World world) {
@@ -74,8 +74,9 @@ public abstract class PlayerEntityMixin extends LivingEntity {
 
     @ModifyReturnValue(method = "getMovementSpeed", at = @At("RETURN"))
     public float wathe$overrideMovementSpeed(float original) {
+        PlayerEntity self = (PlayerEntity) (Object) this;
         GameWorldComponent gameComponent = GameWorldComponent.KEY.get(this.getWorld());
-        if (gameComponent != null && gameComponent.isRunning() && GameFunctions.isPlayerAliveAndSurvival((PlayerEntity) (Object) this)) {
+        if (gameComponent != null && gameComponent.isRunning() && GameFunctions.isPlayerAliveAndSurvival(self)) {
             MovementConfig movement = MapEnhancementsWorldComponent.KEY.get(this.getWorld()).getMovementConfig();
 
             /*
@@ -85,8 +86,18 @@ public abstract class PlayerEntityMixin extends LivingEntity {
             float baseAttributeValue = (float) this.getAttributeBaseValue(EntityAttributes.GENERIC_MOVEMENT_SPEED);
             float vanillaExpectedSpeed = this.isSprinting() ? baseAttributeValue * 1.3f : baseAttributeValue;
             float effectMultiplier = vanillaExpectedSpeed > 0 ? original / vanillaExpectedSpeed : 1.0f;
-            float watheBaseSpeed = this.isSprinting() ? 0.1f * movement.sprintSpeedMultiplier() : 0.07f * movement.walkSpeedMultiplier();
-            return watheBaseSpeed * effectMultiplier;
+            float watheBaseSpeed = this.isSprinting()
+                    ? GameConstants.BASE_SPRINT_MOVEMENT_SPEED * movement.sprintSpeedMultiplier()
+                    : GameConstants.BASE_WALK_MOVEMENT_SPEED * movement.walkSpeedMultiplier();
+            float baseSpeedWithEffects = watheBaseSpeed * effectMultiplier;
+            /*
+             * 体力归零时只封住“自主移动速度”。击退、传送、外部推力仍然走实体速度/位移流程，
+             * 因此不能在这里清 velocity，只把本帧通过移动输入拿到的速度降为 0。
+             */
+            if (!PlayerMovementApi.canSelfMove(self)) {
+                return 0.0F;
+            }
+            return PlayerMovementApi.resolveMovementSpeed(self, original, baseSpeedWithEffects);
         } else {
             return original;
         }
@@ -95,6 +106,7 @@ public abstract class PlayerEntityMixin extends LivingEntity {
     @Inject(method = "tickMovement", at = @At("HEAD"))
     public void wathe$limitSprint(CallbackInfo ci) {
         PlayerEntity self = (PlayerEntity) (Object) this;
+        PlayerStaminaComponent stamina = PlayerStaminaComponent.KEY.get(self);
         GameWorldComponent gameComponent = GameWorldComponent.KEY.get(this.getWorld());
         boolean isRunningGame = gameComponent != null && gameComponent.isRunning();
         if (!isRunningGame) {
@@ -102,7 +114,7 @@ public abstract class PlayerEntityMixin extends LivingEntity {
              * STARTING / INACTIVE 阶段会经过这里，把标记放回 false。
              * 下一局真正进入 ACTIVE 并拿到角色后，有限体力玩家就会再次从 0 开始恢复体力。
              */
-            this.sprintingTicksResetForCurrentRound = false;
+            stamina.setRoundInitialized(false);
             return;
         }
         /*
@@ -118,28 +130,46 @@ public abstract class PlayerEntityMixin extends LivingEntity {
             return;
         }
 
-        if (!this.sprintingTicksResetForCurrentRound) {
+        if (!stamina.isRoundInitialized()) {
             /*
-             * 当前体力值存在玩家 NBT 里，原先不会随每局游戏初始化而清空，
-             * 导致上一局结束时剩多少体力，下一局开局就继承多少体力。
+             * 当前体力值现在存在公开 CCA 组件里。这里仍然保留“本局第一次拿到角色时清空有限体力”的语义，
+             * 避免上一局或调试指令留下的体力值影响新局开局节奏。
              * 这里在每局第一次拿到角色时清空有限体力角色；无限体力角色（-1）不需要处理。
              */
             if (role.getMaxSprintTime() >= 0) {
-                this.sprintingTicks = 0;
+                stamina.clearStamina();
                 this.setSprinting(false);
             }
-            this.sprintingTicksResetForCurrentRound = true;
+            stamina.setRoundInitialized(true);
             return;
         }
 
-        if (role.getMaxSprintTime() >= 0) {
-            if (this.isSprinting()) {
-                sprintingTicks = Math.max(sprintingTicks - 1, 0);//体力减少速度
-            } else {
-                sprintingTicks = Math.min(sprintingTicks + 0.8f, role.getMaxSprintTime());//体力回复速度
+        if (stamina.hasFiniteStaminaLimit()) {
+            stamina.clampStaminaToMax();
+
+            if (this.isSprinting() && !PlayerStaminaApi.canSprint(self)) {
+                this.setSprinting(false);
             }
 
-            if (sprintingTicks <= 0) {
+            PlayerStaminaApi.MoodPenaltyProfile moodPenaltyProfile = PlayerStaminaApi.resolveMoodPenaltyProfile(self);
+            boolean tryingHorizontalSelfMove = ((WatheMovementInputAccess) this).wathe$isTryingHorizontalSelfMove();
+            if (this.isSprinting()) {
+                stamina.drainStamina(PlayerStaminaApi.getSprintDrainPerTick(self));
+            } else if (moodPenaltyProfile == PlayerStaminaApi.MoodPenaltyProfile.DEPRESSIVE && tryingHorizontalSelfMove) {
+                /*
+                 * 低落惩罚开启后，走路也会消耗体力。
+                 * 判定使用玩家自己的输入字段，而不是 velocity，确保击退/推挤/传送这类外力位移不会被当成“走路消耗”。
+                 */
+                stamina.drainStamina(PlayerStaminaApi.getWalkDrainPerTick(self));
+            } else {
+                /*
+                 * 高心情和中等惩罚阶段：非疾跑就恢复体力，走路和静止都可以恢复。
+                 * 低落惩罚阶段：只有没有水平自主移动输入时才会走到这里，符合“停下休息再恢复”的规则。
+                 */
+                stamina.addStamina(PlayerStaminaApi.getRecoveryPerTick(self));
+            }
+
+            if (!PlayerStaminaApi.canSprint(self)) {
                 this.setSprinting(false);
             }
         }
@@ -307,18 +337,6 @@ public abstract class PlayerEntityMixin extends LivingEntity {
         PlayerEntity self = (PlayerEntity) (Object) this;
         GameWorldComponent gameComponent = GameWorldComponent.KEY.get(world);
         return gameComponent != null && gameComponent.isRunning() && GameFunctions.isPlayerAliveAndSurvival(self);
-    }
-
-    @Inject(method = "writeCustomDataToNbt", at = @At("TAIL"))
-    private void wathe$saveData(NbtCompound nbt, CallbackInfo ci) {
-        nbt.putFloat("sprintingTicks", this.sprintingTicks);
-        nbt.putBoolean("sprintingTicksResetForCurrentRound", this.sprintingTicksResetForCurrentRound);
-    }
-
-    @Inject(method = "readCustomDataFromNbt", at = @At("TAIL"))
-    private void wathe$readData(NbtCompound nbt, CallbackInfo ci) {
-        this.sprintingTicks = nbt.getFloat("sprintingTicks");
-        this.sprintingTicksResetForCurrentRound = nbt.getBoolean("sprintingTicksResetForCurrentRound");
     }
 
     @ModifyExpressionValue(method = "tick", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/World;isDay()Z"))
