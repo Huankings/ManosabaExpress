@@ -26,8 +26,10 @@ import org.ladysnake.cca.api.v3.component.tick.ClientTickingComponent;
 import org.ladysnake.cca.api.v3.component.tick.ServerTickingComponent;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 
@@ -44,6 +46,26 @@ public int getFixedKillerCount() { return this.fixedKillerCount; }
 
     private boolean lockedToSupporters = false;
     private boolean enableWeights = false;
+    /**
+     * 当前世界各个游戏模式允许自动/手动开局的准备区玩家人数。
+     *
+     * <p>这里按 game mode id 分开保存，而不是共用一份全局数字：
+     * 1. Discovery 可以固定 1 人；
+     * 2. Murder 和 Harpy 的 modded murder 可以各自调默认值；
+     * 3. Loose Ends 维持 2 人底线；
+     * 4. 管理员还能按模式单独覆盖，方便调试。</p>
+     *
+     * <p>这个 map 只保存“覆盖值”。未覆盖的模式会回退到
+     * {@link GameConstants#getDefaultStartPlayerCount(Identifier)}。</p>
+     */
+    private final HashMap<Identifier, Integer> requiredStartPlayerCounts = new HashMap<>();
+    /**
+     * 旧版本单值开局人数配置的兼容兜底。
+     *
+     * <p>读取旧存档时，如果还没有新的按模式配置，就把这份单值作为全局兜底，
+     * 避免升级后立刻把老世界的调试人数丢掉。</p>
+     */
+    private Integer legacyRequiredStartPlayerCount = null;
     /**
      * 心情死亡机制开关。
      * 默认开启；关闭后心情归零不会死亡，同时客户端也不会显示崩溃预警。
@@ -107,6 +129,69 @@ public int getFixedKillerCount() { return this.fixedKillerCount; }
 
     public boolean areWeightsEnabled() {
         return enableWeights;
+    }
+
+    /**
+     * 返回当前激活模式对应的开局人数配置。
+     *
+     * <p>如果玩家还没切出当前模式，或者需要做兼容旧接口的查询，
+     * 就会直接看当前世界的 gameMode 作为 key。</p>
+     */
+    public int getRequiredStartPlayerCountSetting() {
+        return getRequiredStartPlayerCountSetting(this.gameMode == null ? null : this.gameMode.identifier);
+    }
+
+    /**
+     * 返回指定模式的开局人数配置。
+     *
+     * <p>优先读取模式覆盖值；如果没有覆盖，则回退到旧版单值兜底；
+     * 再没有就使用 {@link GameConstants#getDefaultStartPlayerCount(Identifier)}。</p>
+     */
+    public int getRequiredStartPlayerCountSetting(@Nullable Identifier gameModeId) {
+        if (gameModeId != null) {
+            Integer count = this.requiredStartPlayerCounts.get(gameModeId);
+            if (count != null) {
+                return count;
+            }
+        }
+        if (this.legacyRequiredStartPlayerCount != null) {
+            return this.legacyRequiredStartPlayerCount;
+        }
+        return GameConstants.getDefaultStartPlayerCount(gameModeId);
+    }
+
+    /**
+     * 修改当前激活模式的开局人数配置。
+     *
+     * <p>这个重载保留给旧调用点使用，行为等同于
+     * {@link #setRequiredStartPlayerCountSetting(Identifier, int)} 作用到当前 gameMode。</p>
+     */
+    public void setRequiredStartPlayerCountSetting(int requiredStartPlayerCount) {
+        setRequiredStartPlayerCountSetting(this.gameMode == null ? null : this.gameMode.identifier, requiredStartPlayerCount);
+    }
+
+    /**
+     * 修改指定模式的开局人数配置。
+     *
+     * <p>最小值限制为 1，避免配置成 0 后准备区没人也能触发开局；
+     * 修改后立即同步，保证 LobbyPlayersRenderer 下一帧就能显示新人数。</p>
+     */
+    public void setRequiredStartPlayerCountSetting(@Nullable Identifier gameModeId, int requiredStartPlayerCount) {
+        if (gameModeId == null) {
+            this.legacyRequiredStartPlayerCount = Math.max(1, requiredStartPlayerCount);
+        } else {
+            this.requiredStartPlayerCounts.put(gameModeId, Math.max(1, requiredStartPlayerCount));
+        }
+        this.sync();
+    }
+
+    /**
+     * 返回所有已保存的模式开局人数覆盖值。
+     *
+     * <p>这个副本只用于指令列表展示，外部不要直接改它。</p>
+     */
+    public Map<Identifier, Integer> getRequiredStartPlayerCountSettings() {
+        return Collections.unmodifiableMap(this.requiredStartPlayerCounts);
     }
 
     public boolean isMoodEffectDeathEnabled() {
@@ -685,6 +770,27 @@ this.fixedKillerCount = nbtCompound.contains("FixedKillerCount") ? nbtCompound.g
 
         this.lockedToSupporters = false;
         this.enableWeights = nbtCompound.getBoolean("EnableWeights");
+        this.requiredStartPlayerCounts.clear();
+        this.legacyRequiredStartPlayerCount = null;
+        if (nbtCompound.contains("RequiredStartPlayerCounts")) {
+            NbtList startCounts = nbtCompound.getList("RequiredStartPlayerCounts", NbtElement.COMPOUND_TYPE);
+            for (NbtElement element : startCounts) {
+                if (!(element instanceof NbtCompound startCountNbt)) {
+                    continue;
+                }
+                if (!startCountNbt.contains("id") || !startCountNbt.contains("count")) {
+                    continue;
+                }
+                Identifier modeId = Identifier.tryParse(startCountNbt.getString("id"));
+                if (modeId == null) {
+                    continue;
+                }
+                this.requiredStartPlayerCounts.put(modeId, Math.max(1, startCountNbt.getInt("count")));
+            }
+        } else if (nbtCompound.contains("RequiredStartPlayerCount")) {
+            // 旧版单值配置兼容：只有当新按模式配置不存在时，才把旧值当成全局兜底。
+            this.legacyRequiredStartPlayerCount = Math.max(1, nbtCompound.getInt("RequiredStartPlayerCount"));
+        }
         this.moodEffectDeathEnabled = !nbtCompound.contains("MoodEffectDeathEnabled") || nbtCompound.getBoolean("MoodEffectDeathEnabled");
         this.midMoodStaminaPenaltyEnabled = nbtCompound.contains("MidMoodStaminaPenaltyEnabled")
                 ? nbtCompound.getBoolean("MidMoodStaminaPenaltyEnabled")
@@ -767,6 +873,17 @@ this.fixedKillerCount = nbtCompound.contains("FixedKillerCount") ? nbtCompound.g
         nbtCompound.putInt("FixedKillerCount", fixedKillerCount);
         nbtCompound.putBoolean("LockedToSupporters", lockedToSupporters);
         nbtCompound.putBoolean("EnableWeights", enableWeights);
+        NbtList startCounts = new NbtList();
+        for (Map.Entry<Identifier, Integer> entry : this.requiredStartPlayerCounts.entrySet()) {
+            NbtCompound startCountNbt = new NbtCompound();
+            startCountNbt.putString("id", entry.getKey().toString());
+            startCountNbt.putInt("count", entry.getValue());
+            startCounts.add(startCountNbt);
+        }
+        nbtCompound.put("RequiredStartPlayerCounts", startCounts);
+        if (this.legacyRequiredStartPlayerCount != null && this.requiredStartPlayerCounts.isEmpty()) {
+            nbtCompound.putInt("RequiredStartPlayerCount", this.legacyRequiredStartPlayerCount);
+        }
         nbtCompound.putBoolean("MoodEffectDeathEnabled", moodEffectDeathEnabled);
         nbtCompound.putBoolean("MidMoodStaminaPenaltyEnabled", midMoodStaminaPenaltyEnabled);
         nbtCompound.putBoolean("DepressiveMoodStaminaPenaltyEnabled", depressiveMoodStaminaPenaltyEnabled);

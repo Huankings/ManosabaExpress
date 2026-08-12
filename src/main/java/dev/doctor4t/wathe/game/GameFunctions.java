@@ -5,6 +5,7 @@ import dev.doctor4t.wathe.Wathe;
 import dev.doctor4t.wathe.api.GameMode;
 import dev.doctor4t.wathe.api.MapEffect;
 import dev.doctor4t.wathe.api.PlayerLifeStateApi;
+import dev.doctor4t.wathe.api.WatheGameModes;
 import dev.doctor4t.wathe.api.appearance.BodyAppearanceApi;
 import dev.doctor4t.wathe.api.death.BodySpawnContext;
 import dev.doctor4t.wathe.api.death.DeathApi;
@@ -70,8 +71,12 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
+import java.util.function.BiFunction;
 
 public class GameFunctions {
+    private static final List<BiFunction<World, GameMode, GameMode>> START_GAME_MODE_RESOLVERS = new ArrayList<>();
+    private static final List<Runnable> AFTER_START_GAME_ATTEMPT = new ArrayList<>();
+
     /**
      * 额外死亡回放数据的线程本地暂存区。
      *
@@ -171,43 +176,118 @@ public class GameFunctions {
      * 当关闭渐进式重置时，则保持原版行为，直接进入 STARTING。</p>
      */
     public static void startGame(ServerWorld world, GameMode gameMode, MapEffect mapEffect, int time) {
-        MapVotingComponent votingComponent = MapVotingComponent.KEY.get(world.getServer().getScoreboard());
-        if (votingComponent.isVotingActive()) {
-            for (ServerPlayerEntity player : world.getPlayers()) {
-                player.sendMessage(Text.translatable("game.start_error.voting_active"), true);
-            }
-            return;
-        }
-
-        GameWorldComponent game = GameWorldComponent.KEY.get(world);
-        MapVariablesWorldComponent areas = MapVariablesWorldComponent.KEY.get(world);
-        int playerCount = Math.toIntExact(world.getPlayers().stream().filter(serverPlayerEntity -> isPlayerInReadyArea(serverPlayerEntity, areas)).count());
-        game.setGameMode(gameMode);
-        game.setMapEffect(mapEffect);
-        GameTimeComponent.KEY.get(world).setResetTime(time);
-
-        if (playerCount >= gameMode.minPlayerCount) {
-            if (game.isGradualResetEnabled()) {
-                // 如果渐进式重置已经在运行，则忽略重复开局请求。
-                if (game.isGradualResetInProgress()) {
-                    return;
+        try {
+            MapVotingComponent votingComponent = MapVotingComponent.KEY.get(world.getServer().getScoreboard());
+            if (votingComponent.isVotingActive()) {
+                for (ServerPlayerEntity player : world.getPlayers()) {
+                    player.sendMessage(Text.translatable("game.start_error.voting_active"), true);
                 }
-
-                MapResetTask task = new MapResetTask(world, () -> {
-                    // 地图已经在 initializeGame 之前恢复完成，
-                    // 因此下一次初始化时要跳过原版的一次性排队重置。
-                    game.setSkipQueuedMapResetOnce(true);
-                    game.setGameStatus(GameWorldComponent.GameStatus.STARTING);
-                });
-                game.startGradualReset(task);
-            } else {
-                game.setGameStatus(GameWorldComponent.GameStatus.STARTING);
+                return;
             }
-        } else {
-            for (ServerPlayerEntity player : world.getPlayers()) {
-                player.sendMessage(Text.translatable("game.start_error.not_enough_players", gameMode.minPlayerCount), true);
+
+            GameMode resolvedGameMode = resolveStartGameMode(world, gameMode);
+            GameWorldComponent game = GameWorldComponent.KEY.get(world);
+            MapVariablesWorldComponent areas = MapVariablesWorldComponent.KEY.get(world);
+            int playerCount = Math.toIntExact(world.getPlayers().stream().filter(serverPlayerEntity -> isPlayerInReadyArea(serverPlayerEntity, areas)).count());
+            /*
+             * 保存“本次真正准备启动的模式”，而不是命令或大厅最初传入的模式。
+             * HarpyModLoader 默认会把 Murder 开局替换成 harpymodloader:modded；
+             * 如果不在人数判断前解析，Harpy 独立的开局人数配置就不会生效。
+             */
+            game.setGameMode(resolvedGameMode);
+            game.setMapEffect(mapEffect);
+            GameTimeComponent.KEY.get(world).setResetTime(time);
+            int requiredPlayerCount = getRequiredStartPlayerCount(world, resolvedGameMode);
+
+            if (playerCount >= requiredPlayerCount) {
+                if (game.isGradualResetEnabled()) {
+                    // 如果渐进式重置已经在运行，则忽略重复开局请求。
+                    if (game.isGradualResetInProgress()) {
+                        return;
+                    }
+
+                    MapResetTask task = new MapResetTask(world, () -> {
+                        // 地图已经在 initializeGame 之前恢复完成，
+                        // 因此下一次初始化时要跳过原版的一次性排队重置。
+                        game.setSkipQueuedMapResetOnce(true);
+                        game.setGameStatus(GameWorldComponent.GameStatus.STARTING);
+                    });
+                    game.startGradualReset(task);
+                } else {
+                    game.setGameStatus(GameWorldComponent.GameStatus.STARTING);
+                }
+            } else {
+                for (ServerPlayerEntity player : world.getPlayers()) {
+                    player.sendMessage(Text.translatable("game.start_error.not_enough_players", requiredPlayerCount), true);
+                }
+            }
+        } finally {
+            /*
+             * 扩展可能在 startGame 前临时放置“一次性开局意图”。
+             * 不论本次因为投票、人数不足、地图渐进式重置已在运行而成功或失败，
+             * 都要给扩展一次收尾机会，避免下一次自动开局读到陈旧状态。
+             */
+            for (Runnable listener : AFTER_START_GAME_ATTEMPT) {
+                listener.run();
             }
         }
+    }
+
+    /**
+     * 注册“开局前游戏模式解析器”。
+     *
+     * <p>这个入口留给 HarpyModLoader 这类扩展：它们可能在用户选择 Murder 时，
+     * 实际想启动自己的 modded murder 模式。解析发生在人数判断、自动开局倒计时和
+     * GameWorldComponent 保存模式之前，因此按模式配置的开局人数、HUD 文本和最终开局模式
+     * 会保持一致。</p>
+     */
+    public static void registerStartGameModeResolver(BiFunction<World, GameMode, GameMode> resolver) {
+        START_GAME_MODE_RESOLVERS.add(resolver);
+    }
+
+    /**
+     * 注册开局尝试结束后的收尾监听。
+     *
+     * <p>主要用于清理扩展在 startGame 之前设置的临时状态。
+     * 监听会在人数不足、投票阻止、重复开局请求等提前返回路径之后照常执行。</p>
+     */
+    public static void registerAfterStartGameAttempt(Runnable listener) {
+        AFTER_START_GAME_ATTEMPT.add(listener);
+    }
+
+    /**
+     * 解析本次开局真正使用的游戏模式。
+     *
+     * <p>解析器返回 {@code null} 表示不处理，继续交给后面的解析器；
+     * 返回非空模式则作为新的候选模式继续向后传递，方便多个扩展按顺序叠加。</p>
+     */
+    public static GameMode resolveStartGameMode(@NotNull World world, @Nullable GameMode requestedGameMode) {
+        GameMode resolvedGameMode = requestedGameMode == null ? WatheGameModes.MURDER : requestedGameMode;
+        for (BiFunction<World, GameMode, GameMode> resolver : START_GAME_MODE_RESOLVERS) {
+            GameMode replacement = resolver.apply(world, resolvedGameMode);
+            if (replacement != null) {
+                resolvedGameMode = replacement;
+            }
+        }
+        return resolvedGameMode;
+    }
+
+    /**
+     * 解析当前世界真正用于“是否允许开局”的准备区玩家人数。
+     *
+     * <p>这里是手动开局、喇叭开局、自动开局和大厅 HUD 共用的唯一入口：
+     * 1. GameMode.minPlayerCount 仍保留为模式自身的硬性最低人数，兼容 Loose Ends 等特殊模式；
+     * 2. GameWorldComponent 里的按模式开局人数配置，是服务器可通过指令调整的玩法门槛；
+     * 3. 两者取较大值，避免某些模式被指令调到低于自身玩法能运行的最低人数。</p>
+     *
+     * <p>这里不会再按 killerDividend 自动抬高人数。若管理员把人数设置得低于杀手比例分母，
+     * 视为调试测试局，由管理员自行通过强制职业、固定杀手数等指令安排本局身份。</p>
+     */
+    public static int getRequiredStartPlayerCount(@NotNull World world, @Nullable GameMode gameMode) {
+        GameWorldComponent game = GameWorldComponent.KEY.get(world);
+        int configuredMinimum = game.getRequiredStartPlayerCountSetting(gameMode == null ? null : gameMode.identifier);
+        int modeMinimum = gameMode == null ? 1 : gameMode.minPlayerCount;
+        return Math.max(1, Math.max(configuredMinimum, modeMinimum));
     }
 
     public static void stopGame(ServerWorld world) {

@@ -312,7 +312,7 @@
   "itemGroup.wathe.decoration": "TrainMurderMystery: Trang Trí & Chức Năng",
   "itemGroup.wathe.equipment": "TrainMurderMystery: Trang Bị",
   "key.wathe.instinct": "Bản Năng",
-  "lobby.autostart.active": "Trò chơi sẽ bắt đầu khi có trên 6 người chơi lên tàu",
+  "lobby.autostart.active": "Trò chơi sẽ bắt đầu khi có trên %s người chơi lên tàu",
   "lobby.autostart.starting": "Trò chơi đang bắt đầu",
   "lobby.autostart.time": "Trò chơi bắt đầu sau %ss",
   "lobby.players.count": "Người chơi đã lên tàu: %s / %s",

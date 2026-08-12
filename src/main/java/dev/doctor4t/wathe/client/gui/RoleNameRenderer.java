@@ -42,9 +42,15 @@ public class RoleNameRenderer {
             targetEntity = null;
             return;
         }
-        if (player.getWorld().getLightLevel(LightType.BLOCK, BlockPos.ofFloored(player.getEyePos())) < 3 && player.getWorld().getLightLevel(LightType.SKY, BlockPos.ofFloored(player.getEyePos())) < 10)
+        boolean spectatorOrCreative = GameFunctions.isPlayerSpectatingOrCreative(player);
+        /*
+         * 黑暗环境下仍然隐藏“局内存活玩家”的准心名字，保留停电/夜间玩法的信息限制。
+         * 但旁观/创造且没有特殊存活授权的玩家已经不参与本局胜负和推理，
+         * 需要能在停电等黑暗环境里继续观察存活玩家名字，方便复盘、导播和管理员查看。
+         */
+        if (!spectatorOrCreative && player.getWorld().getLightLevel(LightType.BLOCK, BlockPos.ofFloored(player.getEyePos())) < 3 && player.getWorld().getLightLevel(LightType.SKY, BlockPos.ofFloored(player.getEyePos())) < 10)
             return;
-        float range = GameFunctions.isPlayerSpectatingOrCreative(player) ? 8f : 2f;
+        float range = spectatorOrCreative ? 8f : 2f;
         Entity raycastSource = RoleNameHudApi.resolveRaycastSource(player);
         if (ProjectileUtil.getCollision(raycastSource, entity -> {
             if (entity instanceof PlayerEntity target) {

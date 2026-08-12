@@ -103,7 +103,7 @@ Wathe 是一个基于 **Minecraft 1.21.1 + Fabric** 的列车狼人杀 / 社交�
 1. `StartCommand` 读取当前世界的 `GameWorldComponent`、`GameMode` 和 `MapEffect`。
 2. `GameFunctions.startGame(...)` 检查地图投票是否还在进行。
 3. 从 `MapVariablesWorldComponent.readyArea` 里统计准备区玩家。
-4. 如果人数满足当前模式的 `minPlayerCount`，进入开局流程。
+4. 如果人数满足当前世界统一解析出的开局人数门槛，进入开局流程。
 5. 如果开启了渐进式地图重置，先执行 `MapResetTask`，完成后再进入 `STARTING`。
 6. `GameWorldComponent.tickCommon()` 推进黑屏计时，时间到后调用 `GameFunctions.initializeGame(...)`。
 7. `baseInitialize(...)` 会清理旧状态、设置游戏规则、切换玩家模式、重置玩家组件、复制地图、应用地图增强、分配房间和钥匙。
@@ -801,6 +801,9 @@ Wathe 默认规则仍受 `/wathe:playerCollision` 和 `/wathe:startnoCollision` 
 | `/wathe:allowjump <true|false|check>` | 开关局内存活玩家跳跃 |
 | `/wathe:playerCollision <true|false|check>` | 开关局内存活玩家碰撞 |
 | `/wathe:startnoCollision <seconds|check>` | 设置开局无碰撞保护时间 |
+| `/wathe:startPlayerCount [players]` | 查询或设置当前游戏模式准备区达到多少玩家后允许开局 |
+| `/wathe:startPlayerCount mode <gameMode> [players]` | 查询或设置指定游戏模式的开局人数 |
+| `/wathe:startPlayerCount list` | 列出所有已注册游戏模式的开局人数 |
 | `/wathe:setGradualReset <true|false|check>` | 开关渐进式地图重置 |
 | `/wathe:gamemode <player> <mode> [specialAlive]` | 调试用：切换玩家原版游戏模式，并可标记 Wathe 玩法存活 |
 | `/wathe:taskPoints reload` | 重扫任务点并广播 |
@@ -846,7 +849,7 @@ Datagen 入口是 `WatheDatagen`，相关类包括：
 
 1. supporter 指令限制已放开：`executeSupporterCommand` 只依赖 OP 权限。
 2. `GameWorldComponent.isLockedToSupporters()` 始终返回 `false`，服务器不会真的锁 supporter。
-3. 游戏模式最小人数被调低，Murder / Discovery 允许 1 人启动，方便本地测试。
+3. 游戏模式开局人数已按模式分开：Murder 默认 6 人、Harpy modded 默认 6 人、Discovery 默认 1 人、Loose Ends 默认 2 人；各模式硬性最低人数和默认门槛都集中在 `GameConstants`，并可用 `/wathe:startPlayerCount` 按模式动态调整。
 4. 新增或强化了 `Faction` 阵营语义，避免扩展职业继续混用 `isInnocent` 和 `canUseKiller`。
 5. 义警左轮延后到最终职业确定后发放，避免扩展义警替换后仍拿到原版左轮。
 6. 地图投票支持跨维度晚加入玩家回拉，避免玩家出生在错误世界。

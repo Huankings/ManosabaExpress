@@ -278,7 +278,7 @@
   "game.psycho_mode.time": "Őrült mód: %s",
   
   "game.start_error.game_running": "A játék nem indulhat el: a játék már megy.", 
-  "game.start_error.not_enough_players": "A játék nem indulhat el: minimum 6 játékos kell.",
+  "game.start_error.not_enough_players": "A játék nem indulhat el: minimum %s játékos kell.",
   
   "game.tip.cohort": "Gyilkos Partner",
   
@@ -329,7 +329,7 @@
   
   "key.wathe.instinct": "Ösztön",
   
-  "lobby.autostart.active": "A játék elfog indulni amikor 6+ játékosok vannak a vonaton", 
+  "lobby.autostart.active": "A játék elfog indulni amikor %s+ játékosok vannak a vonaton",
   "lobby.autostart.starting": "A játék indul", 
   "lobby.autostart.time": "A játék indulni fog %s-másodperc múlva", 
   "lobby.players.count": "Vonaton lévő játékosok %s / %s", 

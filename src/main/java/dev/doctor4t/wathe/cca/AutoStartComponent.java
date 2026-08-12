@@ -65,11 +65,18 @@ public class AutoStartComponent implements AutoSyncedComponent, CommonTickingCom
         }
 
         GameMode gameMode = gameWorldComponent.getGameMode();
-        if (GameFunctions.getReadyPlayerCount(world) >= gameMode.minPlayerCount) {
+        /*
+         * 自动开局也必须先解析扩展实际要启动的模式。
+         * 例如 Harpy 默认会把 Murder 大厅替换成 modded murder，
+         * 这里提前解析后，倒计时门槛和真正 startGame 使用的门槛才会一致。
+         */
+        GameMode resolvedGameMode = GameFunctions.resolveStartGameMode(world, gameMode);
+        int requiredPlayerCount = GameFunctions.getRequiredStartPlayerCount(world, resolvedGameMode);
+        if (GameFunctions.getReadyPlayerCount(world) >= requiredPlayerCount) {
             if (this.time-- == 0 && this.world instanceof ServerWorld serverWorld) {
                 if (gameWorldComponent.getGameStatus() == GameWorldComponent.GameStatus.INACTIVE) {
                     // defaultStartTime 已经是 tick，自动开局时不能再按分钟重复换算。
-                    GameFunctions.startGame(serverWorld, gameMode, gameWorldComponent.getMapEffect(), gameMode.defaultStartTime);
+                    GameFunctions.startGame(serverWorld, resolvedGameMode, gameWorldComponent.getMapEffect(), resolvedGameMode.defaultStartTime);
                     return;
                 }
             }

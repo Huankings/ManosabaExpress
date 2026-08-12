@@ -314,7 +314,7 @@
   "itemGroup.wathe.decoration": "Wathe: Decoration & Functional",
   "itemGroup.wathe.equipment": "Wathe: Equipment",
   "key.wathe.instinct": "Instinct",
-  "lobby.autostart.active": "Game will start once 6+ players are boarded",
+  "lobby.autostart.active": "Game will start once %s+ players are boarded",
   "lobby.autostart.starting": "Game starting",
   "lobby.autostart.time": "Game starting in %ss",
   "lobby.players.count": "Players boarded: %s / %s",

@@ -102,12 +102,22 @@ public class LobbyPlayersRenderer {
         if (autoStartComponent.isAutoStartActive()) {
             MutableText autoStartText;
             int color = COLOR_DIM;
-            if (readyPlayerCount >= game.getGameMode().minPlayerCount) {
+            /*
+             * 大厅 HUD 展示的是“当前大厅实际会触发的模式人数”。
+             * Harpy 这类扩展可能把默认 Murder 大厅解析成自己的 modded 模式，
+             * 因此这里也走同一套解析入口，避免 HUD 显示 Murder 人数、实际按 Harpy 人数开局。
+             */
+            int requiredPlayerCount = GameFunctions.getRequiredStartPlayerCount(world, GameFunctions.resolveStartGameMode(world, game.getGameMode()));
+            if (readyPlayerCount >= requiredPlayerCount) {
                 int seconds = autoStartComponent.getTime() / 20;
                 autoStartText = Text.translatable(seconds <= 0 ? "lobby.autostart.starting" : "lobby.autostart.time", seconds);
                 color = 0xFF00BC16;
             } else {
-                autoStartText = Text.translatable("lobby.autostart.active");
+                /*
+                 * 自动开局提示必须读取和服务端 startGame 相同的开局人数。
+                 * 否则管理员用 /wathe:startPlayerCount 调整后，HUD 仍会显示旧的硬编码 6 人。
+                 */
+                autoStartText = Text.translatable("lobby.autostart.active", requiredPlayerCount);
             }
             context.drawTextWithShadow(renderer, autoStartText, -renderer.getWidth(autoStartText) / 2, 10, color);
         }

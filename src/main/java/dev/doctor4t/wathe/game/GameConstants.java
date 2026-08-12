@@ -35,6 +35,65 @@ public interface GameConstants {
      */
     int DEFAULT_GAME_START_TIME = getInTicks(8, 30);
 
+    /**
+     * Murder 模式自身允许调试开局的硬性最低人数。
+     *
+     * <p>这里和“正式默认开局人数”分开：模式硬底线为 1，方便管理员用
+     * /wathe:startPlayerCount 调低后开测试局；正式默认门槛见
+     * {@link #DEFAULT_MURDER_START_PLAYER_COUNT}。</p>
+     */
+    int MIN_MURDER_PLAYER_COUNT = 1;
+    /**
+     * Discovery 探索模式自身允许调试开局的硬性最低人数。
+     */
+    int MIN_DISCOVERY_PLAYER_COUNT = 1;
+    /**
+     * Loose Ends / 孤行者模式至少需要 2 人，否则“最后一人存活”的核心规则没有意义。
+     */
+    int MIN_LOOSE_ENDS_PLAYER_COUNT = 2;
+
+    /**
+     * Murder 模式默认允许开局的准备区人数。
+     */
+    int DEFAULT_MURDER_START_PLAYER_COUNT = 6;
+    /**
+     * HarpyModLoader 的 modded murder 模式默认允许开局的准备区人数。
+     *
+     * <p>Wathe 不直接依赖 Harpy 工程，因此这里只保存它稳定使用的 game mode id。
+     * Harpy 加载后会把 {@code harpymodloader:modded} 注册进 WatheGameModes，指令即可单独调整。</p>
+     */
+    int DEFAULT_HARPY_MODDED_START_PLAYER_COUNT = 6;
+    /**
+     * Discovery 探索模式默认 1 人即可启动，方便单人看图和调试地图。
+     */
+    int DEFAULT_DISCOVERY_START_PLAYER_COUNT = 1;
+    /**
+     * Loose Ends / 孤行者模式默认 2 人即可启动。
+     */
+    int DEFAULT_LOOSE_ENDS_START_PLAYER_COUNT = 2;
+    /**
+     * 未知扩展模式的默认开局人数兜底。
+     *
+     * <p>扩展模式如果没有单独注册默认值，会先走这个兜底；管理员仍然可以通过
+     * /wathe:startPlayerCount mode <gameMode> <players> 单独覆盖。</p>
+     */
+    int DEFAULT_UNKNOWN_MODE_START_PLAYER_COUNT = DEFAULT_MURDER_START_PLAYER_COUNT;
+
+    Identifier HARPY_MODDED_GAME_MODE_ID = Identifier.of("harpymodloader", "modded");
+    Map<Identifier, Integer> DEFAULT_START_PLAYER_COUNTS = Util.make(new HashMap<>(), defaults -> {
+        defaults.put(Wathe.id("murder"), DEFAULT_MURDER_START_PLAYER_COUNT);
+        defaults.put(HARPY_MODDED_GAME_MODE_ID, DEFAULT_HARPY_MODDED_START_PLAYER_COUNT);
+        defaults.put(Wathe.id("discovery"), DEFAULT_DISCOVERY_START_PLAYER_COUNT);
+        defaults.put(Wathe.id("loose_ends"), DEFAULT_LOOSE_ENDS_START_PLAYER_COUNT);
+    });
+
+    static int getDefaultStartPlayerCount(@Nullable Identifier gameModeId) {
+        if (gameModeId == null) {
+            return DEFAULT_UNKNOWN_MODE_START_PLAYER_COUNT;
+        }
+        return DEFAULT_START_PLAYER_COUNTS.getOrDefault(gameModeId, DEFAULT_UNKNOWN_MODE_START_PLAYER_COUNT);
+    }
+
     // Blocks
     int DOOR_AUTOCLOSE_TIME = getInTicks(0, 5);
 

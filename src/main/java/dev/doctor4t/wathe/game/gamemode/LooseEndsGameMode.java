@@ -23,7 +23,7 @@ import java.util.List;
 
 public class LooseEndsGameMode extends GameMode {
     public LooseEndsGameMode(Identifier identifier) {
-        super(identifier, 60, 2);
+        super(identifier, 60, GameConstants.MIN_LOOSE_ENDS_PLAYER_COUNT);
     }
 
     @Override

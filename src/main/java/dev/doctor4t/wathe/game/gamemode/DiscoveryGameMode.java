@@ -15,8 +15,8 @@ import java.util.List;
 
 public class DiscoveryGameMode extends GameMode {
     public DiscoveryGameMode(Identifier identifier) {
-        // 默认游戏时长统一从 GameConstants 读取，避免 10 分钟写死在模式构造器里。
-        super(identifier, GameConstants.DEFAULT_GAME_START_TIME, 1);
+        // 默认游戏时长统一从 GameConstants 读取；开局人数默认值由世界配置提供，方便指令调试。
+        super(identifier, GameConstants.DEFAULT_GAME_START_TIME, GameConstants.MIN_DISCOVERY_PLAYER_COUNT);
     }
 
     @Override

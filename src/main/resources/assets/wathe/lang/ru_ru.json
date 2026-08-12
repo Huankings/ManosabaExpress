@@ -312,7 +312,7 @@
   "itemGroup.wathe.decoration": "TMM: Декорации и Функционал",
   "itemGroup.wathe.equipment": "TMM: Снаряжение",
   "key.wathe.instinct": "Инстинкт",
-  "lobby.autostart.active": "Игра начнётся, когда в поезде будет 6+ игроков",
+  "lobby.autostart.active": "Игра начнётся, когда в поезде будет %s+ игроков",
   "lobby.autostart.starting": "Игра начинается...",
   "lobby.autostart.time": "Игра начнётся через: %sс",
   "lobby.players.count": "Игроков в поезде: %s / %s",

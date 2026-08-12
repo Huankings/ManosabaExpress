@@ -29,9 +29,10 @@ public class MurderGameMode extends GameMode {
     public MurderGameMode(Identifier identifier) {
         /*
          * 第二个参数是开局后的默认游戏时长（tick），统一放到 GameConstants 里方便后续调整到秒。
-         * 第三个参数 1 表示只要有 1 个人就能启动，方便测试。
+         * 第三个参数只保留模式自身的硬性底线，真正默认 6 人门槛由 GameWorldComponent 的世界配置提供。
+         * 这样管理员用 /wathe:startPlayerCount 调低人数时，可以正常开调试局。
          */
-        super(identifier, GameConstants.DEFAULT_GAME_START_TIME, 1);
+        super(identifier, GameConstants.DEFAULT_GAME_START_TIME, GameConstants.MIN_MURDER_PLAYER_COUNT);
     }
 
     private static int assignRolesAndGetKillerCount(@NotNull ServerWorld world, @NotNull List<ServerPlayerEntity> players, GameWorldComponent gameComponent) {
