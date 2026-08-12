@@ -43,6 +43,7 @@ import net.minecraft.nbt.NbtCompound;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.sound.SoundEvent;
 import net.minecraft.sound.SoundCategory;
+import net.minecraft.util.Identifier;
 import net.minecraft.util.Unit;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.MathHelper;
@@ -194,18 +195,28 @@ public abstract class PlayerEntityMixin extends LivingEntity {
         }
 
         PsychoModeProfile psychoProfile = PsychoModeApi.getActiveProfile(self);
-        if (psychoProfile != null
-                && psychoProfile.isMeleeWeapon(self, mainHandStack)
+        boolean psychoMeleeWeapon = psychoProfile != null && psychoProfile.isMeleeWeapon(self, mainHandStack);
+        boolean standaloneBat = mainHandStack.isOf(WatheItems.BAT);
+        if ((psychoMeleeWeapon || standaloneBat)
                 && target instanceof PlayerEntity playerTarget
                 && this.getAttackCooldownProgress(0.5F) >= 1f) {
+            /*
+             * 球棒基础机制必须独立于疯魔状态生效。
+             *
+             * 疯魔激活时，profile 可以改死亡原因、命中音效、回放名称和未来可能的特殊近战武器；
+             * 没有疯魔时，只要玩家真实手持 Wathe 球棒，就按原本球棒死亡原因结算。
+             * 这样修复“未开疯魔拿球棒无法造成伤害”的问题，同时不破坏 NoellesRoles 的弹簧陷阱、
+             * 狂信者/静语者疯魔等 profile 扩展。
+             */
+            Identifier meleeDeathReason = psychoMeleeWeapon ? psychoProfile.meleeDeathReason() : GameConstants.DeathReasons.BAT;
             if (self instanceof ServerPlayerEntity serverPlayer && playerTarget instanceof ServerPlayerEntity serverTarget) {
-                GameRecordManager.recordItemHit(serverPlayer, serverPlayer.getMainHandStack(), psychoProfile.meleeDeathReason(), serverTarget, null);
+                GameRecordManager.recordItemHit(serverPlayer, serverPlayer.getMainHandStack(), meleeDeathReason, serverTarget, null);
             }
             NbtCompound replayData = self instanceof ServerPlayerEntity serverPlayer
                     ? GameFunctions.createReplayItemData(serverPlayer.getServerWorld(), mainHandStack)
                     : null;
-            GameFunctions.killPlayer(playerTarget, true, self, psychoProfile.meleeDeathReason(), replayData);
-            SoundEvent hitSound = psychoProfile.hitSound();
+            GameFunctions.killPlayer(playerTarget, true, self, meleeDeathReason, replayData);
+            SoundEvent hitSound = psychoMeleeWeapon ? psychoProfile.hitSound() : WatheSounds.ITEM_BAT_HIT;
             if (hitSound != null) {
                 self.getEntityWorld().playSound(self,
                         playerTarget.getX(), playerTarget.getEyeY(), playerTarget.getZ(),

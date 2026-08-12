@@ -69,6 +69,14 @@ public final class PsychoModeApi {
                 .selectFirstGrantedItem(true)
                 .preventDroppingLockedItems(true)
                 .meleeKill(true, GameConstants.DeathReasons.BAT)
+                /*
+                 * 默认疯魔的伤害武器本质上就是 Wathe 球棒。
+                 * 锁栏、结束回收仍然依赖 Wathe 自动写入的 PSYCHO_GRANTED_PROFILE 标记；
+                 * 但准心显示和服务端击杀不应完全依赖这个临时标记，否则调试给出的球棒、
+                 * 或极少数背包同步/复制导致标记缺失的球棒，会出现“对准正常玩家也没有球棒准心，
+                 * 挥击也不触发疯魔击杀”的假失效。
+                 */
+                .meleeWeaponPredicate((player, stack) -> stack.isOf(WatheItems.BAT))
                 .shieldSourceId(Wathe.id("psycho_mode"))
                 .endEventId(Wathe.id("psycho_mode_end"))
                 .hitSound(WatheSounds.ITEM_BAT_HIT)
@@ -193,6 +201,17 @@ public final class PsychoModeApi {
     }
 
     public static boolean isMeleeKillWeapon(@NotNull PlayerEntity player, @NotNull ItemStack stack) {
+        /*
+         * Wathe 原始球棒不应被限制成“只有疯魔激活时才能使用”。
+         *
+         * 疯魔 profile 负责的是：临时授予/锁定/结束回收球棒、特殊皮肤、护盾、背景音等状态增强；
+         * 而“手持 Wathe 球棒可以作为近战击杀武器”本身是球棒基础机制。
+         * 因此这里先放行真实球棒，再让扩展 profile 判断彩虹斧等自定义近战武器。
+         */
+        if (stack.isOf(WatheItems.BAT)) {
+            return true;
+        }
+
         PsychoModeProfile profile = getActiveProfile(player);
         return profile != null && profile.isMeleeWeapon(player, stack);
     }

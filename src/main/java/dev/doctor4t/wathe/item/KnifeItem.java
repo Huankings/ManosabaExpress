@@ -2,8 +2,8 @@ package dev.doctor4t.wathe.item;
 
 import dev.doctor4t.ratatouille.util.TextUtils;
 import dev.doctor4t.wathe.Wathe;
+import dev.doctor4t.wathe.api.combat.WeaponTargetingApi;
 import dev.doctor4t.wathe.api.visibility.TargetVisibilityApi;
-import dev.doctor4t.wathe.game.GameFunctions;
 import dev.doctor4t.wathe.index.WatheCosmetics;
 import dev.doctor4t.wathe.index.WatheSounds;
 import dev.doctor4t.wathe.util.KnifeStabPayload;
@@ -11,7 +11,6 @@ import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.LivingEntity;
 import net.minecraft.entity.player.PlayerEntity;
-import net.minecraft.entity.projectile.ProjectileUtil;
 import net.minecraft.inventory.StackReference;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
@@ -83,21 +82,40 @@ public class KnifeItem extends Item implements ItemWithSkin {
 
         if (remainingUseTicks >= this.getMaxUseTime(stack, user) - 10 || !(user instanceof PlayerEntity attacker) || !world.isClient)
             return;
-        HitResult collision = getKnifeTarget(attacker);
+        HitResult collision = getKnifeAttackTarget(attacker, stack);
         if (collision instanceof EntityHitResult entityHitResult) {
             Entity target = entityHitResult.getEntity();
             ClientPlayNetworking.send(new KnifeStabPayload(target.getId()));
         }
     }
 
-    public static HitResult getKnifeTarget(PlayerEntity user) {
-        return ProjectileUtil.getCollision(
-                user,
-                entity -> entity instanceof PlayerEntity player
-                        && GameFunctions.isPlayerAliveAndSurvival(player)
-                        && TargetVisibilityApi.canTargetPlayer(user, player),
-                3f
-        );
+    public static @Nullable HitResult getKnifeTarget(PlayerEntity user) {
+        /*
+         * 匕首准心和蓄力提示继续使用 TARGET 语义。
+         * 这个方法被扩展客户端 HUD / 旧窄 mixin 复用，所以不要改成真实攻击判定。
+         */
+        return WeaponTargetingApi.getVisibleAlivePlayerTarget(user, 3F);
+    }
+
+    public static @Nullable HitResult getKnifeAttackTarget(PlayerEntity user) {
+        return getKnifeAttackTarget(user, user.getMainHandStack());
+    }
+
+    public static @Nullable HitResult getKnifeAttackTarget(PlayerEntity user, ItemStack stack) {
+        HitResult visibleTarget = getKnifeTarget(user);
+        if (visibleTarget instanceof EntityHitResult entityHitResult) {
+            /*
+             * 匕首也先尊重旧扩展对 getKnifeTarget 的射线修正。
+             * 例如播放体这类非玩家实体可以继续挡住发包；玩家实体则必须再经过 ATTACK 语义确认。
+             */
+            return TargetVisibilityApi.canAttackEntity(user, entityHitResult.getEntity()) ? visibleTarget : null;
+        }
+        /*
+         * visibleTarget 可能是 MISS / 方块命中。
+         * 匕首准心可以保持“没有锁到玩家”的表现，但真实松手刺击仍要继续寻找
+         * ATTACK 允许、TARGET 隐藏的玩家；实际是否被墙挡住由 WeaponTargetingApi 的攻击射线判断。
+         */
+        return WeaponTargetingApi.getAttackableAlivePlayerTarget(user, 3F);
     }
 
     @Override

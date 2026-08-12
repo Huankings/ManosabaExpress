@@ -13,11 +13,11 @@ import java.util.List;
 import java.util.Objects;
 
 /**
- * 玩家与玩家尸体的“可见、可选中、可交互”公开判定入口。
+ * 玩家与玩家尸体的“可见、可选中、可交互、可攻击”公开判定入口。
  *
  * <p>这个 API 只负责回答“某个观察者 viewer 面前的某个玩家 / 尸体，此刻是否应该参与某类操作”。
  * 它不会改玩家真实身份、尸体 owner、尸体外观 UUID 或死亡回放数据。扩展职业要做皮肤伪装时仍然应该使用
- * PlayerAppearanceApi / BodyAppearanceApi；要做隐藏、准心不可选中、道具不可交互时再接入这里。</p>
+ * PlayerAppearanceApi / BodyAppearanceApi；要做隐藏、准心不可选中、道具不可交互或武器不可攻击时再接入这里。</p>
  *
  * <p>客户端渲染和准心过滤只是用户体验层，不能作为玩法权威。凡是会产生真实结算的服务端物品、
  * C2S 包或职业能力，都需要在服务端再次调用 {@link #canInteractWithBody(PlayerEntity, PlayerBodyEntity)}
@@ -129,6 +129,16 @@ public final class TargetVisibilityApi {
         }
         if (entity instanceof PlayerEntity player) {
             return canInteractWithPlayer(viewer, player);
+        }
+        return true;
+    }
+
+    public static boolean canAttackEntity(@Nullable PlayerEntity viewer, @NotNull Entity entity) {
+        if (entity instanceof PlayerBodyEntity body) {
+            return canAttackBody(viewer, body);
+        }
+        if (entity instanceof PlayerEntity player) {
+            return canAttackPlayer(viewer, player);
         }
         return true;
     }

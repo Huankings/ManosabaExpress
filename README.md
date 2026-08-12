@@ -479,10 +479,11 @@ ShopApi.registerRoleShop(MY_ROLE, player -> List.of(
 
 玩家和尸体隐藏也已经 API 化：
 
-- `TargetVisibilityApi.registerBodyRule(...)` 可决定某具 `PlayerBodyEntity` 是否对观察者渲染、可被准心选中、可被道具交互；
-- `TargetVisibilityApi.registerPlayerRule(...)` 预留给未来玩家实体隐藏、不可选中和不可交互规则；
+- `TargetVisibilityApi.registerBodyRule(...)` 可决定某具 `PlayerBodyEntity` 是否对观察者渲染、可被准心选中、可被道具交互、可被攻击；
+- `TargetVisibilityApi.registerPlayerRule(...)` 可决定玩家实体是否隐藏、不可选中、不可交互或不可攻击；
 - Wathe 本体已经把默认尸体渲染、玩家渲染、客户端 `canHit`、RoleNameHud 尸体射线、刀枪默认目标、尸袋、匕首 / 枪击服务端命中和本能描边接入该 API；
-- 客户端隐藏不是权威防护，扩展职业自己的服务端 use / packet / attack handler 仍应调用 `canInteractWithBody(...)`、`canInteractWithPlayer(...)` 或 `canAttackPlayer(...)`。
+- 客户端隐藏不是权威防护，扩展职业自己的服务端 use / packet / attack handler 仍应调用 `canInteractWithBody(...)`、`canInteractWithPlayer(...)`、`canAttackPlayer(...)` 或 `canAttackEntity(...)`。
+- `WeaponTargetingApi` 提供客户端武器发包前的公共射线工具：准心 / HUD 使用 visible 入口，真实攻击发包使用 attackable 入口，枪械还可使用 `resolveVisibleGunTarget(...)` / `resolveAttackableGunTarget(...)` 接入 `GunShotApi` 目标覆写链。
 
 `/instinct key toggle|hold|check` 可切换本能键模式：
 
@@ -629,11 +630,12 @@ GameRecordManager.recordGlobalEvent(
 | `MoodTaskPointApi` | 注册任务点类型和扫描 handler | 扩展任务点透视、新任务点颜色和名称 |
 | `TaskCompletionApi` | 任务完成事件、任务收益和默认收入抑制规则 | 任务大师、完成任务减冷却、服务员帮人完成任务时跳过目标默认收入 |
 | `GunShotApi` | 枪击接管、客户端目标覆写、左轮误伤惩罚、冷却修正 | 自定义手枪、假枪、无声枪、按状态调整左轮冷却 |
+| `WeaponTargetingApi` | 客户端武器射线目标工具，区分准心目标和真实攻击目标 | 尸体伪装隐藏准心但仍可被刀枪命中、扩展武器统一发包前选人 |
 | `DeathApi` | 击杀/死亡分阶段钩子、默认击杀收益规则、尸体生成回调 | 赏金奖励、时间狭缝、双重人格致死转化、验尸官尸体数据 |
 | `BlackoutApi` | 停电触发/恢复、恢复时间修改、停电药水分配 | 工程师恢复电力、杀手侧中立夜视、独立中立失明、地图或职业改停电时长 |
 | `InstinctApi` | 本能资格和描边 | 新职业透视、状态高亮、本能压制 |
 | `PlayerLifeStateApi` | 特殊玩法存活状态 | 旁观 / 创造但仍参与胜负和 HUD |
-| `TargetVisibilityApi` | 玩家 / 尸体可见、可选中、可交互规则 | 隐藏刺客尸体、未来隐藏玩家、禁止对应道具交互 |
+| `TargetVisibilityApi` | 玩家 / 尸体可见、可选中、可交互、可攻击规则 | 隐藏刺客尸体、隐藏玩家准心名、禁止对应道具交互或攻击 |
 | `MoodHudApi` | 心情 HUD 样式 | 特殊职业心情条 |
 | `HudOverlayApi` | 通用屏幕 HUD 叠加 | 右下角职业状态、全屏遮罩、狙击镜、开局安全提示 |
 | `CrosshairHudApi` | 准心图标 / 准心下方小进度条 | 扩展武器锁定提示、蓄力条、隐藏默认准心 |

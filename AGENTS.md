@@ -68,14 +68,14 @@
 - 心情任务点透视：`MoodTaskPointApi`、`TaskPointDefinition`、`TaskPointScanContext`
 - 任务完成：`TaskCompletionApi`
 - 胜利：`VictoryApi`
-- 枪击 / 左轮反火：`GunShotApi`、`GunShotContext`、`GunTargetContext`、`RevolverPenaltyContext`
+- 枪击 / 左轮反火 / 武器目标：`GunShotApi`、`GunShotContext`、`GunTargetContext`、`RevolverPenaltyContext`、`WeaponTargetingApi`
 - 击杀 / 死亡阶段：`DeathApi`、`DeathContext`、`BodySpawnContext`
 - 停电机制：`BlackoutApi`、`BlackoutDuration`、`BlackoutEffectContext`、`BlackoutEffectResult`
 - 本能：`InstinctApi`
 - 玩家存活：`PlayerLifeStateApi`
 - 玩家体力：`PlayerStaminaApi`、`PlayerStaminaComponent`
 - 玩家移动速度：`PlayerMovementApi`
-- 玩家 / 尸体可见与可选中：`TargetVisibilityApi`
+- 玩家 / 尸体可见、可选中、可交互、可攻击：`TargetVisibilityApi`
 - 玩家物理碰撞：`PlayerCollisionApi`、`PlayerCollisionContext`、`PlayerCollisionMode`
 - 外观：`PlayerAppearanceApi`、`BodyAppearanceApi`
 - 通用屏幕 HUD：`HudOverlayApi`、`HudOverlayContext`、`HudOverlayLayer`、`HudOverlayLayout`
@@ -301,11 +301,13 @@ Harpymodloader.setRoleMaximum(MY_ROLE, 1);
 - 非玩家实体名牌：`RoleNameHudApi.registerEntityName(...)`
 - 隐藏同伙提示：`RoleNameHudApi.registerCohortHint(...)`
 - 准心额外 HUD：`RoleNameHudApi.registerExtraHud(...)`
-- 玩家 / 尸体隐藏、不可准心选中、不可道具交互：`TargetVisibilityApi.registerPlayerRule(...)`、`TargetVisibilityApi.registerBodyRule(...)`
+- 玩家 / 尸体隐藏、不可准心选中、不可道具交互、不可攻击：`TargetVisibilityApi.registerPlayerRule(...)`、`TargetVisibilityApi.registerBodyRule(...)`
 
 `registerEntityName(...)` 只给魔术师播放体这类“非玩家实体也要在准心处显示名字”的窄场景使用；普通玩家名仍用 `registerName(...)`，避免绕开同伙提示、精神错乱混淆和玩家目标过滤。
 
-`TargetVisibilityApi` 面向“某个观察者是否能看见 / 选中 / 交互某个玩家或玩家尸体”。它会接入 Wathe 的玩家和尸体渲染、`LivingEntity#canHit` 客户端选中、RoleNameHud 尸体射线、默认刀枪准心目标、尸袋、匕首 / 枪击服务端命中和本能描边。扩展隐藏尸体或隐藏玩家时优先注册 API 规则，不要再 mixin `PlayerBodyEntityRenderer`、`LivingEntity#canHit`、`RoleNameRenderer` 或 `CrosshairRenderer`；服务端职业能力和物品仍必须在自己的 handler 里调用 `canInteractWithBody(...)`、`canInteractWithPlayer(...)`、`canAttackPlayer(...)` 重新校验。
+`TargetVisibilityApi` 面向“某个观察者是否能看见 / 选中 / 交互 / 攻击某个玩家或玩家尸体”。它会接入 Wathe 的玩家和尸体渲染、`LivingEntity#canHit` 客户端选中、RoleNameHud 尸体射线、默认刀枪准心目标、尸袋、匕首 / 枪击服务端命中和本能描边。扩展隐藏尸体或隐藏玩家时优先注册 API 规则，不要再 mixin `PlayerBodyEntityRenderer`、`LivingEntity#canHit`、`RoleNameRenderer` 或 `CrosshairRenderer`；服务端职业能力和物品仍必须在自己的 handler 里调用 `canInteractWithBody(...)`、`canInteractWithPlayer(...)`、`canAttackPlayer(...)` / `canAttackEntity(...)` 重新校验。
+
+`WeaponTargetingApi` 面向客户端武器发包前的射线目标选择。准心、HUD 和名字提示走 `getVisibleAlivePlayerTarget(...)` / `resolveVisibleGunTarget(...)`，真实攻击发包走 `getAttackableAlivePlayerTarget(...)` / `resolveAttackableGunTarget(...)`。扩展武器不要再自己维护一套 `ProjectileUtil` + `TargetVisibilityApi` 组合逻辑，避免把 TARGET 准心隐藏误写成 ATTACK 伤害免疫。
 
 ## 玩家碰撞机制 API
 
@@ -435,7 +437,7 @@ Harpymodloader.setRoleMaximum(MY_ROLE, 1);
 - 死亡队友 / 伴侣是否也要写进胜利阵营；
 - 结算页颜色和翻译 key。
 
-枪击接管、左轮误伤惩罚、枪械客户端目标覆写和开火后冷却修正优先接 `dev.doctor4t.wathe.api.combat.GunShotApi`。扩展侧要按职业或词条拆 handler，再由聚合 bootstrap 注册；不要再 mixin `GunShootPayload`、`RevolverItem` 或 `DerringerItem` 的通用流程。
+枪击接管、左轮误伤惩罚、枪械客户端目标覆写和开火后冷却修正优先接 `dev.doctor4t.wathe.api.combat.GunShotApi`。客户端武器射线优先接 `WeaponTargetingApi`，按“视觉目标 TARGET / 真实攻击 ATTACK”选择对应入口。扩展侧要按职业或词条拆 handler，再由聚合 bootstrap 注册；不要再 mixin `GunShootPayload`、`RevolverItem` 或 `DerringerItem` 的通用流程。
 
 死亡保护优先接 `AllowPlayerDeath` 或各扩展已有死亡引导器；击杀奖励、重复死亡吞噬、致死确认前转化、确认死亡后清理、心情重置前处理和尸体生成回调优先接 `dev.doctor4t.wathe.api.death.DeathApi`，不要把大量死亡特判堆到主类或 mixin `GameFunctions.killPlayer(...)`。
 
