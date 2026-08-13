@@ -21,6 +21,7 @@ import net.minecraft.registry.RegistryWrapper;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.sound.SoundCategory;
+import net.minecraft.sound.SoundEvent;
 import net.minecraft.state.property.Properties;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Box;
@@ -255,6 +256,9 @@ public class WorldBlackoutComponent implements AutoSyncedComponent, ServerTickin
         this.blackoutTotalTicks = duration.maxTicks();
         this.blackoutMinDurationTicks = duration.minTicks();
         this.blackoutMaxDurationTicks = duration.maxTicks();
+        if (this.world instanceof ServerWorld serverWorld) {
+            sendBlackoutStartSounds(serverWorld);
+        }
         for (int x = (int) area.minX; x <= (int) area.maxX; x++) {
             for (int y = (int) area.minY; y <= (int) area.maxY; y++) {
                 for (int z = (int) area.minZ; z <= (int) area.maxZ; z++) {
@@ -268,11 +272,52 @@ public class WorldBlackoutComponent implements AutoSyncedComponent, ServerTickin
                 }
             }
         }
-        if (this.world instanceof ServerWorld serverWorld) for (ServerPlayerEntity player : serverWorld.getPlayers()) {
-            player.networkHandler.sendPacket(new PlaySoundS2CPacket(Registries.SOUND_EVENT.getEntry(WatheSounds.AMBIENT_BLACKOUT), SoundCategory.PLAYERS, player.getX(), player.getY(), player.getZ(), 100f, 1f, player.getRandom().nextLong()));
-        }
         this.sync();
         return true;
+    }
+
+    /**
+     * 播放停电开始时的全局声音反馈。
+     *
+     * <p>这里故意在扫描和关闭大量灯光之前发送声音包：
+     * 停电环境音是玩家感知“停电已经成功触发”的核心反馈，如果排在批量
+     * {@code setBlockState} 和灯光音效之后，地图灯很多时客户端可能先收到大量方块更新，
+     * 导致环境音延迟甚至被声音系统挤掉。</p>
+     *
+     * <p>关灯声只全局播放一次，不再给每盏灯各播一次。这样既保留“全车灯灭”的听觉反馈，
+     * 又避免几百/几千盏灯在同一个 tick 里制造海量声音包，影响真正重要的停电环境音。</p>
+     */
+    private void sendBlackoutStartSounds(@NotNull ServerWorld serverWorld) {
+        playGlobalSoundToPlayers(serverWorld, WatheSounds.AMBIENT_BLACKOUT, SoundCategory.PLAYERS, 100f, 1f);
+        playGlobalSoundToPlayers(serverWorld, WatheSounds.BLOCK_LIGHT_TOGGLE, SoundCategory.BLOCKS, 0.5f, 1f);
+    }
+
+    /**
+     * 以每个玩家自己的位置播放一次声音，让所有在线玩家都稳定听见。
+     *
+     * <p>这里不使用某个固定方块坐标广播，是因为不同地图尺寸和玩家距离会影响普通方块音效
+     * 的衰减。把声音包发到玩家当前位置，可以表达“全局事件”的语义，同时仍然尊重对应的
+     * Minecraft 声音分类音量设置。</p>
+     */
+    private static void playGlobalSoundToPlayers(
+            @NotNull ServerWorld serverWorld,
+            @NotNull SoundEvent sound,
+            @NotNull SoundCategory category,
+            float volume,
+            float pitch
+    ) {
+        for (ServerPlayerEntity player : serverWorld.getPlayers()) {
+            player.networkHandler.sendPacket(new PlaySoundS2CPacket(
+                    Registries.SOUND_EVENT.getEntry(sound),
+                    category,
+                    player.getX(),
+                    player.getY(),
+                    player.getZ(),
+                    volume,
+                    pitch,
+                    player.getRandom().nextLong()
+            ));
+        }
     }
 
     private void applyBlackoutEffects(@NotNull ServerWorld serverWorld) {
@@ -400,8 +445,12 @@ public class WorldBlackoutComponent implements AutoSyncedComponent, ServerTickin
         public void init(@NotNull World world) {
             BlockState state = world.getBlockState(this.pos);
             if (!state.contains(Properties.LIT) || !state.contains(WatheProperties.ACTIVE)) return;
+            /*
+             * 批量停电时，单盏灯只负责进入断电状态，不再各自播放关灯声。
+             * 全局关灯声已经在 triggerBlackout() 开始阶段统一播放一次；
+             * 这样可以避免灯很多的地图在同一 tick 发出大量灯音效包，挤掉停电环境音。
+             */
             world.setBlockState(this.pos, state.with(Properties.LIT, false).with(WatheProperties.ACTIVE, false));
-            world.playSound(null, this.pos, WatheSounds.BLOCK_LIGHT_TOGGLE, SoundCategory.BLOCKS, 0.5f, 1f);
         }
 
         public void end(@NotNull World world) {
