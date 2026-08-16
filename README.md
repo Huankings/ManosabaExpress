@@ -224,11 +224,15 @@ Wathe 用 Cardinal Components API 保存大量状态，入口是 `WatheComponent
 
 | 组件 | 作用 |
 | --- | --- |
-| `ScoreboardRoleSelectorComponent` | 杀手 / 义警权重、强制职业、职业位抽取 |
+| `ScoreboardRoleSelectorComponent` | 杀手 / 义警 / 中立 / 具体职业权重、强制职业、职业位抽取 |
 | `MapVotingComponent` | 全服唯一的地图投票状态 |
 | `GameRoundEndComponent` | 计分板层级也注册了一份结算组件，用于跨维度读取 |
 
 地图投票放在 ScoreboardComponent 上是很关键的设计：玩家会被传送到不同维度，如果投票状态绑在某个世界上，切图后容易丢状态或读错世界。
+
+`ScoreboardRoleSelectorComponent` 同时保存新版职业分配权重账本。账本按玩家 UUID 记录每个阵营出现次数、具体职业出现次数、上一局阵营 / 职业、连续次数、最后已知玩家名，以及管理员手动设置的调试覆盖权重。它挂在 scoreboard 上，因此能跨地图和维度继续生效，也能保留已经离线但仍有历史记录的玩家；中途加入的玩家会以自己的历史参与计算，不会因为没有旧记录而被永久排除在稀缺阵营之外。
+
+权重系统默认开启，只影响开局抽取概率，不会阻止管理员手动指定职业。Wathe 原版杀手 / 义警位、Harpy 的中立位和扩展具体职业都会共用同一份账本；最终记录发生在所有开局初始化监听完成之后，所以 `/forceRole` 这类开局强制结果会计入下一局权重，而局内 `/setRole` 调试转职不会计入开局历史。
 
 ## 地图变量、地图增强与地图投票
 
@@ -733,6 +737,19 @@ final class MyRoleInventoryButtons implements InventoryButtonExtension {
 
 HarpyModLoader 的思路是“先让 Wathe 开一局 modded murder，再由加载层按阵营替换默认职业”。例如先给所有人设成 `WatheRoles.CIVILIAN`，再从扩展职业池里挑选杀手、中立、义警、平民职业覆盖。Wathe 本体提供稳定的职业映射、结算、回放和 API，扩展加载层负责“这局到底出现哪些职业”。
 
+Harpy 当前也接入了 Wathe 的统一权重账本。原版杀手 / 义警先按阵营权重抽位，扩展杀手 / 义警 / 平民替换时主要读取具体职业历史，中立职业因为是稀缺阵营，会同时读取中立阵营历史和具体职业历史。这样可以同时降低“同一玩家连续拿杀手 / 中立”和“同一扩展职业连续落到同一玩家”的概率。
+
+Harpy 侧公开了 `org.agmas.harpymodloader.api.assignment`，用于替代扩展 mixin Harpy 私有分配函数：
+
+- `RoleAssignmentApi.registerMutualExclusion(...)` / `registerOneWayExclusion(...)`：注册职业同阶段互斥或单向排斥，例如 Hacker 和 Mimic 不同局随机生成。
+- `RoleAssignmentApi.registerBeforePhaseHandler(...)` / `registerAfterPhaseHandler(...)`：在 `CIVILIAN_REPLACEMENT`、`VIGILANTE_REPLACEMENT`、`KILLER_REPLACEMENT` 阶段前后补职业或做绑定生成。
+- `RoleAssignmentPhaseContext.assignRole(...)`：阶段回调里写入补位职业，并统一触发 Harpy 的 `ModdedRoleAssigned` 事件链。
+- `ModifierAssignmentApi.registerModifierExcludesRole(...)` / `registerModifierRequiresRole(...)`：注册词条与职业的排斥或绑定。
+- `ModifierAssignmentApi.registerModifierMutualExclusion(...)` / `registerModifierOneWayExclusion(...)`：注册同玩家词条互斥。
+- `ModifierAssignmentApi.registerBeforeAssignmentHandler(...)` / `registerBeforeAnnouncementHandler(...)` / `registerAfterAssignmentHandler(...)`：替代词条分配 HEAD、公告前和 TAIL 类 mixin，适合强制恋人、强制双重人格、动态词条上限这类逻辑。
+
+扩展接入时按 NoellesRoles 的格式拆小类：职业规则放 `roles/<role>/<RoleName>RoleAssignmentRules.java`，词条规则放 `modifiers/<modifier>/<ModifierName>ModifierAssignmentRules.java`，再由扩展自己的 bootstrap 调用 `init()`。不要把多个职业/词条的 Harpy 分配规则塞进一个大类，也不要重新 mixin `ModdedMurderGameMode#findAndAssignPlayers` 或 `assignModifiers`。
+
 ## 玩家碰撞 API
 
 Wathe 玩家之间的物理碰撞统一通过 `dev.doctor4t.wathe.api.collision.PlayerCollisionApi` 暴露，扩展职业不要再 mixin `Entity#collidesWith`、`EntityView#getEntityCollisions`、`Entity#pushAwayFrom` 或 `LivingEntity#pushAway`。
@@ -767,7 +784,7 @@ Wathe 默认规则仍受 `/wathe:playerCollision` 和 `/wathe:startnoCollision` 
 | `/wathe:gameSettings help` | 查看游戏设置帮助 |
 | `/wathe:gameSettings weights check` | 查看权重状态 |
 | `/wathe:gameSettings weights reset` | 重置权重 |
-| `/wathe:gameSettings set weights <true|false>` | 开关权重系统 |
+| `/wathe:gameSettings set weights <true|false>` | 开关权重系统；只切换是否读取历史，不会清空账本 |
 | `/wathe:gameSettings set autoStart <...>` | 设置自动开局 |
 | `/wathe:gameSettings set backfire <chance>` | 设置开枪反噬概率 |
 | `/wathe:gameSettings set roleDividend killer <value>` | 设置杀手比例分母 |
@@ -822,6 +839,37 @@ Wathe 默认规则仍受 `/wathe:playerCollision` 和 `/wathe:startnoCollision` 
 
 `UpdateDoorsCommand` 源码存在，但在 `Wathe.java` 中注册被注释掉了，所以 `/wathe:updateDoors` 当前不会出现在游戏里。
 
+HarpyModLoader 也注册了一组无命名空间的调试指令，主要给 modded murder 和扩展职业使用：
+
+| 指令 | 作用 |
+| --- | --- |
+| `/listRoles` | 列出当前可识别职业，长列表直接发给管理员，不依赖 `sendCommandFeedback` |
+| `/setEnabledRole <role> <true|false>` | 开关某个扩展职业随机生成；不会阻止管理员显式 `/forceRole` |
+| `/setEnabledModifier <modifier> <true|false>` | 开关某个扩展词条随机生成 |
+| `/forceRole <player>` | 查询玩家下一局被强制指定的扩展职业 |
+| `/forceRole <player> <role>` | 强制玩家下一局成为指定扩展职业；只影响下一次 Harpy 开局，开局后会清空队列 |
+| `/forceModifier <player> <modifier>` | 强制玩家下一局获得指定扩展词条；开局后会清空队列 |
+| `/setRole <player> <role>` | 局内调试转职，默认等同 `reset` 模式 |
+| `/setRole <player> <role> reset` | 硬重置转职：清旧职业和词条、触发扩展重置、保留 Wathe 本局钥匙和信件、不播放结算、不传送出游戏区，然后发新职业物品和欢迎公告 |
+| `/setRole <player> <role> state` | 状态转职：清旧职业物品并触发扩展重置，但保留心情任务、金币、毒药、体力、便签等 Wathe 本局进度，并保留/重广播当前词条 |
+| `/setRole <player> <role> soft` | 轻量转职：只通知旧职业移除并写入新职业，适合只想快速切身份的窄调试 |
+| `/roleWeights` 或 `/roleWeights list all` | 查询在线玩家和已有离线记录的完整权重账本 |
+| `/roleWeights list online` | 只查询当前在线玩家权重 |
+| `/roleWeights list stored` | 只查询已经存储的历史权重记录 |
+| `/roleWeights enabled <true|false>` | 开关当前世界的权重系统；不会自动清空历史 |
+| `/roleWeights reset all` | 清空所有已保存权重和调试覆盖 |
+| `/roleWeights reset online` | 清空当前世界在线玩家权重 |
+| `/roleWeights reset storedOffline` | 清空有权重记录但当前不在线的玩家 |
+| `/roleWeights reset player <players>` | 清空指定在线玩家权重 |
+| `/roleWeights reset uuid <uuid>` | 按 UUID 清空某个离线或在线玩家权重 |
+| `/roleWeights set player <player> faction <civilian|vigilante|killer|neutral> <weight>` | 覆盖指定玩家某阵营的调试权重，范围 `0.0` 到 `10000.0` |
+| `/roleWeights set player <player> role <role> <weight>` | 覆盖指定玩家某具体职业的调试权重；优先于阵营覆盖 |
+| `/roleWeights clearOverride player <players>` | 清除指定玩家的调试覆盖权重，但保留历史次数 |
+| `/roleWeights preview faction <civilian|vigilante|killer|neutral>` | 预览当前在线玩家在某阵营上的实时抽取权重和百分比，不消耗、不记录 |
+| `/roleWeights preview role <role>` | 预览某个具体职业的实时替换权重和百分比 |
+
+权重查询和预览同样直接 `sendMessage` 给执行者，服务器关闭 command feedback 时管理员也能看到完整报告。`/forceRole` 会通过开局最终职业计入下一局权重；`/forceModifier` 只强制词条，不直接改变职业权重；`/setRole` 是局内调试工具，不会把调试转职写进开局分配历史。
+
 ## 数据生成、资源和语言
 
 Datagen 入口是 `WatheDatagen`，相关类包括：
@@ -865,6 +913,9 @@ Datagen 入口是 `WatheDatagen`，相关类包括：
 16. 玩家跳跃、碰撞、开局无碰撞、心情死亡、渐进式重置都可用指令动态配置。
 17. 玩家之间的物理碰撞改成 `PlayerCollisionApi`，Wathe 默认硬阻挡、原版推挤可穿过、完全无碰撞无推挤三种模式都可由扩展按优先级覆盖。
 18. 玩家体力已经迁到 `PlayerStaminaComponent`，移动速度和心情惩罚也已经公开化；扩展不需要再 shadow `PlayerEntity` 的输入字段或重写 `travel/jump/getMovementSpeed`。
+19. 职业分配权重改成统一账本：按阵营和具体职业记录历史、连续次数和调试覆盖；权重默认开启，开关不会自动清空历史，查询和预览命令不依赖 command feedback。
+20. Harpy 扩展职业 / 词条分配规则改成公开 API：互斥、单向排斥、绑定生成、词条与职业绑定/排斥、公告前强制配对都走 `org.agmas.harpymodloader.api.assignment`，扩展不应再 mixin Harpy 分配方法。
+21. Harpy `/setRole` 是局内调试转职指令，默认 `reset`；它不会传送玩家、不会播放结算音效，会保留 Wathe 本局钥匙和信件，并在转职后重新发送开局欢迎公告。
 
 ## 新扩展职业的推荐接入顺序
 
@@ -884,6 +935,7 @@ Datagen 入口是 `WatheDatagen`，相关类包括：
 12. 如果职业会伪装、换皮、伪尸体，用 `PlayerAppearanceApi` / `BodyAppearanceApi`。
 13. 如果职业会让旁观 / 创造玩家仍参与胜负，用 `PlayerLifeStateApi` 授权，并在清理时撤销。
 14. 如果职业或词条要改变玩家之间的物理碰撞，用 `PlayerCollisionApi.registerRule(...)`，不要再新增 Entity / EntityView / LivingEntity 的碰撞 mixin。
+15. 如果职业或词条要影响 Harpy 开局生成规则，用 `RoleAssignmentApi` / `ModifierAssignmentApi` 注册互斥、绑定或生命周期回调；按职业/词条拆小类，再由扩展 bootstrap 聚合初始化。
 
 一个最小的独立胜利规则示例：
 

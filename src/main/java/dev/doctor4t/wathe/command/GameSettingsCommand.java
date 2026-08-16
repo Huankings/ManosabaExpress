@@ -13,6 +13,7 @@ import dev.doctor4t.wathe.util.GameWorldResolver;
 import net.minecraft.server.command.CommandManager;
 import net.minecraft.server.command.ServerCommandSource;
 import net.minecraft.text.Text;
+import net.minecraft.util.Formatting;
 
 public class GameSettingsCommand {
     public static void register(CommandDispatcher<ServerCommandSource> dispatcher) {
@@ -32,7 +33,8 @@ public class GameSettingsCommand {
                                 .then(CommandManager.literal("reset")
                                         .executes(context -> {
                                             ScoreboardRoleSelectorComponent scoreboardRoleSelectorComponent = ScoreboardRoleSelectorComponent.KEY.get(context.getSource().getServer().getScoreboard());
-                                            scoreboardRoleSelectorComponent.reset();
+                                            scoreboardRoleSelectorComponent.resetAllWeights();
+                                            context.getSource().sendMessage(Text.literal("Role weights have been reset.").formatted(Formatting.GREEN));
                                             return 1;
                                         })
                                 )
@@ -41,8 +43,15 @@ public class GameSettingsCommand {
                                 .then(CommandManager.literal("weights")
                                         .then(CommandManager.argument("enabled", BoolArgumentType.bool())
                                                 .executes(context -> {
-                                                    GameWorldComponent.KEY.get(context.getSource().getWorld()).setWeightsEnabled(BoolArgumentType.getBool(context, "enabled"));
-                                                    ScoreboardRoleSelectorComponent.KEY.get(context.getSource()).reset();
+                                                    boolean enabled = BoolArgumentType.getBool(context, "enabled");
+                                                    /*
+                                                     * 权重开关只决定抽取时是否读取历史，不再顺手清空历史。
+                                                     * 管理员如果想从零开始测试，应显式执行 weights reset 或 Harpy 的 reset 指令，
+                                                     * 避免误点开关后把长期公平账本直接丢掉。
+                                                     */
+                                                    GameWorldComponent.KEY.get(context.getSource().getWorld()).setWeightsEnabled(enabled);
+                                                    context.getSource().sendMessage(Text.literal("Role weights are now " + (enabled ? "enabled" : "disabled") + ".")
+                                                            .formatted(enabled ? Formatting.GREEN : Formatting.RED));
                                                     return 1;
                                                 })
                                         )

@@ -318,6 +318,14 @@ public class GameFunctions {
         gameComponent.sync();
 
         GameEvents.ON_FINISH_INITIALIZE.invoker().onFinishInitialize(serverWorld, gameComponent);
+        /*
+         * 职业权重必须在所有开局初始化监听之后记录。
+         * HarpyModLoader 会先让玩家拿到原版阵营位，再把它替换为扩展职业；
+         * 其他扩展也可能在 ON_FINISH_INITIALIZE 里做最后一次职业调整。
+         * 放到这里记录，才能确保“开局强制职业”和“最终扩展职业”都计入下局权重，
+         * 而局内管理员用 /setRole 调试转职不会被误写进开局分配历史。
+         */
+        ScoreboardRoleSelectorComponent.KEY.get(serverWorld.getScoreboard()).recordRoundAssignments(serverWorld, readyPlayerList, gameComponent);
         GameRecordManager.completeInitialization(serverWorld, gameComponent);
     }
 

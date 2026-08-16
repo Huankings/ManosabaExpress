@@ -45,7 +45,13 @@ public int getFixedKillerCount() { return this.fixedKillerCount; }
     private final World world;
 
     private boolean lockedToSupporters = false;
-    private boolean enableWeights = false;
+    /**
+     * 职业分配权重默认开启。
+     *
+     * <p>它只影响开局时的抽取概率，不会阻止管理员用 forceRole 或调试转职指令手动改身份。
+     * 如果服务器想回到完全随机，可以用 /wathe:gameSettings set weights false 或 Harpy 的权重指令关闭。</p>
+     */
+    private boolean enableWeights = true;
     /**
      * 当前世界各个游戏模式允许自动/手动开局的准备区玩家人数。
      *
@@ -769,7 +775,7 @@ this.fixedKillerCount = nbtCompound.contains("FixedKillerCount") ? nbtCompound.g
 
 
         this.lockedToSupporters = false;
-        this.enableWeights = nbtCompound.getBoolean("EnableWeights");
+        this.enableWeights = !nbtCompound.contains("EnableWeights") || nbtCompound.getBoolean("EnableWeights");
         this.requiredStartPlayerCounts.clear();
         this.legacyRequiredStartPlayerCount = null;
         if (nbtCompound.contains("RequiredStartPlayerCounts")) {

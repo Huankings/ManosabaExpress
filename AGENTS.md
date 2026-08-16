@@ -106,11 +106,28 @@
 - `src/main/java/org/agmas/harpymodloader/modded_murder/ModdedMurderGameMode.java`
 - `src/main/java/org/agmas/harpymodloader/modifiers/HMLModifiers.java`
 - `src/main/java/org/agmas/harpymodloader/modifiers/Modifier.java`
+- `src/main/java/org/agmas/harpymodloader/api/assignment/*`
 - `src/main/java/org/agmas/harpymodloader/events/ModdedRoleAssigned.java`
 - `src/main/java/org/agmas/harpymodloader/events/ResetPlayerEvent.java`
 - `src/main/java/org/agmas/harpymodloader/commands/*`
 
 Harpy 当前按 `role.getFaction()` 分平民、义警、杀手、中立池；扩展职业应显式注册阵营，避免继续只靠 `isInnocent()` 和 `canUseKiller()` 推断。
+
+Harpy 分配限制、绑定生成、强制配对和词条 / 职业互斥优先接 `org.agmas.harpymodloader.api.assignment`：
+
+- 职业同局互斥 / 单向排斥：`RoleAssignmentApi.registerMutualExclusion(...)`、`registerOneWayExclusion(...)`。
+- 职业绑定或阶段末补位：`registerBeforePhaseHandler(...)` / `registerAfterPhaseHandler(...)`，阶段为 `CIVILIAN_REPLACEMENT`、`VIGILANTE_REPLACEMENT`、`KILLER_REPLACEMENT`；写最终职业用 `RoleAssignmentPhaseContext.assignRole(...)`。
+- 词条与职业绑定 / 排斥：`ModifierAssignmentApi.registerModifierRequiresRole(...)`、`registerModifierExcludesRole(...)`。
+- 同玩家词条互斥：`registerModifierMutualExclusion(...)`、`registerModifierOneWayExclusion(...)`。
+- 强制恋人、强制双重人格、动态词条上限等替代 `assignModifiers` mixin 的逻辑，使用 `registerBeforeAssignmentHandler(...)`、`registerBeforeAnnouncementHandler(...)`、`registerAfterAssignmentHandler(...)`。
+
+扩展侧按 NoellesRoles 格式拆小类：`roles/<role>/<RoleName>RoleAssignmentRules` 或 `modifiers/<modifier>/<ModifierName>ModifierAssignmentRules`，聚合 bootstrap 只调用 `init()`。除非 Harpy API 不能表达需求，不要再新增 `ModdedMurderGameMode#findAndAssignPlayers`、`assignModifiers` 或权重 mixin。
+
+Harpy 调试指令重点：
+
+- `/setRole <player> <role>` 默认走 `reset`，可显式加 `reset` / `state` / `soft`。`reset` 保留 Wathe 本局钥匙和信件，不传送、不播放结算，并重新发送开局公告；`state` 保留 Wathe 心情任务、金币、毒药、体力、便签等本局进度并保留词条；`soft` 只做最轻量身份切换。
+- `/roleWeights` 查询当前权重，`list all|online|stored`、`enabled <true|false>`、`reset all|online|storedOffline|player|uuid`、`set player ... faction|role ...`、`clearOverride player ...`、`preview faction|role ...` 用于调试公平分配。
+- `/forceRole <player> <role>` 和 `/forceModifier <player> <modifier>` 只影响下一次 Harpy 开局，开局后清空；`/forceRole` 的最终职业会计入权重，`/forceModifier` 不直接改变职业权重，局内 `/setRole` 调试转职不计入权重。
 
 ### NoellesRoles
 
@@ -221,6 +238,14 @@ Harpymodloader.setRoleMaximum(MY_ROLE, 1);
 - `assignCivilianReplacingRoles`
 - `assignVigilanteReplacingRoles`
 - `assignKillerReplacingRoles`
+
+职业权重账本在 Wathe `ScoreboardRoleSelectorComponent`，开关在 `GameWorldComponent.enableWeights` 且默认开启。修改抽取算法时注意：
+
+- 原版杀手 / 义警、中立阵营和 Harpy 具体扩展职业共用同一份 `RoleWeightRecord`。
+- `recordRoundAssignments(...)` 必须保持在 `GameEvents.ON_FINISH_INITIALIZE` 之后调用，确保开局强制职业和扩展最终职业计入历史。
+- 局内 `/setRole` 调试转职不得写入权重历史。
+- 权重开关只决定是否读取历史，不应顺手清空历史；清空请走 `/wathe:gameSettings weights reset` 或 Harpy `/roleWeights reset ...`。
+- 长报告和权重查询使用 `sendMessage`，不要依赖 `sendCommandFeedback`。
 
 ## 商店和经济规则
 
