@@ -363,6 +363,7 @@ Wathe 的地图通常是“模板区复制到游戏区”。配置项来自：
 - 第一个任务仍按冷却刷新；
 - 低心情会按阈值临时开放第二 / 第三个并行任务槽；
 - 扩展 Mod 可以通过 `MoodTaskApi.assignRandomTasks(...)` / `fillRandomTaskSlots(...)` 主动发放随机心情任务，也可以用 `MoodTaskApi.assignTask(player, taskId)` 指定发放某个注册任务；
+- 扩展 Mod 可以用 `MoodTaskApi.registerAssignmentRule(...)` 在任务进入任务栏前阻止 Wathe 自动发放、外部随机发放或指定发放；专属职业任务节奏应使用这个入口，不要用 tick 删除任务来兜底；
 - 心情任务现在按 `Identifier` 注册，内置任务默认进入随机池，扩展任务默认只允许指定发放，除非定义里显式启用随机池；
 - 外部主动发放任务仍然和自动任务共用最多 3 个同时任务的上限；
 - 心情回升后不会强行删除已有任务，但不会继续补新任务；
@@ -630,7 +631,7 @@ GameRecordManager.recordGlobalEvent(
 | `VictoryApi` | 胜利仲裁 | 独立胜利、保活、共胜 |
 | `EconomyApi` | 金币 HUD、被动收入、多货币 | 富豪、任务大师、自定义货币 |
 | `ShopApi` | 职业商店和商店修改器 | 给某职业专属商品，或改默认杀手商品 |
-| `MoodTaskApi` | 注册、指定发放、移除和完成心情任务 | 职业专属任务、技能给目标追加指定任务、补满任务槽、阻止特殊状态完成任务 |
+| `MoodTaskApi` | 注册、发放、拦截发放、移除和完成心情任务 | 职业专属任务、技能给目标追加指定任务、补满任务槽、阻止自动/指定发放或特殊状态完成任务 |
 | `MoodTaskPointApi` | 注册任务点类型和扫描 handler | 扩展任务点透视、新任务点颜色和名称 |
 | `TaskCompletionApi` | 任务完成事件、任务收益和默认收入抑制规则 | 任务大师、完成任务减冷却、服务员帮人完成任务时跳过目标默认收入 |
 | `GunShotApi` | 枪击接管、客户端目标覆写、左轮误伤惩罚、冷却修正 | 自定义手枪、假枪、无声枪、按状态调整左轮冷却 |
@@ -926,13 +927,14 @@ Datagen 入口是 `WatheDatagen`，相关类包括：
 3. 如果职业需要金币 HUD / 被动收入，用 `EconomyApi` 注册。
 4. 如果职业需要新增心情任务，用 `MoodTaskApi.registerTask` 注册 `MoodTaskDefinition`；专属任务默认只指定发放，只有明确需要普通随机出现时才启用随机池。
 5. 如果职业需要主动给玩家追加心情任务，用 `MoodTaskApi.assignTask`、`assignRandomTasks` 或 `fillRandomTaskSlots`。
-6. 如果职业需要任务点透视，用 `MoodTaskPointApi.registerTaskPoint` 和 `registerScanHandler`，并把任务点 id 绑定到任务定义。
-7. 如果职业和任务完成有关，用 `TaskCompletionApi.AFTER_TASK_COMPLETE`、任务收益 provider、任务收入规则或 `MoodTaskApi.registerCompletionRule`。
-8. 如果职业改变胜负，用 `VictoryApi.registerRule`。
-9. 如果职业需要本能透视，用 `InstinctApi.registerAvailability` 和 `registerHighlight`。
-10. 如果职业需要普通屏幕 HUD，用 `HudOverlayApi.registerAliveRole`；准心图标和准心下方小进度条用 `CrosshairHudApi`；准心名字、实体名牌或准心附近提示用 `RoleNameHudApi`。
-11. 如果职业需要记录技能，用 `GameRecordManager.recordSkillUse` / `recordGlobalEvent`，再用 `ReplayRegistry` 注册格式器。
-12. 如果职业会伪装、换皮、伪尸体，用 `PlayerAppearanceApi` / `BodyAppearanceApi`。
+6. 如果职业需要阻止 Wathe 自动刷任务、阻止外部随机发放或阻止指定发放，用 `MoodTaskApi.registerAssignmentRule`；不要等任务出现在 HUD 后再 tick 删除。
+7. 如果职业需要任务点透视，用 `MoodTaskPointApi.registerTaskPoint` 和 `registerScanHandler`，并把任务点 id 绑定到任务定义。
+8. 如果职业和任务完成有关，用 `TaskCompletionApi.AFTER_TASK_COMPLETE`、任务收益 provider、任务收入规则或 `MoodTaskApi.registerCompletionRule`。
+9. 如果职业改变胜负，用 `VictoryApi.registerRule`。
+10. 如果职业需要本能透视，用 `InstinctApi.registerAvailability` 和 `registerHighlight`。
+11. 如果职业需要普通屏幕 HUD，用 `HudOverlayApi.registerAliveRole`；准心图标和准心下方小进度条用 `CrosshairHudApi`；准心名字、实体名牌或准心附近提示用 `RoleNameHudApi`。
+12. 如果职业需要记录技能，用 `GameRecordManager.recordSkillUse` / `recordGlobalEvent`，再用 `ReplayRegistry` 注册格式器。
+13. 如果职业会伪装、换皮、伪尸体，用 `PlayerAppearanceApi` / `BodyAppearanceApi`。
 13. 如果职业会让旁观 / 创造玩家仍参与胜负，用 `PlayerLifeStateApi` 授权，并在清理时撤销。
 14. 如果职业或词条要改变玩家之间的物理碰撞，用 `PlayerCollisionApi.registerRule(...)`，不要再新增 Entity / EntityView / LivingEntity 的碰撞 mixin。
 15. 如果职业或词条要影响 Harpy 开局生成规则，用 `RoleAssignmentApi` / `ModifierAssignmentApi` 注册互斥、绑定或生命周期回调；按职业/词条拆小类，再由扩展 bootstrap 聚合初始化。

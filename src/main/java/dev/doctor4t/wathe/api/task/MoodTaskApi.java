@@ -53,7 +53,9 @@ public final class MoodTaskApi {
 
     private static final Map<Identifier, MoodTaskDefinition> TASK_DEFINITIONS = new LinkedHashMap<>();
     private static final Map<PlayerMoodComponent.Task, Identifier> LEGACY_TASK_IDS = new LinkedHashMap<>();
+    private static final ArrayList<PrioritizedAssignmentRule> ASSIGNMENT_RULES = new ArrayList<>();
     private static final ArrayList<PrioritizedCompletionRule> COMPLETION_RULES = new ArrayList<>();
+    private static long nextAssignmentRuleOrder = 0L;
     private static long nextCompletionRuleOrder = 0L;
 
     static {
@@ -117,6 +119,40 @@ public final class MoodTaskApi {
     public static @NotNull List<Identifier> getTaskPointIds(@NotNull Identifier taskId) {
         MoodTaskDefinition definition = getDefinition(taskId);
         return definition == null ? List.of() : List.copyOf(definition.taskPointIds());
+    }
+
+    /**
+     * 注册一个“任务即将发放”拦截规则。
+     *
+     * <p>这条链会覆盖 Wathe 自己的冷却刷任务、低心情补槽、外部随机发放和外部指定发放。
+     * priority 越大越先执行，第一个返回 {@link AssignmentDecision#DENY} 的规则会阻止本次发放。</p>
+     *
+     * <p>随机发放会在候选任务被放进任务栏之前逐个询问规则；如果某个候选被拒绝，
+     * Wathe 会继续尝试其它随机候选，避免一个扩展职业屏蔽某类任务后把整套随机池卡死。</p>
+     */
+    public static synchronized void registerAssignmentRule(
+            @NotNull Identifier id,
+            int priority,
+            @NotNull AssignmentRule rule
+    ) {
+        Objects.requireNonNull(id, "id");
+        Objects.requireNonNull(rule, "rule");
+        ASSIGNMENT_RULES.removeIf(entry -> entry.id().equals(id));
+        ASSIGNMENT_RULES.add(new PrioritizedAssignmentRule(id, priority, nextAssignmentRuleOrder++, rule));
+        ASSIGNMENT_RULES.sort(
+                Comparator.<PrioritizedAssignmentRule>comparingInt(PrioritizedAssignmentRule::priority)
+                        .reversed()
+                        .thenComparing(Comparator.comparingLong(PrioritizedAssignmentRule::order).reversed())
+        );
+    }
+
+    public static boolean canAssignTask(@NotNull MoodTaskAssignmentContext context) {
+        for (PrioritizedAssignmentRule entry : assignmentRuleSnapshot()) {
+            if (entry.rule().canAssign(context) == AssignmentDecision.DENY) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**
@@ -225,6 +261,10 @@ public final class MoodTaskApi {
 
         if (moodComponent.hasMoodTask(taskId)) {
             return TaskAssignmentResult.empty(AssignmentStatus.TASK_ALREADY_ACTIVE, 1, activeTaskCount, maxTaskCount);
+        }
+
+        if (!moodComponent.canAssignExternalTask(taskId)) {
+            return TaskAssignmentResult.empty(AssignmentStatus.ASSIGNMENT_DENIED, 1, activeTaskCount, maxTaskCount);
         }
 
         return moodComponent.assignExternalTask(taskId)
@@ -347,6 +387,10 @@ public final class MoodTaskApi {
 
     private static synchronized @NotNull List<PrioritizedCompletionRule> completionRuleSnapshot() {
         return List.copyOf(COMPLETION_RULES);
+    }
+
+    private static synchronized @NotNull List<PrioritizedAssignmentRule> assignmentRuleSnapshot() {
+        return List.copyOf(ASSIGNMENT_RULES);
     }
 
     private static void registerBuiltInTasks() {
@@ -496,14 +540,58 @@ public final class MoodTaskApi {
     ) {
     }
 
+    public record MoodTaskAssignmentContext(
+            @NotNull ServerPlayerEntity player,
+            @NotNull GameWorldComponent gameWorld,
+            @Nullable Role role,
+            @Nullable Identifier taskId,
+            @Nullable MoodTaskDefinition taskDefinition,
+            @Nullable PlayerMoodComponent.Task legacyTask,
+            @NotNull AssignmentSource source,
+            boolean random,
+            int activeTaskCount,
+            int maxTaskCount
+    ) {
+    }
+
+    @FunctionalInterface
+    public interface AssignmentRule {
+        @NotNull AssignmentDecision canAssign(@NotNull MoodTaskAssignmentContext context);
+    }
+
     @FunctionalInterface
     public interface CompletionRule {
         @NotNull CompletionDecision canComplete(@NotNull MoodTaskCompletionContext context);
     }
 
+    public enum AssignmentDecision {
+        PASS,
+        DENY
+    }
+
     public enum CompletionDecision {
         PASS,
         DENY
+    }
+
+    public enum AssignmentSource {
+        /**
+         * Wathe 在任务栏为空并且第一个任务冷却结束后自动刷出的任务。
+         */
+        INTERNAL_PRIMARY_COOLDOWN,
+        /**
+         * Wathe 根据低心情并行槽位，或任务完成后的当前阈值，自动补上的额外任务。
+         */
+        INTERNAL_SLOT_REFILL,
+        /**
+         * 扩展或调试入口通过 {@link #assignRandomTask(ServerPlayerEntity)} /
+         * {@link #assignRandomTasks(ServerPlayerEntity, int)} 主动请求的随机任务。
+         */
+        EXTERNAL_RANDOM,
+        /**
+         * 扩展或调试入口通过 {@link #assignTask(ServerPlayerEntity, Identifier)} 主动指定的任务。
+         */
+        EXTERNAL_SPECIFIC
     }
 
     public enum AssignmentStatus {
@@ -516,6 +604,7 @@ public final class MoodTaskApi {
         TASK_LIMIT_REACHED,
         TASK_NOT_REGISTERED,
         TASK_ALREADY_ACTIVE,
+        ASSIGNMENT_DENIED,
         NO_AVAILABLE_TASK
     }
 
@@ -531,6 +620,14 @@ public final class MoodTaskApi {
             int priority,
             long order,
             @NotNull CompletionRule rule
+    ) {
+    }
+
+    private record PrioritizedAssignmentRule(
+            @NotNull Identifier id,
+            int priority,
+            long order,
+            @NotNull AssignmentRule rule
     ) {
     }
 }

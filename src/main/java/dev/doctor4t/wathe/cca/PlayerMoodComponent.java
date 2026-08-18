@@ -348,7 +348,7 @@ public class PlayerMoodComponent implements AutoSyncedComponent, ServerTickingCo
             return;
         }
 
-        if (this.assignRandomTask() != null && allowExtraTaskSlots) {
+        if (this.assignRandomTask(MoodTaskApi.AssignmentSource.INTERNAL_PRIMARY_COOLDOWN) != null && allowExtraTaskSlots) {
             this.fillTasksUpToExpectedCount(this.getExpectedConcurrentTaskCount(getCurrentRole()));
         }
 
@@ -371,8 +371,8 @@ public class PlayerMoodComponent implements AutoSyncedComponent, ServerTickingCo
         int cappedExpectedTaskCount = Math.min(expectedTaskCount, GameConstants.MAX_CONCURRENT_MOOD_TASKS);
         int filled = 0;
         while (this.activeTasks.size() < cappedExpectedTaskCount) {
-            TrainTask task = this.assignRandomTask();
-            if (task == null) {
+            Identifier taskId = this.assignRandomTask(MoodTaskApi.AssignmentSource.INTERNAL_SLOT_REFILL);
+            if (taskId == null) {
                 break;
             }
             filled++;
@@ -383,8 +383,8 @@ public class PlayerMoodComponent implements AutoSyncedComponent, ServerTickingCo
     /**
      * 抽取并挂上一个新任务。
      */
-    private @Nullable TrainTask assignRandomTask() {
-        MoodTaskDefinition definition = this.generateTaskDefinition();
+    private @Nullable Identifier assignRandomTask(@NotNull MoodTaskApi.AssignmentSource source) {
+        MoodTaskDefinition definition = this.generateTaskDefinition(source);
         if (definition == null) {
             return null;
         }
@@ -393,7 +393,7 @@ public class PlayerMoodComponent implements AutoSyncedComponent, ServerTickingCo
         this.putActiveTask(definition.id(), task);
         this.timesGottenById.merge(definition.id(), 1, Integer::sum);
         syncLegacyTimesGotten(definition.id());
-        return task;
+        return definition.id();
     }
 
     /**
@@ -527,14 +527,11 @@ public class PlayerMoodComponent implements AutoSyncedComponent, ServerTickingCo
         int tasksToAssign = Math.min(requestedCount, this.getRemainingMoodTaskSlots());
         ArrayList<Identifier> assignedTasks = new ArrayList<>();
         while (assignedTasks.size() < tasksToAssign) {
-            MoodTaskDefinition definition = this.generateTaskDefinition();
-            if (definition == null) {
+            Identifier taskId = this.assignRandomTask(MoodTaskApi.AssignmentSource.EXTERNAL_RANDOM);
+            if (taskId == null) {
                 break;
             }
-            this.putActiveTask(definition.id(), definition.create(this.player));
-            this.timesGottenById.merge(definition.id(), 1, Integer::sum);
-            syncLegacyTimesGotten(definition.id());
-            assignedTasks.add(definition.id());
+            assignedTasks.add(taskId);
         }
 
         if (!assignedTasks.isEmpty()) {
@@ -550,6 +547,11 @@ public class PlayerMoodComponent implements AutoSyncedComponent, ServerTickingCo
      * <p>这个入口由 {@link MoodTaskApi} 调用。它不会检查任务是否在随机池中，
      * 因为扩展职业专属任务的默认语义就是“注册后只允许指定发放”。</p>
      */
+    public boolean canAssignExternalTask(@NotNull Identifier taskId) {
+        MoodTaskDefinition definition = MoodTaskApi.getDefinition(taskId);
+        return definition != null && this.canAssignTaskDefinition(definition, MoodTaskApi.AssignmentSource.EXTERNAL_SPECIFIC);
+    }
+
     public boolean assignExternalTask(@NotNull Identifier taskId) {
         if (!this.canReceiveExternalMoodTask() || this.activeTasks.containsKey(taskId)) {
             return false;
@@ -557,6 +559,10 @@ public class PlayerMoodComponent implements AutoSyncedComponent, ServerTickingCo
 
         MoodTaskDefinition definition = MoodTaskApi.getDefinition(taskId);
         if (definition == null) {
+            return false;
+        }
+
+        if (!this.canAssignTaskDefinition(definition, MoodTaskApi.AssignmentSource.EXTERNAL_SPECIFIC)) {
             return false;
         }
 
@@ -855,13 +861,22 @@ public class PlayerMoodComponent implements AutoSyncedComponent, ServerTickingCo
      * 随机生成一个新任务。
      * 这里依然沿用“出现次数越多，下一次权重越低”的抽取逻辑，只是不再限制同时只能存在一个任务。
      */
-    private @Nullable MoodTaskDefinition generateTaskDefinition() {
+    private @Nullable MoodTaskDefinition generateTaskDefinition(@NotNull MoodTaskApi.AssignmentSource source) {
         HashMap<Identifier, Float> weights = new HashMap<>();
         float total = 0f;
 
         for (MoodTaskDefinition definition : MoodTaskApi.getRandomAssignableDefinitions()) {
             Identifier taskId = definition.id();
             if (this.activeTasks.containsKey(taskId)) {
+                continue;
+            }
+
+            /*
+             * 所有随机发放都在真正创建任务实例之前先询问公开 API。
+             * 这样扩展职业可以阻止 Wathe 原生任务出现，而不是等客户端看到任务后再清掉，
+             * 也可以只屏蔽某些 task id，同时让其它候选继续参与随机抽取。
+             */
+            if (!this.canAssignTaskDefinition(definition, source)) {
                 continue;
             }
 
@@ -883,6 +898,27 @@ public class PlayerMoodComponent implements AutoSyncedComponent, ServerTickingCo
         }
 
         return null;
+    }
+
+    private boolean canAssignTaskDefinition(@NotNull MoodTaskDefinition definition, @NotNull MoodTaskApi.AssignmentSource source) {
+        if (!(this.player instanceof ServerPlayerEntity serverPlayer)) {
+            return true;
+        }
+
+        GameWorldComponent gameWorld = GameWorldComponent.KEY.get(serverPlayer.getWorld());
+        MoodTaskApi.MoodTaskAssignmentContext context = new MoodTaskApi.MoodTaskAssignmentContext(
+                serverPlayer,
+                gameWorld,
+                gameWorld.getRole(serverPlayer),
+                definition.id(),
+                definition,
+                definition.legacyTask(),
+                source,
+                source != MoodTaskApi.AssignmentSource.EXTERNAL_SPECIFIC,
+                this.activeTasks.size(),
+                GameConstants.MAX_CONCURRENT_MOOD_TASKS
+        );
+        return MoodTaskApi.canAssignTask(context);
     }
 
     public float getMood() {

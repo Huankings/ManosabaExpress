@@ -6,6 +6,7 @@
 - 任务点透视类型用 `MoodTaskPointApi.registerTaskPoint(...)` 注册；
 - 地图扫描追加任务点用 `MoodTaskPointApi.registerScanHandler(...)`；
 - 指定发放任务用 `MoodTaskApi.assignTask(player, taskId)`；
+- 阻止 Wathe 自动发放、外部随机发放或指定发放任务用 `MoodTaskApi.registerAssignmentRule(...)`；
 - 删除任务和完成任务是两个不同语义。
 
 ## 任务定义
@@ -65,6 +66,31 @@ MoodTaskApi.completeTask(target, MY_TASK, true);
 - `assignTask`：指定发放任务，不要求任务进入随机池。
 - `removeTask`：只删除任务，不加心情、不触发完成事件、不写任务完成回放。
 - `completeTask`：按正常完成流程结算；`rewardMood=true` 时会按 Wathe 心情规则回复心情。
+
+## 发放拦截
+
+如果扩展职业要完全接管任务节奏，不要在 tick 里等任务出现后再删除。那会导致客户端看到任务短暂闪现。应在 Wathe 发放前注册拦截规则：
+
+```java
+MoodTaskApi.registerAssignmentRule(
+        MyMod.id("my_role_task_assignment"),
+        MoodTaskApi.DEFAULT_PRIORITY + 100,
+        context -> shouldBlockTaskAssignment(context.player(), context.source(), context.taskId())
+                ? MoodTaskApi.AssignmentDecision.DENY
+                : MoodTaskApi.AssignmentDecision.PASS
+);
+```
+
+`context.source()` 用于区分发放来源：
+
+| 来源 | 含义 |
+| --- | --- |
+| `INTERNAL_PRIMARY_COOLDOWN` | Wathe 在任务栏为空且第一个任务冷却结束后自动刷任务 |
+| `INTERNAL_SLOT_REFILL` | Wathe 因低心情并行槽位或任务完成后阈值检查自动补任务 |
+| `EXTERNAL_RANDOM` | 扩展或调试入口调用 `assignRandomTask` / `assignRandomTasks` |
+| `EXTERNAL_SPECIFIC` | 扩展或调试入口调用 `assignTask(player, taskId)` |
+
+随机发放会在每个候选任务进入任务栏前询问规则。某个 task id 被拒绝时，Wathe 会继续尝试其它候选；如果全部候选都被拒绝，随机发放结果会表现为没有可用任务。指定发放被拒绝时，`TaskAssignmentResult.status()` 会返回 `ASSIGNMENT_DENIED`。
 
 管理员调试指令：
 
