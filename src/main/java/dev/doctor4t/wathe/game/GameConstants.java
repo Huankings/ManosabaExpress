@@ -375,9 +375,9 @@ public interface GameConstants {
     //鞭炮放置后准备爆炸的时间
     int FIRECRACKER_TIMER = getInTicks(0, 15);
     //停电最短恢复时间
-    int BLACKOUT_MIN_DURATION = getInTicks(0, 20);
+    int BLACKOUT_MIN_DURATION = getInTicks(0, 10);
     //停电最长恢复时间
-    int BLACKOUT_MAX_DURATION = getInTicks(0, 35);
+    int BLACKOUT_MAX_DURATION = getInTicks(0, 25);
     //每杀一个平民所增加的时间
     int TIME_ON_CIVILIAN_KILL = getInTicks(0, 45);
 
