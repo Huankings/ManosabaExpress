@@ -46,8 +46,168 @@ import java.util.UUID;
 public class ScoreboardRoleSelectorComponent implements AutoSyncedComponent {
     public static final ComponentKey<ScoreboardRoleSelectorComponent> KEY = ComponentRegistry.getOrCreate(Wathe.id("rolecounter"), ScoreboardRoleSelectorComponent.class);
 
+    /**
+     * 权重计算的基础锚点。
+     *
+     * <p>这里的权重不是直接百分比，而是“抽签票数”：某个玩家最终概率 =
+     * 该玩家权重 / 本轮所有候选人的权重总和。例如 4 个候选人权重分别是
+     * 2.0、1.0、1.0、1.0，那么第一个人的概率大约是 2 / 5 = 40%。</p>
+     *
+     * <p>无历史、关闭权重系统、或者调试覆写失效时，都回到这个值。
+     * 之所以保留 1.0，是为了让“新人默认值”和“正常历史值”在同一条尺度上比较：
+     * 新人不是天然更高，也不是天然更低，而是作为后续回升/回压的基准线。</p>
+     *
+     * <p>调高这个值：新人、无历史玩家、关闭权重时的候选人都会更有竞争力，
+     * 历史回升带来的相对优势会被稀释。例如 DEFAULT_WEIGHT 从 1.0 改成 2.0 后，
+     * “缺席 3 局稀缺阵营”的玩家权重会从 2.8 变成 3.8，但新人也从 1.0 变成 2.0，
+     * 老玩家相对新人的优势会从 2.8 倍降到 1.9 倍左右。</p>
+     *
+     * <p>调低这个值：历史回升会显得更强，老玩家更容易压过新人；
+     * 但如果太低，新玩家或者刚清空权重的玩家会比较难抽到稀缺阵营。
+     * 一般建议把这个值固定为 1.0，只调下面的回升和回压参数。</p>
+     */
     private static final double DEFAULT_WEIGHT = 1.0D;
+
+    /**
+     * 权重最终输出的安全边界。
+     *
+     * <p>MIN_ASSIGNMENT_WEIGHT 不是为了继续把人压到接近 0，而是为了保底：
+     * 再怎么倒霉，也不应该低到让某个玩家几乎永远抽不到目标阵营。
+     * 调高它会削弱连续重复惩罚，已经连续当过杀手/中立的玩家仍会保留更多机会；
+     * 调低它会更强地压住重复分配，但太低会让某些玩家长期几乎没有翻身机会。
+     * 例如 0.25 表示再低也保留四分之一张基础票，通常比 0.05 这种“接近消失”的保底更温和。</p>
+     *
+     * <p>MAX_ASSIGNMENT_WEIGHT 则是为了防止历史加分无限膨胀。
+     * 我们希望“老玩家明显高于新人”，但不希望某个玩家的历史把整张概率表撑坏。
+     * 调高它会让特别久没拿到某阵营/职业的玩家更容易形成压倒性优势；
+     * 调低它会让概率更平滑，但也会削弱长期没体验到稀缺阵营的补偿。
+     * 例如某玩家累计算出 22.0，当前上限 16.0 会把它压成 16.0；
+     * 如果上限调到 8.0，这类长期缺席玩家就只能拿到 8.0，追赶力度会明显变弱。</p>
+     *
+     * <p>MAX_DEBUG_WEIGHT 只给管理员手动设权重时用，方便测试，不影响正常抽取上限。
+     * 调高它只会让 /roleWeights set 之类调试指令能设置更夸张的权重；
+     * 调低它会限制管理员压测极端概率。正常开局自动计算仍会被 MAX_ASSIGNMENT_WEIGHT 裁剪。</p>
+     */
+    private static final double MIN_ASSIGNMENT_WEIGHT = 0.05D;
     private static final double MAX_DEBUG_WEIGHT = 10_000.0D;
+    private static final double MAX_ASSIGNMENT_WEIGHT = 12.0D;
+
+    /**
+     * 阵营历史的“回升”参数。
+     *
+     * <p>这里分成稀缺阵营和普通阵营两档：
+     * - 稀缺阵营：杀手 / 中立，回升更快，避免新人默认 1.0 直接把老玩家顶掉；
+     * - 普通阵营：平民 / 义警，回升稍慢，保持整体分配更平滑。</p>
+     *
+     * <p>RECOVERY_STEP 表示前几把没拿到目标阵营时，每一把补多少权重。
+     * 调高它会让老玩家更快超过新人，更适合“几局没当杀手/中立就应该明显优先”的服务器；
+     * 调低它会让分配更接近纯随机，但也更容易再次出现新人默认 1.0 压过老玩家的情况。
+     * 例子：稀缺阵营前期步长 0.60 时，连续 3 局没当杀手/中立的玩家，
+     * 阵营回升前的基础权重是 1.0 + 3 * 0.60 = 2.80，已经明显高于新人 1.0。</p>
+     *
+     * <p>LATE_RECOVERY_STEP 表示超过窗口后，每多缺席一局继续补多少，通常比 RECOVERY_STEP 小。
+     * 调高它会让“特别久没拿到某阵营”的玩家继续快速堆高，适合强补偿；
+     * 调低它会让玩家过了快速回升区后趋于平缓，避免老玩家长期缺席后直接碾压整张概率表。
+     * 例子：稀缺阵营窗口 4、前期步长 0.60、后期步长 0.24 时，连续 6 局没当杀手/中立，
+     * 权重是 1.0 + 4 * 0.60 + 2 * 0.24 = 3.88。</p>
+     *
+     * <p>RECOVERY_WINDOW 表示前几把属于“快速回升区”，超过这个窗口后进入“缓慢追赶区”。
+     * 调高它会让 RECOVERY_STEP 这种大步长持续更多局，老玩家追赶更快；
+     * 调低它会更早切到 LATE_RECOVERY_STEP，追赶更稳但更慢。
+     * 例子：稀缺阵营窗口从 4 改成 2 时，连续 6 局缺席会变成
+     * 1.0 + 2 * 0.60 + 4 * 0.24 = 3.16，比当前 3.88 更保守。</p>
+     */
+    private static final double SCARCE_FACTION_RECOVERY_STEP = 0.60D;
+    private static final double COMMON_FACTION_RECOVERY_STEP = 0.35D;
+    private static final double SCARCE_FACTION_LATE_RECOVERY_STEP = 0.24D;
+    private static final double COMMON_FACTION_LATE_RECOVERY_STEP = 0.15D;
+    private static final int SCARCE_FACTION_RECOVERY_WINDOW = 4;
+    private static final int COMMON_FACTION_RECOVERY_WINDOW = 3;
+
+    /**
+     * 阵营历史的“回压”参数。
+     *
+     * <p>RECOVERY_STEP 负责把长期没拿到目标阵营的玩家往上抬，
+     * OVERUSE_PENALTY 和 STREAK_PENALTY 则负责把“已经拿得太多”或“连续拿同一阵营”的玩家往回压。
+     * 这样做的目的，是让权重既能回升到比新人更高，又不会一路堆到特别夸张。</p>
+     *
+     * <p>OVERUSE_PENALTY 处理“总次数比候选人里的最低次数多多少”。
+     * 公式是 weight / (1 + 超出次数 * penalty)。调高它会更强烈照顾从没拿过或拿得较少的人；
+     * 调低它会更允许历史上已经拿过多次的人继续参与竞争。
+     * 例子：某玩家稀缺阵营回升后是 3.88，但比当前候选人的最低稀缺阵营次数多 2 次，
+     * 当前 0.28 会压成 3.88 / (1 + 2 * 0.28) 约等于 2.49。它仍高于新人 1.0，
+     * 但不会因为连续缺席几局就完全无视“以前已经当过很多次”的事实。</p>
+     *
+     * <p>STREAK_PENALTY 处理“上一局或连续多局就是这个阵营”的情况。
+     * 调高它会更强地阻止连局重复，尤其适合杀手/中立这种稀缺阵营；
+     * 调低它会让背靠背抽到同阵营更常见。
+     * 例子：玩家上一局刚当杀手，稀缺阵营 streak 至少按 1 计算，
+     * 当前 0.75 会把权重除以 1.75；如果连续 2 局都是杀手，则除以 2.5，
+     * 基本就会把“继续杀手”的概率压得很低。</p>
+     */
+    private static final double SCARCE_FACTION_OVERUSE_PENALTY = 0.22D;
+    private static final double COMMON_FACTION_OVERUSE_PENALTY = 0.15D;
+    private static final double SCARCE_FACTION_STREAK_PENALTY = 0.75D;
+    private static final double COMMON_FACTION_STREAK_PENALTY = 0.42D;
+
+    /**
+     * 具体职业历史的“回升”参数。
+     *
+     * <p>这组参数和阵营历史同理，但力度略低于阵营历史：
+     * - 阵营层面先保证“谁更缺某阵营”；
+     * - 职业层面再保证“谁更缺某个具体职业”。</p>
+     *
+     * <p>稀缺阵营下的具体职业回升仍然更强，因为杀手 / 中立本身就更稀有。
+     * 调高 ROLE_RECOVERY_STEP 会让某个具体职业更快轮到没玩过它的人；
+     * 调低它会让“阵营公平”占主导，具体职业内部更随机。
+     * 例子：某玩家已经 3 局没抽到目标稀缺职业，职业层会额外给
+     * 3 * 0.36 = 1.08；如果同样 3 局没抽到普通职业，则额外给 3 * 0.24 = 0.72。</p>
+     *
+     * <p>ROLE_LATE_RECOVERY_STEP 和 ROLE_RECOVERY_WINDOW 的含义与阵营参数一致：
+     * 前几局用较大的快速回升，超过窗口后用较小的后期回升。
+     * 调高后期步长会让特别久没玩某个职业的人持续追高；
+     * 调低后期步长会让它更像“温和提醒”，避免具体职业权重盖过阵营权重。
+     * 例子：稀缺职业连续 6 局没拿到时，职业层回升是
+     * 4 * 0.36 + 2 * 0.16 = 1.76；普通职业同样 6 局没拿到则是
+     * 3 * 0.24 + 3 * 0.10 = 1.02。</p>
+     */
+    private static final double SCARCE_ROLE_RECOVERY_STEP = 0.36D;
+    private static final double COMMON_ROLE_RECOVERY_STEP = 0.24D;
+    private static final double SCARCE_ROLE_LATE_RECOVERY_STEP = 0.16D;
+    private static final double COMMON_ROLE_LATE_RECOVERY_STEP = 0.10D;
+    private static final int SCARCE_ROLE_RECOVERY_WINDOW = 4;
+    private static final int COMMON_ROLE_RECOVERY_WINDOW = 3;
+
+    /**
+     * 具体职业历史的“回压”参数。
+     *
+     * <p>如果某个玩家已经频繁抽到某个具体扩展职业，就会被逐步往回压，
+     * 防止“同一个职业总是塞给同一个人”的情况再次出现。</p>
+     *
+     * <p>ROLE_OVERUSE_PENALTY 处理“这个具体职业总次数偏多”的情况。
+     * 调高它会让职业更平均地分散到不同玩家身上；
+     * 调低它会允许某些玩家更频繁重复拿到同一个职业。
+     * 例子：某玩家目标职业回升后权重是 3.0，但该职业次数比候选人最低值多 2 次，
+     * 稀缺职业 0.18 会压成 3.0 / (1 + 2 * 0.18) 约等于 2.21；
+     * 普通职业 0.12 则约等于 2.42，说明普通职业的回压更温和。</p>
+     *
+     * <p>ROLE_STREAK_PENALTY 处理“连续同一个具体职业”的情况。
+     * 调高它会更强地避免连续两局同职业，适合非常有记忆点或强度较高的扩展职业；
+     * 调低它会让同职业连局更可能发生。
+     * 例子：玩家上一局刚是某个稀缺职业，本局又参与该职业候选时，
+     * 当前 0.45 会把职业层权重除以 1.45；如果连续 2 局都是同职业，则除以 1.90。</p>
+     */
+    private static final double SCARCE_ROLE_OVERUSE_PENALTY = 0.18D;
+    private static final double COMMON_ROLE_OVERUSE_PENALTY = 0.12D;
+    private static final double SCARCE_ROLE_STREAK_PENALTY = 0.45D;
+    private static final double COMMON_ROLE_STREAK_PENALTY = 0.30D;
+
+    /**
+     * 新版职业权重账本在 NBT 里的键名。
+     *
+     * <p>如果以后要做兼容迁移或排查存档内容，先看这个 key。
+     * 旧版只存 killerRounds / vigilanteRounds，新版会多写完整账本。</p>
+     */
     private static final String ROLE_WEIGHT_RECORDS_KEY = "RoleWeightRecords";
 
     public final Scoreboard scoreboard;
@@ -414,42 +574,53 @@ public class ScoreboardRoleSelectorComponent implements AutoSyncedComponent {
         boolean scarceFaction = targetFaction == Faction.KILLER || targetFaction == Faction.NEUTRAL;
 
         if (includeFactionHistory) {
-            int factionExcess = Math.max(0, record.getFactionRounds(targetFaction) - minimumFactionRounds);
+            int factionRounds = record.getFactionRounds(targetFaction);
+            int factionMissedRounds = Math.max(0, record.getParticipatedRounds() - factionRounds);
+            int factionExcess = Math.max(0, factionRounds - minimumFactionRounds);
+            int factionStreak = record.getLastFaction() == targetFaction ? Math.max(1, record.getConsecutiveFactionRounds()) : 0;
+            double recoveryStep = scarceFaction ? SCARCE_FACTION_RECOVERY_STEP : COMMON_FACTION_RECOVERY_STEP;
+            double lateRecoveryStep = scarceFaction ? SCARCE_FACTION_LATE_RECOVERY_STEP : COMMON_FACTION_LATE_RECOVERY_STEP;
+            int recoveryWindow = scarceFaction ? SCARCE_FACTION_RECOVERY_WINDOW : COMMON_FACTION_RECOVERY_WINDOW;
+            double overusePenalty = scarceFaction ? SCARCE_FACTION_OVERUSE_PENALTY : COMMON_FACTION_OVERUSE_PENALTY;
+            double streakPenalty = scarceFaction ? SCARCE_FACTION_STREAK_PENALTY : COMMON_FACTION_STREAK_PENALTY;
             /*
-             * 阵营历史是公平性的第一层：同一个玩家已经多次拿到稀缺阵营时，
-             * 下一次仍然允许被抽到，但概率会被明显压低。
+             * 阵营历史是公平性的第一层。
+             *
+             * 旧算法是一路做指数衰减，结果历史越久的玩家越接近 0.0x，
+             * 新玩家默认 1.0 反而会直接压过他们。现在改成“恢复加成优先、过量回压辅助”：
+             * - 好几把没拿到对应阵营时，先把权重抬上来；
+             * - 拿得过多时，再做软惩罚；
+             * - 连续同阵营再叠一层回压，避免连局重复。
              */
-            weight *= Math.pow(scarceFaction ? 0.42D : 0.62D, factionExcess);
-
-            if (record.getLastFaction() == targetFaction) {
-                int streak = Math.max(1, record.getConsecutiveFactionRounds());
-                /*
-                 * 连续同阵营是玩家体感最明显的问题，尤其是杀手/中立。
-                 * 这里使用强力软惩罚，而不是直接禁用，避免小人数调试局因为候选人太少无法分配。
-                 */
-                weight *= Math.pow(scarceFaction ? 0.18D : 0.35D, Math.min(streak, 4));
-            } else {
-                int missedRounds = Math.max(0, record.getParticipatedRounds() - record.getFactionRounds(targetFaction));
-                weight *= 1.0D + Math.min(missedRounds, 6) * (scarceFaction ? 0.18D : 0.08D);
-            }
+            weight = addRecoveryWeight(weight, factionMissedRounds, recoveryStep, lateRecoveryStep, recoveryWindow);
+            weight = applySoftPenalty(weight, factionExcess, overusePenalty);
+            weight = applySoftPenalty(weight, factionStreak, streakPenalty);
         }
 
         if (includeRoleHistory && targetRole != null) {
             Identifier roleId = targetRole.identifier();
-            int roleExcess = Math.max(0, record.getRoleRounds(roleId) - minimumRoleRounds);
+            int roleRounds = record.getRoleRounds(roleId);
+            int roleMissedRounds = Math.max(0, record.getParticipatedRounds() - roleRounds);
+            int roleExcess = Math.max(0, roleRounds - minimumRoleRounds);
+            int roleStreak = roleId.equals(record.getLastRole()) ? Math.max(1, record.getConsecutiveRoleRounds()) : 0;
+            double roleRecoveryStep = scarceFaction ? SCARCE_ROLE_RECOVERY_STEP : COMMON_ROLE_RECOVERY_STEP;
+            double roleLateRecoveryStep = scarceFaction ? SCARCE_ROLE_LATE_RECOVERY_STEP : COMMON_ROLE_LATE_RECOVERY_STEP;
+            int roleRecoveryWindow = scarceFaction ? SCARCE_ROLE_RECOVERY_WINDOW : COMMON_ROLE_RECOVERY_WINDOW;
+            double roleOverusePenalty = scarceFaction ? SCARCE_ROLE_OVERUSE_PENALTY : COMMON_ROLE_OVERUSE_PENALTY;
+            double roleStreakPenalty = scarceFaction ? SCARCE_ROLE_STREAK_PENALTY : COMMON_ROLE_STREAK_PENALTY;
             /*
-             * 职业历史是第二层：即使某玩家这局合理地拿到了杀手/义警位，
-             * Harpy 再替换具体扩展职业时也会尽量避开“同一个扩展职业连着给同一个人”的情况。
+             * 职业历史是第二层。
+             *
+             * 这里也同样采用“缺席越久越加分、过量越多越回压”的方式。
+             * 这样既能避免某一个扩展职业总落到同一个人身上，
+             * 也能让老玩家在几把没拿到该职业后逐步抬回 1.0 以上，不会被新玩家默认值碾压。
              */
-            weight *= Math.pow(0.52D, roleExcess);
-
-            if (roleId.equals(record.getLastRole())) {
-                int streak = Math.max(1, record.getConsecutiveRoleRounds());
-                weight *= Math.pow(0.16D, Math.min(streak, 4));
-            }
+            weight = addRecoveryWeight(weight, roleMissedRounds, roleRecoveryStep, roleLateRecoveryStep, roleRecoveryWindow);
+            weight = applySoftPenalty(weight, roleExcess, roleOverusePenalty);
+            weight = applySoftPenalty(weight, roleStreak, roleStreakPenalty);
         }
 
-        return Math.max(0.0001D, Math.min(weight, MAX_DEBUG_WEIGHT));
+        return clampAssignmentWeight(weight);
     }
 
     private int getMinimumFactionRounds(@NotNull List<ServerPlayerEntity> candidates, @NotNull Faction faction) {
@@ -481,6 +652,54 @@ public class ScoreboardRoleSelectorComponent implements AutoSyncedComponent {
             return DEFAULT_WEIGHT;
         }
         return Math.max(0.0D, Math.min(weight, MAX_DEBUG_WEIGHT));
+    }
+
+    /**
+     * 按“前期快速回升 + 后期缓慢回升”给权重加分。
+     *
+     * <p>missedRounds 是玩家参与了多少局却没有拿到目标阵营/职业。
+     * 前 recoveryWindow 局使用 recoveryStep，超过窗口后使用 lateRecoveryStep。
+     * 这和上方常量注释里的例子一致：稀缺阵营缺席 6 局时，
+     * 会先算 4 * 0.60，再算 2 * 0.24。</p>
+     */
+    private static double addRecoveryWeight(double weight, int missedRounds, double recoveryStep, double lateRecoveryStep, int recoveryWindow) {
+        if (missedRounds <= 0) {
+            return weight;
+        }
+        int earlyRounds = Math.min(missedRounds, recoveryWindow);
+        weight += earlyRounds * recoveryStep;
+        if (missedRounds > recoveryWindow) {
+            weight += (missedRounds - recoveryWindow) * lateRecoveryStep;
+        }
+        return weight;
+    }
+
+    /**
+     * 对“拿得过多”或“连续重复”的情况做软回压。
+     *
+     * <p>这里没有直接乘一个很小的衰减值，而是使用
+     * weight / (1 + rounds * penaltyPerRound)。
+     * 好处是惩罚会随着次数增加而变强，但不会轻易把玩家压到 0 附近；
+     * 例如 3.88 权重、2 次超额、0.28 惩罚，会得到约 2.49。</p>
+     */
+    private static double applySoftPenalty(double weight, int overuseRounds, double penaltyPerRound) {
+        if (overuseRounds <= 0) {
+            return weight;
+        }
+        return weight / (1.0D + overuseRounds * penaltyPerRound);
+    }
+
+    /**
+     * 自动计算出来的开局权重最终裁剪。
+     *
+     * <p>调试指令的手动覆写走 {@link #sanitizeDebugWeight(double)}，可以放到更高；
+     * 正常开局算法走这里，保证不会低于 MIN_ASSIGNMENT_WEIGHT，也不会高于 MAX_ASSIGNMENT_WEIGHT。</p>
+     */
+    private static double clampAssignmentWeight(double weight) {
+        if (Double.isNaN(weight) || Double.isInfinite(weight)) {
+            return DEFAULT_WEIGHT;
+        }
+        return Math.max(MIN_ASSIGNMENT_WEIGHT, Math.min(weight, MAX_ASSIGNMENT_WEIGHT));
     }
 
     private void syncLegacyFactionCounters() {
