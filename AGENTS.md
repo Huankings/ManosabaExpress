@@ -55,6 +55,8 @@
 - `src/main/java/dev/doctor4t/wathe/client/gui/BlackoutOverlayRenderer.java`：Wathe 本体停电黑幕 HUD，使用服务端同步的 `WorldBlackoutComponent`，不要再让扩展监听音效计时黑幕。
 - `src/main/java/dev/doctor4t/wathe/client/gui/MoodRenderer.java`、`TimeRenderer.java`：心情和时间 HUD。
 - `src/main/java/dev/doctor4t/wathe/api/client/hud/*`：通用屏幕 HUD 叠加 API，扩展职业右下角状态、全屏遮罩和狙击镜优先看这里。
+- `src/main/java/dev/doctor4t/wathe/api/client/fog/FogOverrideApi.java`：客户端最终雾效 provider API，兼容原版地图雾与 Iris 标准 fog uniform。
+- `src/main/java/dev/doctor4t/wathe/mixin/client/scenery/RenderSystemFogStateMixin.java`：把 Wathe 最终雾距暴露给 RenderSystem getter，供 Iris `FogUniforms` 读取。
 - `src/main/java/dev/doctor4t/wathe/mixin/client/ui/InGameHudMixin.java`：Wathe 统一调度 `HudOverlayApi` 的客户端注入点，扩展侧一般不应再直接 mixin 这个类。
 
 ### Wathe API
@@ -79,6 +81,7 @@
 - 玩家物理碰撞：`PlayerCollisionApi`、`PlayerCollisionContext`、`PlayerCollisionMode`
 - 外观：`PlayerAppearanceApi`、`BodyAppearanceApi`
 - 通用屏幕 HUD：`HudOverlayApi`、`HudOverlayContext`、`HudOverlayLayer`、`HudOverlayLayout`
+- 客户端最终雾效 / Iris 兼容：`FogOverrideApi`
 - 准心图标 / 准心下方小进度条：`CrosshairHudApi`
 - 准心名字 / 实体名牌 / 准心额外 HUD：`RoleNameHudApi`
 - 心情 HUD：`MoodHudApi`
@@ -356,6 +359,27 @@ Harpymodloader.setRoleMaximum(MY_ROLE, 1);
 - 灵术师出窍这种“只影响自己客户端看到的一切”的视觉覆盖应走客户端 handler，并注意不改变服务端真实身份 / 尸体 owner。
 - 双重人格这类低优先级外观应给主动变形让路。
 - `PlayerAppearanceApi.resolveOriginalSkinTextures(...)` 用于防止伪装套娃，不要读取目标实体当前已经被覆盖过的皮肤再二次套用。
+
+## 客户端雾效与 Iris 兼容
+
+Wathe 的地图雾和扩展职业临时雾效统一走：
+
+- `src/main/java/dev/doctor4t/wathe/api/client/fog/FogOverrideApi.java`
+- `src/main/java/dev/doctor4t/wathe/mixin/client/scenery/WorldRendererMixin.java`
+- `src/main/java/dev/doctor4t/wathe/mixin/client/scenery/RenderSystemFogStateMixin.java`
+
+接入规则：
+
+- 原版、液体状态和 Wathe 地图雾先由 `BackgroundRenderer.applyFog(...)` 写入基础 start、end、shape。
+- 扩展通过 `FogOverrideApi.registerProvider(id, priority, provider)` 在基础雾完成后接管最终值。
+- provider 返回 `FogOverride.pass()` 时继续询问低优先级 provider；priority 越大越优先。
+- `WorldRendererMixin` 每帧先调用 `FogOverrideApi.beginFrame()`，再调用 `applyOverrides(...)`；扩展不要再直接注入 `WorldRenderer.render` 覆盖雾距。
+- `RenderSystemFogStateMixin` 把本帧最终值暴露给 RenderSystem getter。Iris 1.21.1 的标准 `FogUniforms` 通过这些 getter 更新 `fogStart` / `fogEnd`，因此不需要直接依赖 Iris 私有类，也不能把 Iris 写成 Wathe 的必需依赖。
+- `WorldRendererMixin` 在世界渲染返回前调用 `FogOverrideApi.endFrame()`。该方法使用原版 `BackgroundRenderer.clearFog()` 把 `FogStart` 切到无雾值，再清空 getter override；不能把世界基础雾值直接留给 GUI，否则 1.21.1 的文字 shader 会按白天/夜晚的 `FogColor` 把聊天、tab 和 HUD 文字染白或染黑。
+- 只给本人或局内存活玩家生效的规则，仍要在 provider 内判断观察者 / 持有者状态；旁观、创造和调试视角不能被无意限制。
+- 雾效 start/end 的过渡时间属于玩法数值，放在对应职业 `*Constants`；不要在 provider 里散落 magic number。
+
+如果新增或修改 `FogOverrideApi`，必须先编译 Wathe，再把新的 `build/libs/wathe-*.jar` 复制到受影响扩展的 `libs`，最后编译扩展。修改 API 后不要只编译扩展源码，否则本地依赖 jar 可能仍然没有新接口。
 
 ## 玩家体力和移动速度 API
 

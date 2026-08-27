@@ -546,6 +546,8 @@ HudOverlayApi.register(MyMod.id("hud/my_role/scope"), HudOverlayLayer.AFTER_HUD,
 - `CrosshairHudApi.registerProvider(id, priority, provider)`：短路接管默认准心。返回 `PASS` 继续交给低优先级 provider 或 Wathe 默认准心；返回 `HANDLED` 表示本帧已经处理完，可以是已绘制自定义准心，也可以是故意隐藏默认准心。
 - `CrosshairHudApi.registerOverlay(id, priority, renderer)`：默认准心后追加绘制，不会阻止默认准心和其他 overlay，适合怀表冷却条这类只补一条进度条的场景。
 - `CrosshairHudApi.Context`：提供 `client`、`player`、`drawContext`、`tickCounter`、主手物品、`tickDelta` 和屏幕中心坐标。
+- `FogOverrideApi.registerProvider(id, priority, provider)`：在原版和地图雾完成后接管最终 fog start/end/shape；返回 `FogOverride.pass()` 继续交给下一个 provider。
+- `FogOverrideApi.FogContext`：提供当前客户端、相机、小数 tick，以及原版/地图已经计算出的基础雾值。最终值会通过 RenderSystem getter 暴露给 Iris 的标准 `FogUniforms` 路径。
 - `renderStandardCrosshair(...)`、`renderKnifeProgressCrosshair(...)`、`renderBatProgressCrosshair(...)`、`renderIconProgressCrosshair(...)`：复用 Wathe 的准心纹理和 blend 设置，避免扩展复制渲染状态。
 
 准心只是客户端提示，不能作为玩法结果来源。扩展物品在 C2S 包、服务端 use/attack 逻辑里仍然必须重新校验职业、存活、冷却、距离和目标合法性。

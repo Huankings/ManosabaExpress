@@ -59,6 +59,7 @@
     "client.scenery.BackgroundRendererMixin",
     "client.scenery.CameraMixin",
     "client.scenery.ClientWorldMixin",
+    "client.scenery.RenderSystemFogStateMixin",
     "client.scenery.SceneryWorldRendererMixin",
     "client.scenery.WorldRendererMixin",
     "client.self.BeveragePlateBlockEntityMixin",

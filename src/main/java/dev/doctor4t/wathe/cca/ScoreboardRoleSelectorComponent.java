@@ -197,10 +197,10 @@ public class ScoreboardRoleSelectorComponent implements AutoSyncedComponent {
      * 例子：玩家上一局刚是某个稀缺职业，本局又参与该职业候选时，
      * 当前 0.45 会把职业层权重除以 1.45；如果连续 2 局都是同职业，则除以 1.90。</p>
      */
-    private static final double SCARCE_ROLE_OVERUSE_PENALTY = 0.18D;
-    private static final double COMMON_ROLE_OVERUSE_PENALTY = 0.12D;
-    private static final double SCARCE_ROLE_STREAK_PENALTY = 0.45D;
-    private static final double COMMON_ROLE_STREAK_PENALTY = 0.30D;
+    private static final double SCARCE_ROLE_OVERUSE_PENALTY = 0.28D;
+    private static final double COMMON_ROLE_OVERUSE_PENALTY = 0.22D;
+    private static final double SCARCE_ROLE_STREAK_PENALTY = 0.65D;
+    private static final double COMMON_ROLE_STREAK_PENALTY = 0.50D;
 
     /**
      * 新版职业权重账本在 NBT 里的键名。
