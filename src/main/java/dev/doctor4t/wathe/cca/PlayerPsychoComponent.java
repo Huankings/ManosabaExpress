@@ -57,9 +57,15 @@ public class PlayerPsychoComponent implements AutoSyncedComponent, ServerTicking
     public void serverTick() {
         if (this.psychoTicks <= 0) return;
 //        if (this.psychoTicks % 20 == 0) this.player.sendMessage(Text.translatable("game.psycho_mode.time", this.psychoTicks / 20).withColor(Colors.RED), true);
-        if (--this.psychoTicks == 0) {
+        /*
+         * 必须在剩余 tick 归零前调用 stopPsycho：旧顺序先 -- 到 0，
+         * 使 stopPsycho 的 wasActive 判定失败，疯魔自然结束不会写入结束回放。
+         */
+        if (this.psychoTicks <= 1) {
 //            this.player.sendMessage(Text.translatable("game.psycho_mode.over").withColor(Colors.RED), true);
             this.stopPsycho();
+        } else {
+            --this.psychoTicks;
         }
 
         this.sync();
@@ -150,7 +156,9 @@ public class PlayerPsychoComponent implements AutoSyncedComponent, ServerTicking
     }
 
     public void stopPsycho(boolean recordReplay) {
-        boolean wasActive = this.psychoTicks > 0;
+        /* 自定义 profile 可能在前置死亡流程中先把 tick 置 0，但 profile 仍未清理。 */
+        boolean wasActive = this.psychoTicks > 0
+                || !PsychoModeApi.DEFAULT_PROFILE_ID.equals(this.profileId);
         PsychoModeProfile profile = this.getProfile();
         if (wasActive) {
             GameWorldComponent gameWorldComponent = GameWorldComponent.KEY.get(this.player.getWorld());

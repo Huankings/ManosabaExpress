@@ -571,6 +571,18 @@ public class GameFunctions {
 
         // reset all players
         for (ServerPlayerEntity player : world.getPlayers()) {
+            /*
+             * 对局结束时，GameRecordHooks 要在本方法返回后才封存并发送完整回放。
+             * 旧顺序直接调用 resetPlayer -> PlayerPsychoComponent.reset()，而 reset()
+             * 为避免大厅/换局污染会使用 stopPsycho(false)，导致仍在疯魔中的玩家
+             * 永远没有 psycho_mode_end 事件。这里先在记录仍有效的窗口显式记录结束，
+             * 随后 resetPlayer 再执行不记录回放的常规清理，确保不会重复写入结束事件。
+             * 该处理同时覆盖默认疯魔和所有通过 PsychoModeProfile 接入的特殊疯魔。
+             */
+            PlayerPsychoComponent psycho = PlayerPsychoComponent.KEY.get(player);
+            if (psycho.isPsychoActive()) {
+                psycho.stopPsycho(true);
+            }
             PlayerLifeStateApi.clearAliveOverride(player);
             resetPlayer(player);
         }
