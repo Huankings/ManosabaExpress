@@ -130,11 +130,13 @@ public int getFixedKillerCount() { return this.fixedKillerCount; }
     private long alivePlayersCollisionRoundStartTick = -1L;
 
     public void setWeightsEnabled(boolean enabled) {
+        /* 权重状态已经迁移到全局 scoreboard；保留本字段只为旧存档/旧调用兼容。 */
         this.enableWeights = enabled;
+        ScoreboardRoleSelectorComponent.KEY.get(this.world.getScoreboard()).setWeightsEnabled(enabled);
     }
 
     public boolean areWeightsEnabled() {
-        return enableWeights;
+        return ScoreboardRoleSelectorComponent.KEY.get(this.world.getScoreboard()).areWeightsEnabled();
     }
 
     /**

@@ -230,9 +230,11 @@ Wathe 用 Cardinal Components API 保存大量状态，入口是 `WatheComponent
 
 地图投票放在 ScoreboardComponent 上是很关键的设计：玩家会被传送到不同维度，如果投票状态绑在某个世界上，切图后容易丢状态或读错世界。
 
-`ScoreboardRoleSelectorComponent` 同时保存新版职业分配权重账本。账本按玩家 UUID 记录每个阵营出现次数、具体职业出现次数、上一局阵营 / 职业、连续次数、最后已知玩家名，以及管理员手动设置的调试覆盖权重。它挂在 scoreboard 上，因此能跨地图和维度继续生效，也能保留已经离线但仍有历史记录的玩家；中途加入的玩家会以自己的历史参与计算，不会因为没有旧记录而被永久排除在稀缺阵营之外。
+`ScoreboardRoleSelectorComponent` 同时保存新版职业分配权重账本。账本按玩家 UUID 记录每个阵营出现次数、具体职业出现次数、上一局阵营 / 职业、连续次数、最后已知玩家名，以及管理员手动设置的调试覆盖权重。参与计算的有效历史按约 27 局半衰，原始整数次数仍保留用于审计和旧存档兼容；新玩家使用伪历史先验，回归玩家使用有上限的回归补偿。它挂在 scoreboard 上，因此能跨地图和维度继续生效，也能保留已经离线但仍有历史记录的玩家。
 
-权重系统默认开启，只影响开局抽取概率，不会阻止管理员手动指定职业。Wathe 原版杀手 / 义警位、Harpy 的中立位和扩展具体职业都会共用同一份账本；最终记录发生在所有开局初始化监听完成之后，所以 `/forceRole` 这类开局强制结果会计入下一局权重，而局内 `/setRole` 调试转职不会计入开局历史。
+权重系统默认开启，只影响开局抽取概率，不会阻止管理员手动指定职业。开关保存在全局 scoreboard，所有维度和游戏模式共用。Wathe 原版杀手 / 义警位、Harpy 的中立位和扩展具体职业都会共用同一份账本；杀手与中立分别按各自目标份额计算，同时对两者总次数施加共享稀缺压力。最终记录发生在所有开局初始化监听完成之后，所以 `/forceRole` 这类开局强制结果会计入下一局权重，而局内 `/setRole` 调试转职不会计入开局历史。
+
+当前自动权重参数集中在 `ScoreboardRoleSelectorComponent`：`HISTORY_DECAY_PER_ROUND=0.975` 控制约 27 局半衰，调高会记忆更久、调低会更快回归随机；`PRIOR_PARTICIPATION_ROUNDS=4` 是新玩家伪历史，调高会减轻老玩家优势、调低会强化历史缺口；`DEFICIT_TEMPERATURE=1.35` 控制缺口敏感度，调高使分配平滑、调低更照顾欠缺玩家；`STREAK_COOLDOWN_STRENGTH=0.28` 控制连局冷却，调高更少连任、调低更随机；`SHARED_SCARCE_PRESSURE_STRENGTH=0.22` 控制杀手+中立共享压力，调高会更强地限制稀缺阵营总次数偏高者；`RETURNING_PLAYER_BONUS_CAP=0.45` 限制回归补偿，调高更照顾久未上线玩家、调低可避免回归首局过度偏向稀缺阵营；`MIN_ASSIGNMENT_WEIGHT=0.35` 和 `MAX_ASSIGNMENT_WEIGHT=3.5` 分别是自动票数下限/上限，扩大区间会增强历史差异，缩小区间会让整体更均匀。比如缺口为 1.35 时，温度 1.35 会产生约 `e` 倍票数；把温度调到 2.70 后约为 1.65 倍。所有参数都只改变抽取倾向，不会绕过 `forceRole`、职业互斥或 `ROLE_MAX`。
 
 ## 地图变量、地图增强与地图投票
 
@@ -740,7 +742,7 @@ final class MyRoleInventoryButtons implements InventoryButtonExtension {
 
 HarpyModLoader 的思路是“先让 Wathe 开一局 modded murder，再由加载层按阵营替换默认职业”。例如先给所有人设成 `WatheRoles.CIVILIAN`，再从扩展职业池里挑选杀手、中立、义警、平民职业覆盖。Wathe 本体提供稳定的职业映射、结算、回放和 API，扩展加载层负责“这局到底出现哪些职业”。
 
-Harpy 当前也接入了 Wathe 的统一权重账本。原版杀手 / 义警先按阵营权重抽位，扩展杀手 / 义警 / 平民替换时主要读取具体职业历史，中立职业因为是稀缺阵营，会同时读取中立阵营历史和具体职业历史。这样可以同时降低“同一玩家连续拿杀手 / 中立”和“同一扩展职业连续落到同一玩家”的概率。
+Harpy 当前也接入了 Wathe 的统一权重账本。原版杀手 / 义警先按阵营权重抽位，扩展职业替换阶段按真实阵营槽位规划，再使用“剩余槽位 / 剩余职业类型”配额。杀手和中立分别读取自身份额，同时共享稀缺阵营压力；具体职业再叠加职业缺口和短期连续冷却。这样可以降低“同一玩家连续拿杀手 / 中立”和“同一扩展职业连续落到同一玩家”的概率，同时避免职业列表顺序造成周期性。
 
 Harpy 侧公开了 `org.agmas.harpymodloader.api.assignment`，用于替代扩展 mixin Harpy 私有分配函数：
 
@@ -859,7 +861,7 @@ HarpyModLoader 也注册了一组无命名空间的调试指令，主要给 modd
 | `/roleWeights` 或 `/roleWeights list all` | 查询在线玩家和已有离线记录的完整权重账本 |
 | `/roleWeights list online` | 只查询当前在线玩家权重 |
 | `/roleWeights list stored` | 只查询已经存储的历史权重记录 |
-| `/roleWeights enabled <true|false>` | 开关当前世界的权重系统；不会自动清空历史 |
+| `/roleWeights enabled <true|false>` | 开关全服务器的权重系统；不会自动清空历史 |
 | `/roleWeights reset all` | 清空所有已保存权重和调试覆盖 |
 | `/roleWeights reset online` | 清空当前世界在线玩家权重 |
 | `/roleWeights reset storedOffline` | 清空有权重记录但当前不在线的玩家 |
