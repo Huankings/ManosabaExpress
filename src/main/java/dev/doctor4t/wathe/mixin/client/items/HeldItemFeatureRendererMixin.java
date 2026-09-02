@@ -3,7 +3,7 @@ package dev.doctor4t.wathe.mixin.client.items;
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
 import dev.doctor4t.wathe.api.client.invisibility.HeldItemInvisibilityApi;
-import dev.doctor4t.wathe.client.WatheClient;
+import dev.doctor4t.wathe.api.client.mood.PsychosisItemApi;
 import dev.doctor4t.wathe.index.WatheItems;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.render.entity.feature.HeldItemFeatureRenderer;
@@ -13,8 +13,6 @@ import net.minecraft.util.Hand;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 
-import java.util.HashMap;
-import java.util.UUID;
 
 @Mixin(HeldItemFeatureRenderer.class)
 public class HeldItemFeatureRendererMixin {
@@ -33,13 +31,7 @@ public class HeldItemFeatureRendererMixin {
          */
         ret = HeldItemInvisibilityApi.applyInvisibility(MinecraftClient.getInstance().player, instance, Hand.MAIN_HAND, ret);
 
-        if (WatheClient.moodComponent != null && WatheClient.moodComponent.isLowerThanMid()) { // make sure it's only the main hand item that's being replaced
-            HashMap<UUID, ItemStack> psychosisItems = WatheClient.moodComponent.getPsychosisItems();
-            UUID uuid = instance.getUuid();
-            if (psychosisItems.containsKey(uuid)) {
-                ret = psychosisItems.get(uuid);
-            }
-        }
+        ret = PsychosisItemApi.resolveRenderStack(MinecraftClient.getInstance().player, instance, Hand.MAIN_HAND, ret);
 
         return ret;
     }
@@ -52,6 +44,7 @@ public class HeldItemFeatureRendererMixin {
          * 副手没有 Wathe 原生的幻觉替换逻辑，但扩展职业可能把专属物品放在副手。
          * 因此副手也走同一套公开 API，保证主手/副手规则表现一致。
          */
-        return HeldItemInvisibilityApi.applyInvisibility(MinecraftClient.getInstance().player, instance, Hand.OFF_HAND, ret);
+        ret = HeldItemInvisibilityApi.applyInvisibility(MinecraftClient.getInstance().player, instance, Hand.OFF_HAND, ret);
+        return PsychosisItemApi.resolveRenderStack(MinecraftClient.getInstance().player, instance, Hand.OFF_HAND, ret);
     }
 }

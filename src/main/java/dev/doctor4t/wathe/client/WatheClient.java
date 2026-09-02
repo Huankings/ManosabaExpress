@@ -419,12 +419,31 @@ public class WatheClient implements ClientModInitializer {
          * 在 Wathe 本体统一清理后，扩展 mod 只需要使用 InventoryPageState，
          * 不必再各自注册一套分页 reset。
          */
-        GameEvents.ON_GAME_START.register(gameMode -> InventoryPageState.reset());
-        GameEvents.ON_GAME_STOP.register(gameMode -> InventoryPageState.reset());
-        GameEvents.ON_FINISH_FINALIZE.register((world, gameComponent) -> InventoryPageState.reset());
+        GameEvents.ON_GAME_START.register(gameMode -> {
+            InventoryPageState.reset();
+            if (moodComponent != null) {
+                moodComponent.clearPsychosisVisuals();
+            }
+        });
+        GameEvents.ON_GAME_STOP.register(gameMode -> {
+            InventoryPageState.reset();
+            if (moodComponent != null) {
+                moodComponent.clearPsychosisVisuals();
+            }
+        });
+        GameEvents.ON_FINISH_FINALIZE.register((world, gameComponent) -> {
+            InventoryPageState.reset();
+            if (moodComponent != null) {
+                moodComponent.clearPsychosisVisuals();
+            }
+        });
         ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
             TaskPointClientState.clear();
             InventoryPageState.reset();
+            if (moodComponent != null) {
+                moodComponent.clearPsychosisVisuals();
+            }
+            moodComponent = null;
             instinctToggleActive = false;
             wasHoldingInvisibleHeldItem = false;
         });

@@ -3,11 +3,11 @@ package dev.doctor4t.wathe.cca;
 import dev.doctor4t.wathe.Wathe;
 import dev.doctor4t.wathe.api.PlayerLifeStateApi;
 import dev.doctor4t.wathe.api.Role;
+import dev.doctor4t.wathe.api.client.mood.PsychosisItemApi;
 import dev.doctor4t.wathe.api.task.MoodTaskApi;
 import dev.doctor4t.wathe.api.task.MoodTaskDefinition;
 import dev.doctor4t.wathe.api.task.TaskCompletionApi;
 import dev.doctor4t.wathe.block.entity.SeatEntity;
-import dev.doctor4t.wathe.client.WatheClient;
 import dev.doctor4t.wathe.game.GameConstants;
 import dev.doctor4t.wathe.game.GameFunctions;
 import dev.doctor4t.wathe.index.WatheDataComponentTypes;
@@ -37,6 +37,7 @@ import net.minecraft.util.Util;
 import net.minecraft.util.hit.EntityHitResult;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.MathHelper;
+import net.minecraft.util.Hand;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.ladysnake.cca.api.v3.component.ComponentKey;
@@ -156,6 +157,16 @@ public class PlayerMoodComponent implements AutoSyncedComponent, ServerTickingCo
      */
     private final HashMap<UUID, ItemStack> psychosisItems = new HashMap<>();
 
+    /**
+     * 副手幻觉缓存。Wathe 默认逻辑只替换主手，但公开 API 允许扩展按需覆盖副手。
+     * 该缓存只存在客户端，不写入 CCA NBT，也不参与服务端玩法判定。
+     */
+    private final HashMap<UUID, ItemStack> psychosisOffHandItems = new HashMap<>();
+
+    /** 扩展显式指定的主手/副手手臂姿势，与物品缓存一起清理，避免姿势残留。 */
+    private final HashMap<UUID, String> psychosisArmPoses = new HashMap<>();
+    private final HashMap<UUID, String> psychosisOffHandArmPoses = new HashMap<>();
+
     private static List<Item> cachedPsychosisItems = null;
 
     public PlayerMoodComponent(PlayerEntity player) {
@@ -193,6 +204,9 @@ public class PlayerMoodComponent implements AutoSyncedComponent, ServerTickingCo
         this.externalMoodDrainMultiplier = 1f;
         this.externalMoodDrainProtectionTicks = 0;
         this.psychosisItems.clear();
+        this.psychosisOffHandItems.clear();
+        this.psychosisArmPoses.clear();
+        this.psychosisOffHandArmPoses.clear();
         this.dirty = false;
         this.sync();
     }
@@ -760,7 +774,14 @@ public class PlayerMoodComponent implements AutoSyncedComponent, ServerTickingCo
     public void clientTick() {
         GameWorldComponent gameWorldComponent = GameWorldComponent.KEY.get(this.player.getWorld());
         Role role = gameWorldComponent.getRole(this.player);
-        if (!gameWorldComponent.isRunning() || !WatheClient.isPlayerAliveAndInSurvival()) {
+        /*
+         * 必须在 return 之前清理：死亡后 clientTick 仍然会被调用，但旧实现直接 return，
+         * 导致 psychosisItems 一直保留到下一局。特殊存活授权会让
+         * GameFunctions.isPlayerAliveAndSurvival(...) 返回 true，因此这类 spectator/creative
+         * 仍然保留并显示幻觉，符合扩展职业的语义。
+         */
+        if (!gameWorldComponent.isRunning() || !GameFunctions.isPlayerAliveAndSurvival(this.player)) {
+            this.clearPsychosisVisuals();
             return;
         }
 
@@ -772,29 +793,105 @@ public class PlayerMoodComponent implements AutoSyncedComponent, ServerTickingCo
             this.mood = MathHelper.clamp(this.mood - this.getCurrentMoodDrainPerTick(), 0f, 1f);
         }
 
-        if (this.isLowerThanMid()) {
+        boolean defaultHallucinationEnabled = this.isLowerThanMid();
+        if (defaultHallucinationEnabled || PsychosisItemApi.hasProviders()) {
             // 心情低于中线后，会开始“脑补”其他玩家手里的危险物品。
             for (PlayerEntity playerEntity : this.player.getWorld().getPlayers()) {
-                if (!playerEntity.equals(this.player) && this.player.getWorld().getRandom().nextInt(GameConstants.ITEM_PSYCHOSIS_REROLL_TIME) == 0) {
-                    ItemStack psychosisStack;
-                    List<Item> taggedItems = getPsychosisItemPool();
-
-                    if (!taggedItems.isEmpty() && this.player.getRandom().nextFloat() < GameConstants.ITEM_PSYCHOSIS_CHANCE) {
-                        Item item = Util.getRandom(taggedItems, this.player.getRandom());
-                        psychosisStack = new ItemStack(item);
-                    } else {
-                        psychosisStack = playerEntity.getMainHandStack();
-                    }
-
-                    if (psychosisStack.getItem() instanceof ItemWithSkin) {
-                        psychosisStack.set(WatheDataComponentTypes.OWNER, playerEntity.getUuidAsString());
-                    }
-                    this.psychosisItems.put(playerEntity.getUuid(), psychosisStack);
+                if (!playerEntity.equals(this.player)
+                        && GameFunctions.isPlayerAliveAndSurvival(playerEntity)
+                        && this.player.getWorld().getRandom().nextInt(GameConstants.ITEM_PSYCHOSIS_REROLL_TIME) == 0) {
+                    this.refreshPsychosisVisual(playerEntity, Hand.MAIN_HAND, defaultHallucinationEnabled);
+                    this.refreshPsychosisVisual(playerEntity, Hand.OFF_HAND, defaultHallucinationEnabled);
                 }
             }
-        } else if (!this.psychosisItems.isEmpty()) {
-            this.psychosisItems.clear();
+            this.prunePsychosisVisuals();
+        } else {
+            this.clearPsychosisVisuals();
         }
+    }
+
+    /** 根据 Wathe 默认结果和扩展 provider 重新抽取某个目标的一只手。 */
+    private void refreshPsychosisVisual(@NotNull PlayerEntity target, @NotNull Hand hand, boolean defaultEnabled) {
+        ItemStack actualStack = target.getStackInHand(hand);
+        PsychosisItemApi.Result defaultResult = null;
+
+        // 默认 Wathe 幻觉只作用于主手；真实物品必须 copy，不能把 OWNER 写回目标的背包物品。
+        if (defaultEnabled && hand == Hand.MAIN_HAND) {
+            ItemStack defaultStack;
+            List<Item> taggedItems = getPsychosisItemPool();
+            if (!taggedItems.isEmpty() && this.player.getRandom().nextFloat() < GameConstants.ITEM_PSYCHOSIS_CHANCE) {
+                defaultStack = new ItemStack(Util.getRandom(taggedItems, this.player.getRandom()));
+            } else {
+                defaultStack = actualStack.copy();
+            }
+            defaultResult = PsychosisItemApi.Result.item(defaultStack);
+        }
+
+        PsychosisItemApi.Result result = PsychosisItemApi.resolve(new PsychosisItemApi.Context(
+                this.player,
+                target,
+                hand,
+                actualStack.copy(),
+                this,
+                GameWorldComponent.KEY.get(this.player.getWorld()),
+                GameWorldComponent.KEY.get(this.player.getWorld()).getRole(target),
+                defaultEnabled,
+                true,
+                this.player.getRandom()
+        ), defaultResult);
+
+        this.putPsychosisVisual(target.getUuid(), hand, result);
+    }
+
+    private void putPsychosisVisual(@NotNull UUID targetUuid, @NotNull Hand hand, @Nullable PsychosisItemApi.Result result) {
+        HashMap<UUID, ItemStack> itemMap = hand == Hand.MAIN_HAND ? this.psychosisItems : this.psychosisOffHandItems;
+        HashMap<UUID, String> poseMap = hand == Hand.MAIN_HAND ? this.psychosisArmPoses : this.psychosisOffHandArmPoses;
+        itemMap.remove(targetUuid);
+        poseMap.remove(targetUuid);
+        if (result == null || !result.handled()) {
+            return;
+        }
+
+        ItemStack stack = result.stack().copy();
+        if (stack.getItem() instanceof ItemWithSkin) {
+            stack.set(WatheDataComponentTypes.OWNER, targetUuid.toString());
+        }
+        itemMap.put(targetUuid, stack);
+        if (result.armPose() != null) {
+            poseMap.put(targetUuid, result.armPose().name());
+        }
+    }
+
+    /** 删除已经离开对局或不再按 Wathe 玩法存活的目标，防止 UUID 缓存长期污染。 */
+    private void prunePsychosisVisuals() {
+        this.psychosisItems.keySet().removeIf(uuid -> !isPsychosisTargetValid(uuid));
+        this.psychosisOffHandItems.keySet().removeIf(uuid -> !isPsychosisTargetValid(uuid));
+        this.psychosisArmPoses.keySet().removeIf(uuid -> !isPsychosisTargetValid(uuid));
+        this.psychosisOffHandArmPoses.keySet().removeIf(uuid -> !isPsychosisTargetValid(uuid));
+    }
+
+    private boolean isPsychosisTargetValid(@NotNull UUID uuid) {
+        PlayerEntity target = this.player.getWorld().getPlayerByUuid(uuid);
+        return target != null && !target.equals(this.player) && GameFunctions.isPlayerAliveAndSurvival(target);
+    }
+
+    /** 客户端生命周期和渲染兜底共用的幻觉清理入口。 */
+    public void clearPsychosisVisuals() {
+        this.psychosisItems.clear();
+        this.psychosisOffHandItems.clear();
+        this.psychosisArmPoses.clear();
+        this.psychosisOffHandArmPoses.clear();
+    }
+
+    /** 返回某目标某只手的显式姿势名称；客户端 API 会安全转换为 ArmPose。 */
+    public @Nullable String getPsychosisArmPoseName(@NotNull UUID targetUuid, @NotNull Hand hand) {
+        return (hand == Hand.MAIN_HAND ? this.psychosisArmPoses : this.psychosisOffHandArmPoses).get(targetUuid);
+    }
+
+    /** 返回某目标某只手已缓存的幻觉物品；返回 null 表示没有覆盖。 */
+    public @Nullable ItemStack getPsychosisItem(@NotNull UUID targetUuid, @NotNull Hand hand) {
+        ItemStack stack = (hand == Hand.MAIN_HAND ? this.psychosisItems : this.psychosisOffHandItems).get(targetUuid);
+        return stack == null ? null : stack.copy();
     }
 
     @Override

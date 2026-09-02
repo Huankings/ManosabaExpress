@@ -88,10 +88,15 @@
 - 时间 HUD：`TimeHudApi`
 - 疯魔模式：`PsychoModeApi`、`PsychoModeProfile`、`PsychoShieldContext`、`PsychoShieldResult`、客户端 `PsychoModeClientApi`
 - 手持物隐藏：`HeldItemInvisibilityApi`
+- 低心情幻觉手持物：`PsychosisItemApi`（指定/随机物品、手臂姿势与 priority 覆盖）
 - 背包按钮：`InventoryButtonApi`、`InventoryScreenType`、`InventoryButtonContext`、`InventoryPageState`、`InventoryPageSwitchWidget`
 - 床 / 托盘 / 毒药 / 回放：`BedEffectRegistry`、`TrayEffectRegistry`、`CanSeePoison`、`ReplayRegistry`
 
 ## 停电机制 API
+
+### 低心情幻觉手持物接入
+
+扩展职业需要让观察者客户端脑补目标手持指定/随机物品或指定手臂姿势时，使用 `dev.doctor4t.wathe.api.client.mood.PsychosisItemApi` 注册 provider，不要再直接读取 `PlayerMoodComponent` 的幻觉 Map 或新增玩家渲染 mixin。Wathe 默认幻觉是 priority 0：更高 priority 覆盖默认结果，更低/同等 priority 仅在默认结果 PASS 时生效；返回 `Result.PASS` 继续链路。该 API 只改变客户端视觉，不代表真实物品和服务端攻击判定。普通死亡、停局、断线会清除缓存；具有 `PlayerLifeStateApi` 特殊存活授权的 spectator/creative 仍保留并显示低心情幻觉。
 
 停电机制优先接 `dev.doctor4t.wathe.api.blackout`，不要再 mixin `WorldBlackoutComponent` 私有 ticks，也不要在扩展客户端监听 `WatheSounds.AMBIENT_BLACKOUT` 自己计时黑幕。
 

@@ -1,6 +1,6 @@
 package dev.doctor4t.wathe.mixin.client.items;
 
-import dev.doctor4t.wathe.cca.PlayerMoodComponent;
+import dev.doctor4t.wathe.api.client.mood.PsychosisItemApi;
 import dev.doctor4t.wathe.index.tag.WatheItemTags;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.model.ModelPart;
@@ -8,6 +8,7 @@ import net.minecraft.client.render.entity.model.BipedEntityModel;
 import net.minecraft.entity.LivingEntity;
 import net.minecraft.item.ItemStack;
 import net.minecraft.util.Arm;
+import net.minecraft.util.Hand;
 import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
@@ -46,6 +47,11 @@ public class BipedEntityModelMixin<T extends LivingEntity> {
 
     @Unique
     private boolean isHoldingGunInArm(T entity, Arm arm) {
+        /* 显式姿势优先于 Wathe 默认枪械托举，避免扩展 provider 的姿势被这里二次覆盖。 */
+        Hand poseHand = entity.getMainArm() == arm ? Hand.MAIN_HAND : Hand.OFF_HAND;
+        if (PsychosisItemApi.resolveRenderArmPose(MinecraftClient.getInstance().player, entity, poseHand) != null) {
+            return false;
+        }
         if (entity.getMainArm() == arm) {
             return getVisualMainHandStack(entity).isIn(WatheItemTags.GUNS);
         }
@@ -60,8 +66,7 @@ public class BipedEntityModelMixin<T extends LivingEntity> {
             return entity.getMainHandStack();
         }
 
-        ItemStack psychosisItemStack = PlayerMoodComponent.KEY.get(client.player).getPsychosisItems().get(entity.getUuid());
-        return psychosisItemStack != null ? psychosisItemStack : entity.getMainHandStack();
+        return PsychosisItemApi.resolveRenderStack(client.player, entity, Hand.MAIN_HAND, entity.getMainHandStack());
     }
 
     @Unique

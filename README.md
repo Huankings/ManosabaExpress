@@ -48,6 +48,7 @@ Wathe 是一个基于 **Minecraft 1.21.1 + Fabric** 的列车狼人杀 / 社交�
 | `src/main/java/dev/doctor4t/wathe/api/stamina` | 玩家体力公开 API：清空、回满、增减体力、调整体力上限、解析心情惩罚档位 |
 | `src/main/java/dev/doctor4t/wathe/api/movement` | 玩家移动速度公开 API：叠加、倍率、覆盖和优先级修正 |
 | `src/main/java/dev/doctor4t/wathe/api/client/inventory` | 背包按钮公开 API：扩展按钮注册、三类背包 screen type、动态分组、分页和头像辅助 |
+| `src/main/java/dev/doctor4t/wathe/api/client/mood` | 低心情幻觉手持物公开 API：指定/随机物品、手臂姿势与优先级覆盖 |
 | `src/main/java/dev/doctor4t/wathe/api/client/hud` | 通用屏幕 HUD 叠加 API：右下角职业状态、全屏遮罩、狙击镜等自由绘制入口 |
 | `src/main/java/dev/doctor4t/wathe/cca` | Cardinal Components 状态组件：世界状态、玩家状态、计分板全局状态 |
 | `src/main/java/dev/doctor4t/wathe/cca/PlayerStaminaComponent.java` | 玩家体力、额外上限修正、本局初始化标记 |
@@ -652,6 +653,7 @@ GameRecordManager.recordGlobalEvent(
 | `PlayerAppearanceApi` | 玩家外观覆写 | 伪装、变形 |
 | `BodyAppearanceApi` | 尸体外观覆写 | 双重人格、伪尸体 |
 | `HeldItemInvisibilityApi` | 手持物隐藏 | 某些技能道具对其他活人不可见 |
+| `PsychosisItemApi` | 低心情幻觉手持物与手臂姿势覆盖 | 指定危险物品、随机物品、职业/词条幻觉效果 |
 | `TimeHudApi` | 时间 HUD | 自定义时间显示 |
 | `InventoryButtonApi` | 背包按钮生命周期 | 职业选人按钮、图鉴按钮、分页按钮、输入阶段阻止 E 键关闭 |
 | `TrayEffectRegistry` | 托盘效果 | 毒药、药剂、陷阱 |
@@ -663,6 +665,10 @@ GameRecordManager.recordGlobalEvent(
 | `CanSeePoison` | 毒药可见性 | 验毒职业、特殊视觉 |
 | `RecordEvents` | 对局记录完成 | 生成额外回放、统计数据 |
 | `ReplayRegistry` | 回放文本格式器 | 自定义技能 / 物品 / 死亡原因文本 |
+
+### 低心情幻觉手持物 API
+
+客户端扩展可使用 `dev.doctor4t.wathe.api.client.mood.PsychosisItemApi` 注册幻觉 provider。provider 返回 `Result.item(stack)`、`Result.itemWithPose(stack, pose)` 或 `Result.PASS`；结果只影响观察者看到的模型，不会修改目标真实物品，也不能用于服务端攻击判定。Wathe 默认低心情幻觉按 priority 0 运行：高于 0 的 provider 优先覆盖默认结果，低于或等于 0 的 provider 仅在默认结果为 PASS 时才会继续尝试。特殊存活授权（`PlayerLifeStateApi`）的 spectator/creative 仍按局内存活处理并继续看到幻觉；普通死亡旁观、创造、停局、断线和世界切换会自动清空物品及手臂姿势缓存。
 
 ### 停电机制公开 API
 
