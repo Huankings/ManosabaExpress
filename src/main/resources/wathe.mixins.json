@@ -62,7 +62,6 @@
     "client.scenery.RenderSystemFogStateMixin",
     "client.scenery.SceneryWorldRendererMixin",
     "client.scenery.WorldRendererMixin",
-    "client.self.BeveragePlateBlockEntityMixin",
     "client.self.NoteItemMixin",
     "client.self.TrimmedBedBlockEntityMixin",
     "client.ui.InGameHudMixin",

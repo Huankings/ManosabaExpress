@@ -48,6 +48,17 @@ public final class TrayEffectRegistry {
         return BY_ADDITIVE_ITEM.get(item);
     }
 
+    /** 将效果名称元数据写入回放，供 Wathe 通用 formatter 使用。 */
+    public static void appendReplayData(Identifier effectId, NbtCompound data) {
+        TrayEffectHandler handler = getByEffectId(effectId);
+        if (handler == null || handler.replayDisplay() == null) {
+            return;
+        }
+        TrayEffectReplayInfo display = handler.replayDisplay();
+        data.putString("tray_effect_translation_key", display.translationKey());
+        data.putString("tray_effect_fallback", display.fallback());
+    }
+
     /**
      * FoodPlatterBlock / DrinkTrayBlock 的统一入口。
      *
@@ -134,6 +145,7 @@ public final class TrayEffectRegistry {
         NbtCompound extra = replayExtra == null ? new NbtCompound() : replayExtra.copy();
         extra.putString("tray_effect", effectId.toString());
         extra.putUuid("tray_effect_owner", player.getUuid());
+        appendReplayData(effectId, extra);
         extra.putString("item_name", additiveItemName);
         GameRecordManager.putBlockPos(extra, "pos", pos);
         GameRecordManager.recordItemUse(player, additiveItemId, null, extra);

@@ -94,6 +94,12 @@
 
 ## 停电机制 API
 
+## 托盘公开化 API（最新）
+
+- `TrayEffectHandler#replayDisplay` 提供效果本地化名称，Wathe 通用回放会将效果渲染为醒目的白色 `[效果名]`；扩展不再为每个托盘效果注册 placement/take/consume 三套 formatter。
+- `TrayTakeRegistry.registerRule` 注册取物上限规则，返回背包与主手同类物品的最大总数；Wathe 默认值为 1。
+- `TrayParticleRegistry.registerProvider` 注册客户端托盘粒子 provider。原生毒药粒子由 Wathe 默认 provider 调度，扩展不应再 mixin `BeveragePlateBlockEntity`。
+
 ### 低心情幻觉手持物接入
 
 扩展职业需要让观察者客户端脑补目标手持指定/随机物品或指定手臂姿势时，使用 `dev.doctor4t.wathe.api.client.mood.PsychosisItemApi` 注册 provider，不要再直接读取 `PlayerMoodComponent` 的幻觉 Map 或新增玩家渲染 mixin。Wathe 默认幻觉是 priority 0：更高 priority 覆盖默认结果，更低/同等 priority 仅在默认结果 PASS 时生效；返回 `Result.PASS` 继续链路。该 API 只改变客户端视觉，不代表真实物品和服务端攻击判定。普通死亡、停局、断线会清除缓存；具有 `PlayerLifeStateApi` 特殊存活授权的 spectator/creative 仍保留并显示低心情幻觉。

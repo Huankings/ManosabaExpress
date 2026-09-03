@@ -186,13 +186,14 @@ public class WatheLangGen extends FabricLanguageProvider {
         builder.add("replay.item_pickup", "%s picked up %s");
         builder.add("replay.item_pickup.multiple", "%s picked up %s x%s");
         builder.add("replay.platter_take", "%s took %s from the platter");
-        builder.add("replay.platter_take.poisoned", "%s took poisoned %s from the platter");
+        builder.add("replay.platter_take.poisoned", "%s took %s with %s from the platter");
         builder.add("replay.consume.eat", "%s ate %s");
-        builder.add("replay.consume.eat.poisoned", "%s ate poisoned %s");
+        builder.add("replay.consume.eat.poisoned", "%s ate %s with %s");
         builder.add("replay.consume.drink_cocktail", "%s drank %s");
-        builder.add("replay.consume.drink_cocktail.poisoned", "%s drank poisoned %s");
+        builder.add("replay.consume.drink_cocktail.poisoned", "%s drank %s with %s");
         builder.add("replay.consume.drink_potion", "%s drank %s");
-        builder.add("replay.consume.drink_potion.poisoned", "%s drank poisoned %s");
+        builder.add("replay.consume.drink_potion.poisoned", "%s drank %s with %s");
+        builder.add("replay.effect.wathe.poison", "Poison");
         builder.add("replay.poisoned", "%s started being poisoned");
         builder.add("replay.poisoned.wathe.bed_poison.by", "%s was stung by a scorpion placed by %s");
         builder.add("replay.death.wathe.knife_stab.killed", "%s was killed by %s's %s");

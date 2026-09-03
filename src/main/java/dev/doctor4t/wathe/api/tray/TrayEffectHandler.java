@@ -43,6 +43,14 @@ public interface TrayEffectHandler {
     }
 
     /**
+     * 返回该效果在 Wathe 通用托盘回放中的显示名称。
+     * 返回 null 时沿用旧的扩展 formatter 或普通物品回退逻辑。
+     */
+    default @Nullable TrayEffectReplayInfo replayDisplay() {
+        return null;
+    }
+
+    /**
      * 真正执行“把效果下到托盘里”。
      *
      * <p>大多数扩展效果都可以直接调用

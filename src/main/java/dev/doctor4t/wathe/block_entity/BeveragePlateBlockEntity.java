@@ -1,6 +1,7 @@
 package dev.doctor4t.wathe.block_entity;
 
 import dev.doctor4t.wathe.index.WatheBlockEntities;
+import dev.doctor4t.wathe.api.tray.TrayParticleRegistry;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.entity.BlockEntity;
 import net.minecraft.item.ItemStack;
@@ -44,6 +45,9 @@ public class BeveragePlateBlockEntity extends BlockEntity {
 
     @SuppressWarnings("unused")
     public static <T extends BlockEntity> void clientTick(World world, BlockPos pos, BlockState state, T blockEntity) {
+        if (world.isClient && blockEntity instanceof BeveragePlateBlockEntity plate && world instanceof net.minecraft.client.world.ClientWorld clientWorld) {
+            TrayParticleRegistry.tickClient(clientWorld, pos, plate);
+        }
     }
 
     public List<ItemStack> getStoredItems() {
@@ -64,6 +68,7 @@ public class BeveragePlateBlockEntity extends BlockEntity {
         this.poisoner = poisoner;
         this.sync();
     }
+
 
     public @Nullable String getTrayEffect() {
         return this.trayEffect;

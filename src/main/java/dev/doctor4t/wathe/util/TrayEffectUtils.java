@@ -83,6 +83,7 @@ public final class TrayEffectUtils {
         UUID owner = getTrayEffectOwner(consumedSnapshot);
         NbtCompound extra = new NbtCompound();
         appendReplayData(consumedSnapshot, extra);
+        TrayEffectRegistry.appendReplayData(effectId, extra);
         GameRecordManager.recordConsumeItem(player, consumedSnapshot, consumeType, false, null, extra);
         handler.onConsume(player, consumedSnapshot, consumeType, owner);
         return true;

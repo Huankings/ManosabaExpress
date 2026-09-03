@@ -231,7 +231,11 @@ public final class DefaultReplayFormatters {
 
         Text itemName = ReplayGenerator.formatItemName(event.data(), world);
         if (event.data().containsUuid("poisoner")) {
-            return Text.translatable("replay.platter_take.poisoned", actorText, itemName);
+            return Text.translatable("replay.platter_take.poisoned", actorText, whiteBracketed(Text.translatable("replay.effect.wathe.poison")), itemName);
+        }
+        Text effectName = trayEffectDisplay(event, world);
+        if (effectName != null) {
+            return Text.translatable("replay.platter_take.poisoned", actorText, whiteBracketed(effectName), itemName);
         }
         return Text.translatable("replay.platter_take", actorText, itemName);
     }
@@ -263,6 +267,18 @@ public final class DefaultReplayFormatters {
         boolean poisoned = event.data().getBoolean("poisoned");
         String consumeType = event.data().getString("consume_type");
 
+        Text effectName = poisoned
+                ? Text.translatable("replay.effect.wathe.poison")
+                : trayEffectDisplay(event, world);
+        if (effectName != null) {
+            String key = switch (consumeType) {
+                case "drink_cocktail" -> "replay.consume.drink_cocktail.poisoned";
+                case "drink_potion" -> "replay.consume.drink_potion.poisoned";
+                default -> "replay.consume.eat.poisoned";
+            };
+            return Text.translatable(key, actorText, whiteBracketed(effectName), itemName);
+        }
+
         String key = switch (consumeType) {
             case "drink_cocktail" -> poisoned ? "replay.consume.drink_cocktail.poisoned" : "replay.consume.drink_cocktail";
             case "drink_potion" -> poisoned ? "replay.consume.drink_potion.poisoned" : "replay.consume.drink_potion";
@@ -270,6 +286,15 @@ public final class DefaultReplayFormatters {
         };
 
         return Text.translatable(key, actorText, itemName);
+    }
+
+    private static @Nullable Text trayEffectDisplay(GameRecordEvent event, ServerWorld world) {
+        String key = event.data().getString("tray_effect_translation_key");
+        if (key == null || key.isEmpty()) {
+            return null;
+        }
+        String fallback = event.data().getString("tray_effect_fallback");
+        return Text.translatableWithFallback(key, fallback == null || fallback.isEmpty() ? key : fallback);
     }
 
     @Nullable
@@ -546,7 +571,15 @@ public final class DefaultReplayFormatters {
     @Nullable
     public static Text formatPoisonVialUse(GameRecordEvent event, GameRecordManager.MatchRecord match, ServerWorld world) {
         Text actorText = actorText(event, match);
-        return actorText == null ? null : Text.translatable("replay.item_use.wathe.poison_vial", actorText);
+        return actorText == null ? null : Text.translatable("replay.item_use.wathe.poison_vial", actorText, whiteBracketed(Text.translatable("replay.effect.wathe.poison")));
+    }
+
+    /** 将效果名称包成醒目白色的 [名称]，供所有通用托盘回放句式复用。 */
+    private static Text whiteBracketed(Text inner) {
+        return Text.empty()
+                .append(Text.literal("[").setStyle(Style.EMPTY.withColor(TextColor.fromRgb(0xFFFFFF))))
+                .append(inner.copy().setStyle(inner.getStyle().withColor(TextColor.fromRgb(0xFFFFFF))))
+                .append(Text.literal("]").setStyle(Style.EMPTY.withColor(TextColor.fromRgb(0xFFFFFF))));
     }
 
     @Nullable

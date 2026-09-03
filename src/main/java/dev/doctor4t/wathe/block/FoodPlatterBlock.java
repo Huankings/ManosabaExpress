@@ -3,6 +3,8 @@ package dev.doctor4t.wathe.block;
 import com.mojang.serialization.MapCodec;
 import dev.doctor4t.wathe.api.tray.TrayEffectHandler;
 import dev.doctor4t.wathe.api.tray.TrayEffectRegistry;
+import dev.doctor4t.wathe.api.tray.TrayTakeRegistry;
+import dev.doctor4t.wathe.api.tray.TrayTakeDecision;
 import dev.doctor4t.wathe.block_entity.BeveragePlateBlockEntity;
 import dev.doctor4t.wathe.index.WatheBlockEntities;
 import dev.doctor4t.wathe.index.WatheDataComponentTypes;
@@ -25,6 +27,7 @@ import net.minecraft.sound.SoundCategory;
 import net.minecraft.sound.SoundEvents;
 import net.minecraft.util.ActionResult;
 import net.minecraft.util.Hand;
+import net.minecraft.util.Identifier;
 import net.minecraft.util.hit.BlockHitResult;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.shape.VoxelShape;
@@ -34,6 +37,8 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 public class FoodPlatterBlock extends BlockWithEntity {
@@ -106,22 +111,12 @@ public class FoodPlatterBlock extends BlockWithEntity {
         if (player.getStackInHand(Hand.MAIN_HAND).isEmpty()) {
             List<ItemStack> platter = blockEntity.getStoredItems();
             if (platter.isEmpty()) return ActionResult.SUCCESS;
+            if (!(player instanceof net.minecraft.server.network.ServerPlayerEntity trayPlayer)) return ActionResult.SUCCESS;
 
+            List<ItemStack> eligibleItems = resolveEligibleItems(trayPlayer, blockEntity, platter, player);
 
-            boolean hasPlatterItem = false;
-            for (ItemStack platterItem : platter) {
-                for (int i = 0; i < player.getInventory().size(); i++) {
-                    ItemStack invItem = player.getInventory().getStack(i);
-                    if (invItem.getItem() == platterItem.getItem()) {
-                        hasPlatterItem = true;
-                        break;
-                    }
-                }
-                if (hasPlatterItem) break;
-            }
-
-            if (!hasPlatterItem) {
-                ItemStack randomItem = platter.get(world.random.nextInt(platter.size())).copy();
+            if (!eligibleItems.isEmpty()) {
+                ItemStack randomItem = eligibleItems.get(world.random.nextInt(eligibleItems.size())).copy();
                 randomItem.setCount(1);
                 randomItem.set(DataComponentTypes.MAX_STACK_SIZE, 1);
                 String poisoner = blockEntity.getPoisoner();
@@ -160,6 +155,14 @@ public class FoodPlatterBlock extends BlockWithEntity {
                             }
                             effectHandler.onTakeFromTray(serverPlayer, randomItem, owner, extra);
                         }
+                        Identifier parsedEffect = Identifier.tryParse(trayEffect);
+                        if (parsedEffect != null) {
+                            TrayEffectRegistry.appendReplayData(parsedEffect, extra);
+                        }
+                    }
+                    if (poisoner != null) {
+                        extra.putString("tray_effect_translation_key", "replay.effect.wathe.poison");
+                        extra.putString("tray_effect_fallback", "Poison");
                     }
                     GameRecordManager.recordPlatterTake(serverPlayer, Registries.ITEM.getId(randomItem.getItem()), pos, poisoner, extra);
                 }
@@ -167,6 +170,92 @@ public class FoodPlatterBlock extends BlockWithEntity {
         }
 
         return ActionResult.PASS;
+    }
+
+    private static int countInventoryItems(PlayerEntity player, ItemStack target) {
+        if (target == null || target.isEmpty()) return 0;
+        int count = 0;
+        for (int slot = 0; slot < player.getInventory().size(); slot++) {
+            ItemStack stack = player.getInventory().getStack(slot);
+            if (stack.getItem() == target.getItem()) {
+                count += stack.getCount();
+            }
+        }
+        return count;
+    }
+
+    private static List<ItemStack> resolveEligibleItems(
+            net.minecraft.server.network.ServerPlayerEntity player,
+            BeveragePlateBlockEntity plate,
+            List<ItemStack> platter,
+            PlayerEntity inventoryOwner
+    ) {
+        Map<String, List<ItemStack>> groups = new java.util.LinkedHashMap<>();
+        Map<String, TrayTakeDecision> decisions = new java.util.HashMap<>();
+        for (ItemStack candidate : platter) {
+            TrayTakeDecision decision = TrayTakeRegistry.resolveGroupDecision(player, plate, candidate);
+            if (decision == null) {
+                // 没有扩展规则的物品共享一个默认组，恢复“一个托盘总共只能取一次”的原版语义。
+                decision = new TrayTakeDecision("wathe:default", 1, TrayTakeDecision.Mode.DISTINCT_TYPES);
+            }
+            groups.computeIfAbsent(decision.groupId(), ignored -> new java.util.ArrayList<>()).add(candidate);
+            decisions.putIfAbsent(decision.groupId(), decision);
+        }
+
+        List<ItemStack> result = new java.util.ArrayList<>();
+        for (Map.Entry<String, List<ItemStack>> group : groups.entrySet()) {
+            TrayTakeDecision decision = decisions.get(group.getKey());
+            // 同一托盘可能存有多个相同 ItemStack；分组计算必须按物品类型去重。
+            Map<String, ItemStack> uniqueCandidates = new java.util.LinkedHashMap<>();
+            for (ItemStack candidate : group.getValue()) {
+                uniqueCandidates.putIfAbsent(Registries.ITEM.getId(candidate.getItem()).toString(), candidate);
+            }
+            List<ItemStack> candidates = new java.util.ArrayList<>(uniqueCandidates.values());
+            if (decision.mode() == TrayTakeDecision.Mode.TOTAL_COUNT) {
+                int held = 0;
+                for (ItemStack candidate : candidates) {
+                    held += countInventoryItems(inventoryOwner, candidate);
+                }
+                if (held >= decision.limit()) {
+                    continue;
+                }
+                // TOTAL_COUNT 规则仍只从当前数量未达到上限的候选类型中取。
+                for (ItemStack candidate : candidates) {
+                    if (countInventoryItems(inventoryOwner, candidate) < decision.limit()) {
+                        result.add(candidate);
+                    }
+                }
+            } else {
+                // 当托盘提供的不同物品类型本来就少于职业上限时，不能再用“类型去重”限制玩家。
+                // 例如只有一个熟猪排的托盘，厨师仍应能重复取到 3 份；此时改按该分组当前总数量计算。
+                if (candidates.size() < decision.limit()) {
+                    int heldCount = 0;
+                    for (ItemStack candidate : candidates) {
+                        heldCount += countInventoryItems(inventoryOwner, candidate);
+                    }
+                    if (heldCount < decision.limit()) {
+                        result.addAll(candidates);
+                    }
+                    continue;
+                }
+
+                Set<String> heldTypes = new java.util.HashSet<>();
+                for (ItemStack candidate : candidates) {
+                    if (countInventoryItems(inventoryOwner, candidate) > 0) {
+                        heldTypes.add(Registries.ITEM.getId(candidate.getItem()).toString());
+                    }
+                }
+                if (heldTypes.size() >= decision.limit()) {
+                    continue;
+                }
+                for (ItemStack candidate : candidates) {
+                    if (!heldTypes.contains(Registries.ITEM.getId(candidate.getItem()).toString())) {
+                        result.add(candidate);
+                    }
+                }
+            }
+        }
+        return result;
     }
 
     @Override
