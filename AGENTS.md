@@ -55,6 +55,7 @@
 - `src/main/java/dev/doctor4t/wathe/client/gui/BlackoutOverlayRenderer.java`：Wathe 本体停电黑幕 HUD，使用服务端同步的 `WorldBlackoutComponent`，不要再让扩展监听音效计时黑幕。
 - `src/main/java/dev/doctor4t/wathe/client/gui/MoodRenderer.java`、`TimeRenderer.java`：心情和时间 HUD。
 - `src/main/java/dev/doctor4t/wathe/api/client/hud/*`：通用屏幕 HUD 叠加 API，扩展职业右下角状态、全屏遮罩和狙击镜优先看这里。
+- `src/main/java/dev/doctor4t/wathe/api/client/tooltip/ItemTooltipApi.java`：物品多行描述、当前实际冷却读秒和动态附加文本公开 API。
 - `src/main/java/dev/doctor4t/wathe/api/client/fog/FogOverrideApi.java`：客户端最终雾效 provider API，兼容原版地图雾与 Iris 标准 fog uniform。
 - `src/main/java/dev/doctor4t/wathe/mixin/client/scenery/RenderSystemFogStateMixin.java`：把 Wathe 最终雾距暴露给 RenderSystem getter，供 Iris `FogUniforms` 读取。
 - `src/main/java/dev/doctor4t/wathe/mixin/client/ui/InGameHudMixin.java`：Wathe 统一调度 `HudOverlayApi` 的客户端注入点，扩展侧一般不应再直接 mixin 这个类。
@@ -81,6 +82,7 @@
 - 玩家物理碰撞：`PlayerCollisionApi`、`PlayerCollisionContext`、`PlayerCollisionMode`
 - 外观：`PlayerAppearanceApi`、`BodyAppearanceApi`
 - 通用屏幕 HUD：`HudOverlayApi`、`HudOverlayContext`、`HudOverlayLayer`、`HudOverlayLayout`
+- 物品描述与冷却读秒：`ItemTooltipApi`
 - 客户端最终雾效 / Iris 兼容：`FogOverrideApi`
 - 准心图标 / 准心下方小进度条：`CrosshairHudApi`
 - 准心名字 / 实体名牌 / 准心额外 HUD：`RoleNameHudApi`
@@ -451,6 +453,14 @@ Wathe 的地图雾和扩展职业临时雾效统一走：
 - 同一 layer 内 priority 越大越晚渲染，因此会盖住低 priority 的 HUD。
 - 扩展侧按职业和词条拆文件，聚合类只负责调用各 `register()`；不要把所有职业 HUD 塞进一个大类。
 - 普通 HUD 不要再新增 `InGameHud` / `RoleNameRenderer` mixin；如果 API 已覆盖旧 mixin，要同步删除源码文件和 mixin json 条目。
+
+物品 Tooltip：
+
+- 扩展物品的标准描述与冷却读秒使用 `ItemTooltipApi.registerItem(...)` / `registerItems(...)`，不要再注册自己的全局 `ItemTooltipCallback`。
+- `.tooltip` 翻译允许使用 `\n` 分行；灰色描述、红色冷却文字和紧凑时间格式由 Wathe 统一处理。
+- 读秒必须读取当前 `ItemCooldownManager.Entry` 的 `endTick - tick`，禁止使用 `GameConstants.ITEM_COOLDOWNS * getCooldownProgress(...)` 反推，否则 GunShotApi modifier、开局冷却和多来源冷却会显示错误。
+- 真正的动态额外说明使用 `ItemTooltipApi.registerAppender(...)`；只有不走原版物品冷却管理器的业务冷却才读取扩展同步组件。
+- tooltip 是客户端显示，不得作为服务端购买、攻击或能力合法性判断依据。修改 API 后按 Wathe、Harpy、NoellesRoles 顺序传递 jar 并编译。
 
 准心图标 HUD：
 

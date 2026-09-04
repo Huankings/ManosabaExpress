@@ -2,8 +2,10 @@ package dev.doctor4t.wathe.cca;
 
 import dev.doctor4t.wathe.Wathe;
 import dev.doctor4t.wathe.api.Faction;
+import dev.doctor4t.wathe.api.GameMode;
 import dev.doctor4t.wathe.api.Role;
 import dev.doctor4t.wathe.api.WatheRoles;
+import dev.doctor4t.wathe.api.WatheGameModes;
 import dev.doctor4t.wathe.game.GameConstants;
 import dev.doctor4t.wathe.index.WatheItems;
 import net.minecraft.entity.player.PlayerEntity;
@@ -102,6 +104,8 @@ public class ScoreboardRoleSelectorComponent implements AutoSyncedComponent {
     private static final double RETURNING_PLAYER_BONUS_CAP = 0.45D;
     /** NBT 数据版本，用于未来继续调整字段时识别迁移格式。 */
     private static final int WEIGHT_DATA_VERSION = 2;
+    /** Harpy 扩展 Murder 使用的模式 id；用 Identifier 避免 Wathe 反向依赖 Harpy jar。 */
+    private static final Identifier HARPY_MODDED_GAME_MODE_ID = Identifier.of("harpymodloader", "modded");
     private static final String ROLE_WEIGHT_RECORDS_KEY = "RoleWeightRecords";
 
     public final Scoreboard scoreboard;
@@ -135,6 +139,10 @@ public class ScoreboardRoleSelectorComponent implements AutoSyncedComponent {
      * 同时离线玩家也能继续保存权重，等下一次回服时继续参与公平分配。</p>
      */
     private final Map<UUID, RoleWeightRecord> roleWeightRecords = new HashMap<>();
+    /** 本轮已经记过的阵营候选玩家，防止同一阶段重复回调导致机会次数膨胀。 */
+    private final EnumMap<Faction, Set<UUID>> factionEligibilitySeen = new EnumMap<>(Faction.class);
+    /** 本轮已经记过的具体职业候选玩家，防止互斥/强制流程重复调用造成虚假曝光。 */
+    private final Map<Identifier, Set<UUID>> roleEligibilitySeen = new HashMap<>();
 
     public ScoreboardRoleSelectorComponent(Scoreboard scoreboard, @Nullable MinecraftServer server) {
         this.scoreboard = scoreboard;
@@ -154,11 +162,79 @@ public class ScoreboardRoleSelectorComponent implements AutoSyncedComponent {
     }
 
     /**
+     * 只有真正采用 Murder 角色分配的模式才进入权重账本。
+     * Loose Ends 的全员孤行者和 Discovery 的调查模式不是阵营抽取，必须完全排除，
+     * 否则会把“孤行者/调查平民”错误混入普通 Murder 的长期比例。
+     */
+    public static boolean tracksGameMode(@Nullable GameMode gameMode) {
+        if (gameMode == null || gameMode.identifier == null) {
+            return false;
+        }
+        return WatheGameModes.MURDER_ID.equals(gameMode.identifier)
+                || HARPY_MODDED_GAME_MODE_ID.equals(gameMode.identifier);
+    }
+
+    /** 仅供原版 Murder 分配阶段判断，Harpy 会在自己的替换池中记录平民/中立曝光。 */
+    private static boolean isVanillaMurder(@Nullable GameMode gameMode) {
+        return gameMode != null && WatheGameModes.MURDER_ID.equals(gameMode.identifier);
+    }
+
+    /**
+     * 记录某阵营在本轮实际看到的候选玩家。
+     * 这个次数是“机会次数”，和已经获得该阵营的次数分开保存；只有进入该阵营候选池
+     * 才会增加，不能再用玩家参加过的所有局数代替杀手/义警/中立的机会分母。
+     */
+    public void recordFactionEligibility(@NotNull Faction faction, @NotNull Collection<ServerPlayerEntity> candidates) {
+        Set<UUID> seen = this.factionEligibilitySeen.computeIfAbsent(faction, ignored -> new HashSet<>());
+        for (ServerPlayerEntity player : candidates) {
+            if (seen.add(player.getUuid())) {
+                getOrCreateRoleWeightRecord(player).recordFactionEligibility(faction);
+            }
+        }
+    }
+
+    /** 记录某个具体职业启用时，玩家进入该职业随机候选池的一次机会。 */
+    public void recordRoleEligibility(@NotNull Role role, @NotNull Collection<ServerPlayerEntity> candidates) {
+        Identifier roleId = role.identifier();
+        Set<UUID> seen = this.roleEligibilitySeen.computeIfAbsent(roleId, ignored -> new HashSet<>());
+        for (ServerPlayerEntity player : candidates) {
+            if (seen.add(player.getUuid())) {
+                getOrCreateRoleWeightRecord(player).recordRoleEligibility(roleId);
+            }
+        }
+    }
+
+    /**
+     * 返回某模式在当前人数下预计拥有的阵营槽位，用于管理员查看“全局开局概率”。
+     * Harpy 中立位是从平民基础位里替换出来的，因此只在 modded 模式估算中立槽位。
+     */
+    public int estimateFactionSlots(@NotNull GameWorldComponent gameComponent, @NotNull Faction faction, int playerCount) {
+        if (!tracksGameMode(gameComponent.getGameMode())) {
+            /* Loose Ends/Discovery 不属于权重分配，preview 明确显示 0 个可追踪槽位。 */
+            return 0;
+        }
+        int total = Math.max(0, playerCount);
+        int killer = (int) Math.floor((double) total / Math.max(1, gameComponent.getKillerDividend()));
+        int vigilante = (int) Math.floor((double) total / Math.max(1, gameComponent.getVigilanteDividend()));
+        int neutral = tracksGameMode(gameComponent.getGameMode()) && HARPY_MODDED_GAME_MODE_ID.equals(gameComponent.getGameMode().identifier)
+                ? killer
+                : 0;
+        return switch (faction) {
+            case KILLER -> killer;
+            case VIGILANTE -> vigilante;
+            case NEUTRAL -> neutral;
+            case CIVILIAN -> Math.max(0, total - killer - vigilante - neutral);
+        };
+    }
+
+    /**
      * 在真正抽取职业前推进一次全局轮次，并衰减所有玩家的有效历史。
      * 原始整数次数仍保留用于管理员查看和旧存档兼容，只有参与计算的有效暴露值衰减。
      */
     public void beginAssignmentRound() {
         this.assignmentRound++;
+        this.factionEligibilitySeen.clear();
+        this.roleEligibilitySeen.clear();
         for (RoleWeightRecord record : this.roleWeightRecords.values()) {
             record.decay(HISTORY_DECAY_PER_ROUND, this.assignmentRound);
         }
@@ -168,6 +244,8 @@ public class ScoreboardRoleSelectorComponent implements AutoSyncedComponent {
         this.killerRounds.clear();
         this.vigilanteRounds.clear();
         this.roleWeightRecords.clear();
+        this.factionEligibilitySeen.clear();
+        this.roleEligibilitySeen.clear();
         this.assignmentRound = 0L;
         return 1;
     }
@@ -285,9 +363,12 @@ public class ScoreboardRoleSelectorComponent implements AutoSyncedComponent {
         GameWorldComponent gameWorld = GameWorldComponent.KEY.get(world);
         List<ServerPlayerEntity> players = world.getPlayers();
 
-        LinkedHashMap<ServerPlayerEntity, Double> killerWeights = getAssignmentWeights(gameWorld, players, Faction.KILLER, WatheRoles.KILLER, true, true);
-        LinkedHashMap<ServerPlayerEntity, Double> vigilanteWeights = getAssignmentWeights(gameWorld, players, Faction.VIGILANTE, WatheRoles.VIGILANTE, true, true);
-        LinkedHashMap<ServerPlayerEntity, Double> neutralWeights = getAssignmentWeights(gameWorld, players, Faction.NEUTRAL, null, true, false);
+        int killerSlots = estimateFactionSlots(gameWorld, Faction.KILLER, players.size());
+        int vigilanteSlots = estimateFactionSlots(gameWorld, Faction.VIGILANTE, players.size());
+        int neutralSlots = estimateFactionSlots(gameWorld, Faction.NEUTRAL, players.size());
+        LinkedHashMap<ServerPlayerEntity, Double> killerWeights = getAssignmentWeights(gameWorld, players, Faction.KILLER, WatheRoles.KILLER, killerSlots, true, true);
+        LinkedHashMap<ServerPlayerEntity, Double> vigilanteWeights = getAssignmentWeights(gameWorld, players, Faction.VIGILANTE, WatheRoles.VIGILANTE, vigilanteSlots, true, true);
+        LinkedHashMap<ServerPlayerEntity, Double> neutralWeights = getAssignmentWeights(gameWorld, players, Faction.NEUTRAL, null, neutralSlots, true, false);
 
         MutableText text = Text.literal("Role Weights: ").formatted(Formatting.GRAY)
                 .append(Text.literal(gameWorld.areWeightsEnabled() ? "enabled" : "disabled").formatted(gameWorld.areWeightsEnabled() ? Formatting.GREEN : Formatting.RED));
@@ -314,6 +395,12 @@ public class ScoreboardRoleSelectorComponent implements AutoSyncedComponent {
             }
         }
         this.forcedKillers.clear();
+
+        /* 原版杀手位的候选池只记录一次，后续扩展杀手职业不重复增加阵营机会。 */
+        if (killerCount > 0) {
+            recordFactionEligibility(Faction.KILLER, candidates);
+            recordRoleEligibility(WatheRoles.KILLER, candidates);
+        }
 
         for (ServerPlayerEntity player : selectWeightedPlayers(world, gameComponent, candidates, killerCount, Faction.KILLER, WatheRoles.KILLER, true, true)) {
             killers.add(player.getUuid());
@@ -354,7 +441,25 @@ public class ScoreboardRoleSelectorComponent implements AutoSyncedComponent {
         this.forcedVigilantes.clear();
 
         candidates.removeIf(player -> gameComponent.isRole(player, WatheRoles.KILLER));
+        /* 义警位只记录排除杀手后的真实候选池。 */
+        if (vigilanteCount > 0) {
+            recordFactionEligibility(Faction.VIGILANTE, candidates);
+            recordRoleEligibility(WatheRoles.VIGILANTE, candidates);
+        }
         vigilantes.addAll(selectWeightedPlayers(world, gameComponent, candidates, vigilanteCount, Faction.VIGILANTE, WatheRoles.VIGILANTE, true, true));
+
+        if (isVanillaMurder(gameComponent.getGameMode())) {
+            /*
+             * 原版 Murder 没有 Harpy 的 civilian replacement 阶段，
+             * 因此这里补记最终未成为杀手/义警的平民候选池；Harpy 不走此分支，
+             * 避免把其中立替换玩家错误地算进普通平民机会。
+             */
+            ArrayList<ServerPlayerEntity> civilianCandidates = new ArrayList<>(players);
+            civilianCandidates.removeIf(player -> gameComponent.isRole(player, WatheRoles.KILLER)
+                    || gameComponent.isRole(player, WatheRoles.VIGILANTE));
+            civilianCandidates.removeAll(vigilantes);
+            recordFactionEligibility(Faction.CIVILIAN, civilianCandidates);
+        }
 
         for (ServerPlayerEntity player : vigilantes) {
             gameComponent.addRole(player, WatheRoles.VIGILANTE);
@@ -448,13 +553,17 @@ public class ScoreboardRoleSelectorComponent implements AutoSyncedComponent {
                 candidates.isEmpty() ? 0 : 1, includeFactionHistory, includeRoleHistory);
     }
 
-    private LinkedHashMap<ServerPlayerEntity, Double> getAssignmentWeights(@NotNull GameWorldComponent gameComponent,
-                                                                            @NotNull List<ServerPlayerEntity> candidates,
-                                                                            @NotNull Faction targetFaction,
-                                                                            @Nullable Role targetRole,
-                                                                            int desiredCount,
-                                                                            boolean includeFactionHistory,
-                                                                            boolean includeRoleHistory) {
+    /**
+     * 按明确槽位数量计算权重，供 Harpy 和管理员 preview 使用。
+     * desiredCount 不改变历史，只决定“本次候选池中一个玩家应占多大目标份额”。
+     */
+    public LinkedHashMap<ServerPlayerEntity, Double> getAssignmentWeights(@NotNull GameWorldComponent gameComponent,
+                                                                           @NotNull List<ServerPlayerEntity> candidates,
+                                                                           @NotNull Faction targetFaction,
+                                                                           @Nullable Role targetRole,
+                                                                           int desiredCount,
+                                                                           boolean includeFactionHistory,
+                                                                           boolean includeRoleHistory) {
         LinkedHashMap<ServerPlayerEntity, Double> weights = new LinkedHashMap<>();
         double targetRate = candidates.isEmpty() ? 0.0D : Math.min(1.0D, Math.max(0.0D, (double) desiredCount / candidates.size()));
 
@@ -483,6 +592,9 @@ public class ScoreboardRoleSelectorComponent implements AutoSyncedComponent {
      * 必须等本局最终职业稳定后统一记录，才能同时覆盖原版职业和扩展职业。</p>
      */
     public void recordRoundAssignments(@NotNull ServerWorld world, @NotNull List<ServerPlayerEntity> players, @NotNull GameWorldComponent gameComponent) {
+        if (!tracksGameMode(gameComponent.getGameMode())) {
+            return;
+        }
         for (ServerPlayerEntity player : players) {
             Role role = gameComponent.getRole(player);
             if (role == null) {
@@ -521,7 +633,16 @@ public class ScoreboardRoleSelectorComponent implements AutoSyncedComponent {
 
         double weight = DEFAULT_WEIGHT;
         boolean scarceFaction = targetFaction == Faction.KILLER || targetFaction == Faction.NEUTRAL;
-        double opportunity = record.getEffectiveParticipatedRounds() + PRIOR_PARTICIPATION_ROUNDS;
+        /*
+         * 阵营与职业各自使用“进入候选池的有效机会”作为分母。
+         * 旧版把所有参与局数都当成每个职业的机会，会让从未进入某职业池的玩家
+         * 被错误地判定为长期缺席；新玩家没有机会记录时只使用先验，不制造虚假缺口。
+         */
+        double factionOpportunity = record.getEffectiveFactionEligibilityRounds(targetFaction);
+        if (factionOpportunity <= 0.0D && !record.hasEligibilityData() && record.getEffectiveParticipatedRounds() > 0.0D) {
+            factionOpportunity = record.getEffectiveParticipatedRounds();
+        }
+        double opportunity = factionOpportunity + PRIOR_PARTICIPATION_ROUNDS;
         double returningBonus = record.getRoundsSinceParticipation(this.assignmentRound) > 1
                 ? Math.min(RETURNING_PLAYER_BONUS_CAP, (record.getRoundsSinceParticipation(this.assignmentRound) - 1) * 0.05D)
                 : 0.0D;
@@ -535,7 +656,12 @@ public class ScoreboardRoleSelectorComponent implements AutoSyncedComponent {
                 double hostileRate = 2.0D / Math.max(2.0D, gameComponent.getKillerDividend());
                 double hostileObserved = record.getEffectiveFactionRounds(Faction.KILLER)
                         + record.getEffectiveFactionRounds(Faction.NEUTRAL);
-                double hostileExpected = opportunity * hostileRate;
+                double sharedOpportunity = record.getEffectiveFactionEligibilityRounds(Faction.KILLER)
+                        + record.getEffectiveFactionEligibilityRounds(Faction.NEUTRAL);
+                if (sharedOpportunity <= 0.0D && !record.hasEligibilityData()) {
+                    sharedOpportunity = record.getEffectiveParticipatedRounds();
+                }
+                double hostileExpected = (sharedOpportunity + PRIOR_PARTICIPATION_ROUNDS) * hostileRate;
                 double hostileExcess = Math.max(0.0D, hostileObserved - hostileExpected);
                 weight *= Math.exp(-Math.min(2.0D, hostileExcess * SHARED_SCARCE_PRESSURE_STRENGTH));
             }
@@ -547,8 +673,11 @@ public class ScoreboardRoleSelectorComponent implements AutoSyncedComponent {
 
         if (includeRoleHistory && targetRole != null) {
             Identifier roleId = targetRole.identifier();
-            double observed = record.getEffectiveRoleRounds(roleId) + PRIOR_PARTICIPATION_ROUNDS * targetRate;
-            double deficit = opportunity * targetRate - observed;
+            double roleOpportunity = record.getEffectiveRoleEligibilityRounds(roleId);
+            double roleObserved = record.getEffectiveRoleRounds(roleId);
+            double roleDenominator = roleOpportunity + PRIOR_PARTICIPATION_ROUNDS;
+            double observed = roleObserved + PRIOR_PARTICIPATION_ROUNDS * targetRate;
+            double deficit = roleDenominator * targetRate - observed;
             weight *= Math.exp(clampDeficit(deficit) / DEFICIT_TEMPERATURE);
             if (roleId.equals(record.getLastRole())) {
                 weight *= Math.exp(-Math.min(1.5D, record.getConsecutiveRoleRounds() * STREAK_COOLDOWN_STRENGTH));
@@ -701,9 +830,15 @@ public class ScoreboardRoleSelectorComponent implements AutoSyncedComponent {
     public static final class RoleWeightRecord {
         private final EnumMap<Faction, Integer> factionRounds = new EnumMap<>(Faction.class);
         private final HashMap<Identifier, Integer> roleRounds = new HashMap<>();
+        /** 阵营/具体职业进入候选池的原始机会次数。 */
+        private final EnumMap<Faction, Integer> factionEligibilityRounds = new EnumMap<>(Faction.class);
+        private final HashMap<Identifier, Integer> roleEligibilityRounds = new HashMap<>();
         /** 参与次数和分配次数的衰减副本，整数 map 继续用于旧命令和人工审计。 */
         private final EnumMap<Faction, Double> effectiveFactionRounds = new EnumMap<>(Faction.class);
         private final HashMap<Identifier, Double> effectiveRoleRounds = new HashMap<>();
+        /** 参与计算的有效候选机会次数，同样按局衰减。 */
+        private final EnumMap<Faction, Double> effectiveFactionEligibilityRounds = new EnumMap<>(Faction.class);
+        private final HashMap<Identifier, Double> effectiveRoleEligibilityRounds = new HashMap<>();
         private final EnumMap<Faction, Double> factionWeightOverrides = new EnumMap<>(Faction.class);
         private final HashMap<Identifier, Double> roleWeightOverrides = new HashMap<>();
 
@@ -711,6 +846,8 @@ public class ScoreboardRoleSelectorComponent implements AutoSyncedComponent {
         private int participatedRounds = 0;
         private double effectiveParticipatedRounds = 0.0D;
         private long lastParticipationRound = -1L;
+        /** 是否已经拥有新版候选曝光数据；用于区分旧存档迁移兜底和新玩家的真实零机会。 */
+        private boolean eligibilityDataInitialized = false;
         private @Nullable Faction lastFaction = null;
         private @Nullable Identifier lastRole = null;
         private int consecutiveFactionRounds = 0;
@@ -747,6 +884,10 @@ public class ScoreboardRoleSelectorComponent implements AutoSyncedComponent {
             return currentRound - this.lastParticipationRound;
         }
 
+        public boolean hasEligibilityData() {
+            return this.eligibilityDataInitialized;
+        }
+
         public @Nullable Faction getLastFaction() {
             return this.lastFaction;
         }
@@ -769,6 +910,22 @@ public class ScoreboardRoleSelectorComponent implements AutoSyncedComponent {
 
         public int getRoleRounds(@NotNull Identifier roleId) {
             return this.roleRounds.getOrDefault(roleId, 0);
+        }
+
+        public int getFactionEligibilityRounds(@NotNull Faction faction) {
+            return this.factionEligibilityRounds.getOrDefault(faction, 0);
+        }
+
+        public int getRoleEligibilityRounds(@NotNull Identifier roleId) {
+            return this.roleEligibilityRounds.getOrDefault(roleId, 0);
+        }
+
+        public double getEffectiveFactionEligibilityRounds(@NotNull Faction faction) {
+            return this.effectiveFactionEligibilityRounds.getOrDefault(faction, 0.0D);
+        }
+
+        public double getEffectiveRoleEligibilityRounds(@NotNull Identifier roleId) {
+            return this.effectiveRoleEligibilityRounds.getOrDefault(roleId, 0.0D);
         }
 
         public Map<Faction, Integer> getFactionRoundsView() {
@@ -805,8 +962,10 @@ public class ScoreboardRoleSelectorComponent implements AutoSyncedComponent {
             this.effectiveParticipatedRounds *= factor;
             for (Faction faction : Faction.values()) {
                 this.effectiveFactionRounds.computeIfPresent(faction, (ignored, value) -> value * factor);
+                this.effectiveFactionEligibilityRounds.computeIfPresent(faction, (ignored, value) -> value * factor);
             }
             this.effectiveRoleRounds.replaceAll((ignored, value) -> value * factor);
+            this.effectiveRoleEligibilityRounds.replaceAll((ignored, value) -> value * factor);
             /* 离开一局后，上一局连续状态不应继续惩罚回归玩家。 */
             if (this.lastParticipationRound >= 0L && currentRound - this.lastParticipationRound > 1L) {
                 this.consecutiveFactionRounds = 0;
@@ -841,6 +1000,18 @@ public class ScoreboardRoleSelectorComponent implements AutoSyncedComponent {
                 this.lastRole = roleId;
                 this.consecutiveRoleRounds = 1;
             }
+        }
+
+        private void recordFactionEligibility(@NotNull Faction faction) {
+            this.eligibilityDataInitialized = true;
+            this.factionEligibilityRounds.put(faction, getFactionEligibilityRounds(faction) + 1);
+            this.effectiveFactionEligibilityRounds.put(faction, getEffectiveFactionEligibilityRounds(faction) + 1.0D);
+        }
+
+        private void recordRoleEligibility(@NotNull Identifier roleId) {
+            this.eligibilityDataInitialized = true;
+            this.roleEligibilityRounds.put(roleId, getRoleEligibilityRounds(roleId) + 1);
+            this.effectiveRoleEligibilityRounds.put(roleId, getEffectiveRoleEligibilityRounds(roleId) + 1.0D);
         }
 
         private void setFactionRounds(@NotNull Faction faction, int times) {
@@ -890,6 +1061,15 @@ public class ScoreboardRoleSelectorComponent implements AutoSyncedComponent {
             }
             compound.put("factionCounts", factionCounts);
 
+            NbtList factionEligibilityCounts = new NbtList();
+            for (Map.Entry<Faction, Integer> entry : this.factionEligibilityRounds.entrySet()) {
+                NbtCompound entryNbt = new NbtCompound();
+                entryNbt.putString("faction", entry.getKey().name());
+                entryNbt.putInt("times", entry.getValue());
+                factionEligibilityCounts.add(entryNbt);
+            }
+            compound.put("factionEligibilityCounts", factionEligibilityCounts);
+
             NbtList effectiveFactionCounts = new NbtList();
             for (Map.Entry<Faction, Double> entry : this.effectiveFactionRounds.entrySet()) {
                 NbtCompound entryNbt = new NbtCompound();
@@ -898,6 +1078,15 @@ public class ScoreboardRoleSelectorComponent implements AutoSyncedComponent {
                 effectiveFactionCounts.add(entryNbt);
             }
             compound.put("effectiveFactionCounts", effectiveFactionCounts);
+
+            NbtList effectiveFactionEligibilityCounts = new NbtList();
+            for (Map.Entry<Faction, Double> entry : this.effectiveFactionEligibilityRounds.entrySet()) {
+                NbtCompound entryNbt = new NbtCompound();
+                entryNbt.putString("faction", entry.getKey().name());
+                entryNbt.putDouble("value", entry.getValue());
+                effectiveFactionEligibilityCounts.add(entryNbt);
+            }
+            compound.put("effectiveFactionEligibilityCounts", effectiveFactionEligibilityCounts);
 
             NbtList roleCounts = new NbtList();
             for (Map.Entry<Identifier, Integer> entry : this.roleRounds.entrySet()) {
@@ -908,6 +1097,15 @@ public class ScoreboardRoleSelectorComponent implements AutoSyncedComponent {
             }
             compound.put("roleCounts", roleCounts);
 
+            NbtList roleEligibilityCounts = new NbtList();
+            for (Map.Entry<Identifier, Integer> entry : this.roleEligibilityRounds.entrySet()) {
+                NbtCompound entryNbt = new NbtCompound();
+                entryNbt.putString("role", entry.getKey().toString());
+                entryNbt.putInt("times", entry.getValue());
+                roleEligibilityCounts.add(entryNbt);
+            }
+            compound.put("roleEligibilityCounts", roleEligibilityCounts);
+
             NbtList effectiveRoleCounts = new NbtList();
             for (Map.Entry<Identifier, Double> entry : this.effectiveRoleRounds.entrySet()) {
                 NbtCompound entryNbt = new NbtCompound();
@@ -916,6 +1114,15 @@ public class ScoreboardRoleSelectorComponent implements AutoSyncedComponent {
                 effectiveRoleCounts.add(entryNbt);
             }
             compound.put("effectiveRoleCounts", effectiveRoleCounts);
+
+            NbtList effectiveRoleEligibilityCounts = new NbtList();
+            for (Map.Entry<Identifier, Double> entry : this.effectiveRoleEligibilityRounds.entrySet()) {
+                NbtCompound entryNbt = new NbtCompound();
+                entryNbt.putString("role", entry.getKey().toString());
+                entryNbt.putDouble("value", entry.getValue());
+                effectiveRoleEligibilityCounts.add(entryNbt);
+            }
+            compound.put("effectiveRoleEligibilityCounts", effectiveRoleEligibilityCounts);
 
             NbtList factionOverrides = new NbtList();
             for (Map.Entry<Faction, Double> entry : this.factionWeightOverrides.entrySet()) {
@@ -948,6 +1155,8 @@ public class ScoreboardRoleSelectorComponent implements AutoSyncedComponent {
             record.lastParticipationRound = compound.contains("lastParticipationRound")
                     ? Math.max(-1L, compound.getLong("lastParticipationRound"))
                     : -1L;
+            record.eligibilityDataInitialized = compound.contains("factionEligibilityCounts")
+                    || compound.contains("roleEligibilityCounts");
             if (compound.contains("lastFaction")) {
                 try {
                     record.lastFaction = Faction.valueOf(compound.getString("lastFaction"));
@@ -990,6 +1199,35 @@ public class ScoreboardRoleSelectorComponent implements AutoSyncedComponent {
                 }
             }
 
+            for (NbtElement element : compound.getList("factionEligibilityCounts", NbtElement.COMPOUND_TYPE)) {
+                NbtCompound entryNbt = (NbtCompound) element;
+                try {
+                    Faction faction = Faction.valueOf(entryNbt.getString("faction"));
+                    int times = Math.max(0, entryNbt.getInt("times"));
+                    if (times > 0) {
+                        record.factionEligibilityRounds.put(faction, times);
+                        record.effectiveFactionEligibilityRounds.put(faction, (double) times);
+                    }
+                } catch (IllegalArgumentException ignored) {
+                    // 跳过未知阵营，兼容未来新增阵营或损坏的旧条目。
+                }
+            }
+
+            if (compound.contains("effectiveFactionEligibilityCounts")) {
+                for (NbtElement element : compound.getList("effectiveFactionEligibilityCounts", NbtElement.COMPOUND_TYPE)) {
+                    NbtCompound entryNbt = (NbtCompound) element;
+                    try {
+                        Faction faction = Faction.valueOf(entryNbt.getString("faction"));
+                        double value = entryNbt.getDouble("value");
+                        if (!Double.isNaN(value) && !Double.isInfinite(value) && value > 0.0D) {
+                            record.effectiveFactionEligibilityRounds.put(faction, value);
+                        }
+                    } catch (IllegalArgumentException ignored) {
+                        // 跳过未知阵营，兼容未来新增阵营或损坏的旧条目。
+                    }
+                }
+            }
+
             for (NbtElement element : compound.getList("roleCounts", NbtElement.COMPOUND_TYPE)) {
                 NbtCompound entryNbt = (NbtCompound) element;
                 Identifier roleId = Identifier.tryParse(entryNbt.getString("role"));
@@ -1011,6 +1249,27 @@ public class ScoreboardRoleSelectorComponent implements AutoSyncedComponent {
                 }
             }
 
+            for (NbtElement element : compound.getList("roleEligibilityCounts", NbtElement.COMPOUND_TYPE)) {
+                NbtCompound entryNbt = (NbtCompound) element;
+                Identifier roleId = Identifier.tryParse(entryNbt.getString("role"));
+                int times = Math.max(0, entryNbt.getInt("times"));
+                if (roleId != null && times > 0) {
+                    record.roleEligibilityRounds.put(roleId, times);
+                    record.effectiveRoleEligibilityRounds.put(roleId, (double) times);
+                }
+            }
+
+            if (compound.contains("effectiveRoleEligibilityCounts")) {
+                for (NbtElement element : compound.getList("effectiveRoleEligibilityCounts", NbtElement.COMPOUND_TYPE)) {
+                    NbtCompound entryNbt = (NbtCompound) element;
+                    Identifier roleId = Identifier.tryParse(entryNbt.getString("role"));
+                    double value = entryNbt.getDouble("value");
+                    if (roleId != null && !Double.isNaN(value) && !Double.isInfinite(value) && value > 0.0D) {
+                        record.effectiveRoleEligibilityRounds.put(roleId, value);
+                    }
+                }
+            }
+
             for (NbtElement element : compound.getList("factionOverrides", NbtElement.COMPOUND_TYPE)) {
                 NbtCompound entryNbt = (NbtCompound) element;
                 try {
@@ -1027,6 +1286,27 @@ public class ScoreboardRoleSelectorComponent implements AutoSyncedComponent {
                 if (roleId != null) {
                     record.roleWeightOverrides.put(roleId, sanitizeDebugWeight(entryNbt.getDouble("weight")));
                 }
+            }
+
+            /*
+             * 旧版 NBT 没有“有效候选机会”字段。迁移时用参与局数作为保守兜底，
+             * 避免升级后所有历史职业都突然恢复为新人状态；从新一局开始会改用真实候选池记录。
+             */
+            if (!compound.contains("factionEligibilityCounts")) {
+                for (Faction faction : Faction.values()) {
+                    if (record.getFactionEligibilityRounds(faction) <= 0 && record.participatedRounds > 0) {
+                        record.factionEligibilityRounds.put(faction, record.participatedRounds);
+                        record.effectiveFactionEligibilityRounds.put(faction, record.effectiveParticipatedRounds);
+                    }
+                }
+                record.eligibilityDataInitialized = true;
+            }
+            if (!compound.contains("roleEligibilityCounts") && record.participatedRounds > 0) {
+                for (Identifier roleId : record.roleRounds.keySet()) {
+                    record.roleEligibilityRounds.putIfAbsent(roleId, record.participatedRounds);
+                    record.effectiveRoleEligibilityRounds.putIfAbsent(roleId, record.effectiveParticipatedRounds);
+                }
+                record.eligibilityDataInitialized = true;
             }
 
             return record;

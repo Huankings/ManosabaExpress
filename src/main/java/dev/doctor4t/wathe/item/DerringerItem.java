@@ -6,7 +6,7 @@ import dev.doctor4t.wathe.api.visibility.TargetVisibilityApi;
 import dev.doctor4t.wathe.client.WatheClient;
 import dev.doctor4t.wathe.client.particle.HandParticle;
 import dev.doctor4t.wathe.client.render.WatheRenderLayers;
-import dev.doctor4t.wathe.client.util.WatheItemTooltips;
+import dev.doctor4t.wathe.api.client.tooltip.ItemTooltipApi;
 import dev.doctor4t.wathe.index.WatheDataComponentTypes;
 import dev.doctor4t.wathe.util.GunShootPayload;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
@@ -68,7 +68,7 @@ public class DerringerItem extends RevolverItem {
     public void appendTooltip(ItemStack stack, TooltipContext context, List<Text> tooltip, TooltipType type) {
         Boolean used = stack.getOrDefault(WatheDataComponentTypes.USED, false);
         if (used) {
-            tooltip.add(Text.translatable("tip.derringer.used").withColor(WatheItemTooltips.COOLDOWN_COLOR));
+            tooltip.add(Text.translatable("tip.derringer.used").withColor(ItemTooltipApi.COOLDOWN_COLOR));
         }
 
         super.appendTooltip(stack, context, tooltip, type);

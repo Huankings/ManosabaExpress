@@ -50,6 +50,7 @@ Wathe 是一个基于 **Minecraft 1.21.1 + Fabric** 的列车狼人杀 / 社交�
 | `src/main/java/dev/doctor4t/wathe/api/client/inventory` | 背包按钮公开 API：扩展按钮注册、三类背包 screen type、动态分组、分页和头像辅助 |
 | `src/main/java/dev/doctor4t/wathe/api/client/mood` | 低心情幻觉手持物公开 API：指定/随机物品、手臂姿势与优先级覆盖 |
 | `src/main/java/dev/doctor4t/wathe/api/client/hud` | 通用屏幕 HUD 叠加 API：右下角职业状态、全屏遮罩、狙击镜等自由绘制入口 |
+| `src/main/java/dev/doctor4t/wathe/api/client/tooltip` | 物品多行描述、准确冷却读秒和动态附加文本 API |
 | `src/main/java/dev/doctor4t/wathe/cca` | Cardinal Components 状态组件：世界状态、玩家状态、计分板全局状态 |
 | `src/main/java/dev/doctor4t/wathe/cca/PlayerStaminaComponent.java` | 玩家体力、额外上限修正、本局初始化标记 |
 | `src/main/java/dev/doctor4t/wathe/game` | 对局生命周期、游戏模式、地图效果、地图重置任务 |
@@ -64,6 +65,7 @@ Wathe 是一个基于 **Minecraft 1.21.1 + Fabric** 的列车狼人杀 / 社交�
 | `src/main/resources/assets/wathe` | 材质、模型、语言文件、音效、粒子 |
 | `map_datapack_template` | 地图投票数据包模板 |
 | `README_SHOP_CURRENCY_API.md` | 商店多货币系统专项教程 |
+| `README_ITEM_TOOLTIP_API.md` | 物品描述与动态冷却 tooltip 接入教程 |
 
 ## 启动初始化流程
 
@@ -233,9 +235,11 @@ Wathe 用 Cardinal Components API 保存大量状态，入口是 `WatheComponent
 
 `ScoreboardRoleSelectorComponent` 同时保存新版职业分配权重账本。账本按玩家 UUID 记录每个阵营出现次数、具体职业出现次数、上一局阵营 / 职业、连续次数、最后已知玩家名，以及管理员手动设置的调试覆盖权重。参与计算的有效历史按约 27 局半衰，原始整数次数仍保留用于审计和旧存档兼容；新玩家使用伪历史先验，回归玩家使用有上限的回归补偿。它挂在 scoreboard 上，因此能跨地图和维度继续生效，也能保留已经离线但仍有历史记录的玩家。
 
-权重系统默认开启，只影响开局抽取概率，不会阻止管理员手动指定职业。开关保存在全局 scoreboard，所有维度和游戏模式共用。Wathe 原版杀手 / 义警位、Harpy 的中立位和扩展具体职业都会共用同一份账本；杀手与中立分别按各自目标份额计算，同时对两者总次数施加共享稀缺压力。最终记录发生在所有开局初始化监听完成之后，所以 `/forceRole` 这类开局强制结果会计入下一局权重，而局内 `/setRole` 调试转职不会计入开局历史。
+权重系统默认开启，只影响开局抽取概率，不会阻止管理员手动指定职业。开关保存在全局 scoreboard，所有维度和游戏模式共用。只有 `wathe:murder` 和 `harpymodloader:modded` 会推进权重轮次并记录历史；Loose Ends、Discovery 默认完全排除。Wathe 原版杀手 / 义警位、Harpy 的中立位和扩展具体职业都会共用同一份账本；杀手与中立分别按各自目标份额计算，同时对两者总次数施加共享稀缺压力。最终记录发生在所有开局初始化监听完成之后，所以 `/forceRole` 这类开局强制结果会计入下一局权重，而局内 `/setRole` 调试转职不会计入开局历史。
 
 当前自动权重参数集中在 `ScoreboardRoleSelectorComponent`：`HISTORY_DECAY_PER_ROUND=0.975` 控制约 27 局半衰，调高会记忆更久、调低会更快回归随机；`PRIOR_PARTICIPATION_ROUNDS=4` 是新玩家伪历史，调高会减轻老玩家优势、调低会强化历史缺口；`DEFICIT_TEMPERATURE=1.35` 控制缺口敏感度，调高使分配平滑、调低更照顾欠缺玩家；`STREAK_COOLDOWN_STRENGTH=0.28` 控制连局冷却，调高更少连任、调低更随机；`SHARED_SCARCE_PRESSURE_STRENGTH=0.22` 控制杀手+中立共享压力，调高会更强地限制稀缺阵营总次数偏高者；`RETURNING_PLAYER_BONUS_CAP=0.45` 限制回归补偿，调高更照顾久未上线玩家、调低可避免回归首局过度偏向稀缺阵营；`MIN_ASSIGNMENT_WEIGHT=0.35` 和 `MAX_ASSIGNMENT_WEIGHT=3.5` 分别是自动票数下限/上限，扩大区间会增强历史差异，缩小区间会让整体更均匀。比如缺口为 1.35 时，温度 1.35 会产生约 `e` 倍票数；把温度调到 2.70 后约为 1.65 倍。所有参数都只改变抽取倾向，不会绕过 `forceRole`、职业互斥或 `ROLE_MAX`。
+
+权重报告中的 `actual/eligible` 表示“实际获得次数 / 进入有效候选池次数”。阵营的 eligible 只在该阵营候选池建立时记录一次；具体职业的 eligible 只有职业启用、该职业本轮仍有槽位、且玩家进入该职业随机候选池时才记录。旧存档没有 eligible 字段时会用旧参与次数保守迁移，新对局会逐步改用真实候选池数据。
 
 ## 地图变量、地图增强与地图投票
 
@@ -498,6 +502,22 @@ ShopApi.registerRoleShop(MY_ROLE, player -> List.of(
 - 开关模式：按一下打开，再按一下关闭；
 - 长按模式：按住才生效。
 
+### 物品 Tooltip API
+
+物品的多行说明和原版物品冷却读秒统一由
+`dev.doctor4t.wathe.api.client.tooltip.ItemTooltipApi` 调度。Wathe 自带物品和扩展物品使用同一条
+`ItemTooltipCallback`，扩展客户端只需调用 `registerItem(...)` 或 `registerItems(...)`，不应再复制
+`TextUtils.getTooltipForItem(...)`、颜色和冷却格式化逻辑。
+
+冷却读秒直接读取客户端当前 `ItemCooldownManager.Entry` 的 `endTick - tick`。这里得到的是服务端本次
+真正写入的剩余 tick，因此阵营左轮冷却、`GunShotApi` modifier、开局冷却、普通冷却和临时冷却即使
+总时长不同，也不会再出现“从固定总时长开始、按错误倍率下降”。`GameConstants.ITEM_COOLDOWNS` 只负责
+提供服务端默认玩法数值，不能用于 tooltip 反推当前冷却。
+
+物品还需要展示数据组件或职业组件状态时使用 `registerAppender(...)`。只有时停者怀表这种完全不走
+原版 `ItemCooldownManager` 的业务冷却，才应在 appender 中读取扩展自己的同步组件。完整示例和客户端
+环境边界见 `README_ITEM_TOOLTIP_API.md`。
+
 ### 通用 HUD 叠加 API
 
 职业/词条需要画“自由位置”的屏幕 HUD 时，优先接入 `dev.doctor4t.wathe.api.client.hud` 包，不要再给 `InGameHud` 写扩展 mixin。这个 API 面向右下角状态文字、全屏遮罩、狙击镜、开局安全提示等通用叠加内容；如果只是心情条、顶部时间、准心图标、准心名字或背包按钮，应优先使用对应的专用 API。
@@ -656,6 +676,7 @@ GameRecordManager.recordGlobalEvent(
 | `PsychosisItemApi` | 低心情幻觉手持物与手臂姿势覆盖 | 指定危险物品、随机物品、职业/词条幻觉效果 |
 | `TimeHudApi` | 时间 HUD | 自定义时间显示 |
 | `InventoryButtonApi` | 背包按钮生命周期 | 职业选人按钮、图鉴按钮、分页按钮、输入阶段阻止 E 键关闭 |
+| `ItemTooltipApi` | 物品多行描述、实际冷却读秒和动态附加文本 | 扩展物品说明、动态枪械冷却、物品组件状态 |
 | `TrayEffectRegistry` | 托盘效果 | 毒药、药剂、陷阱 |
 | `BedEffectRegistry` | 床效果 | 床毒、床炸弹 |
 | `AllowPlayerDeath` | 死亡拦截 | 护盾、免死、替死 |

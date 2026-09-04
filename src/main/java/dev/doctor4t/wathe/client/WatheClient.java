@@ -7,6 +7,7 @@ import dev.doctor4t.ratatouille.client.util.ambience.BackgroundAmbience;
 import dev.doctor4t.wathe.Wathe;
 import dev.doctor4t.wathe.WatheConfig;
 import dev.doctor4t.wathe.api.Role;
+import dev.doctor4t.wathe.api.client.tooltip.ItemTooltipApi;
 import dev.doctor4t.wathe.api.client.inventory.InventoryPageState;
 import dev.doctor4t.wathe.api.client.invisibility.HeldItemInvisibilityApi;
 import dev.doctor4t.wathe.api.client.psycho.PsychoModeClientApi;
@@ -283,6 +284,7 @@ public class WatheClient implements ClientModInitializer {
 
 
         // Item tooltips
+        ItemTooltipApi.initialize();
         WatheItemTooltips.addTooltips();
 
         ClientPreAttackCallback.EVENT.register((client, player, clickCount) -> {

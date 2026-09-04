@@ -314,11 +314,13 @@ public class GameFunctions {
         GameRecordManager.startMatch(serverWorld, gameComponent);
         baseInitialize(serverWorld, gameComponent, readyPlayerList);
         /*
-         * 权重历史是全服 scoreboard 级数据。每次真正开始一局时先推进一次轮次并衰减有效历史，
-         * 再让 Wathe/Harpy 抽取职业；这样回归玩家不会被永久旧数据锁死，且同一局所有阶段
-         * 使用同一份衰减后的快照。
+         * 权重历史是全服 scoreboard 级数据，但只有 Murder/Harpy modded 真正使用阵营抽取。
+         * Loose Ends 和 Discovery 不能推进全服轮次，否则一次非 Murder 娱乐局也会让所有玩家
+         * 的有效历史衰减，造成下一局权重无故变化。
          */
-        ScoreboardRoleSelectorComponent.KEY.get(serverWorld.getScoreboard()).beginAssignmentRound();
+        if (ScoreboardRoleSelectorComponent.tracksGameMode(gameComponent.getGameMode())) {
+            ScoreboardRoleSelectorComponent.KEY.get(serverWorld.getScoreboard()).beginAssignmentRound();
+        }
         gameComponent.getGameMode().initializeGame(serverWorld, gameComponent, readyPlayerList);
 
         gameComponent.sync();
