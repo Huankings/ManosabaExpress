@@ -341,8 +341,10 @@ Wathe 的地图通常是“模板区复制到游戏区”。配置项来自：
 
 - 默认开启；
 - `/wathe:setGradualReset false` 可以关闭；
-- 开局前先分批恢复地图，避免一次性复制大量方块造成卡顿；
-- 重置期间会给玩家显示“地图重置中 xx%”；
+- 差异重置子模式也默认开启，可用 `/wathe:setDifferentialReset false` 单独关闭；
+- 差异模式会先分 tick 对照模板区和游玩区，再只恢复 BlockState、方块实体 NBT 或 Data Components 不同的位置；
+- 差异模式关闭后仍使用原有的完整分块渐进复制，渐进式总开关关闭后才回到一次性完整重置；
+- 重置期间会按阶段给玩家显示“地图检查中 xx%”“地图重置中 xx%”或“地图同步中 xx%”；
 - 完成后再进入 `STARTING` 黑屏阶段。
 
 ## 心情与任务系统
@@ -854,6 +856,7 @@ Wathe 默认规则仍受 `/wathe:playerCollision` 和 `/wathe:startnoCollision` 
 | `/wathe:startPlayerCount mode <gameMode> [players]` | 查询或设置指定游戏模式的开局人数 |
 | `/wathe:startPlayerCount list` | 列出所有已注册游戏模式的开局人数 |
 | `/wathe:setGradualReset <true|false|check>` | 开关渐进式地图重置 |
+| `/wathe:setDifferentialReset <true|false|check>` | 开关渐进式重置的差异扫描子模式，默认开启 |
 | `/wathe:gamemode <player> <mode> [specialAlive]` | 调试用：切换玩家原版游戏模式，并可标记 Wathe 玩法存活 |
 | `/wathe:taskPoints reload` | 重扫任务点并广播 |
 | `/wathe:taskPoints refresh` | 广播当前任务点缓存 |

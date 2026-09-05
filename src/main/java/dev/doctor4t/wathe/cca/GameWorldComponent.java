@@ -404,6 +404,14 @@ public int getFixedKillerCount() { return this.fixedKillerCount; }
     private boolean gradualResetEnabled = true;
 
     /**
+     * 控制渐进式地图重置是否先扫描模板区与游玩区，并且只恢复存在差异的位置。
+     *
+     * <p>这是渐进式重置的子开关：只有 {@link #gradualResetEnabled} 同时开启时才会生效。
+     * 默认开启，让大地图在绝大多数方块没有变化时跳过昂贵的方块写入、邻居更新和客户端同步。</p>
+     */
+    private boolean differentialResetEnabled = true;
+
+    /**
      * 当前正在运行的渐进式重置任务。
      * 该字段只在运行期使用，不写入 NBT。
      */
@@ -649,6 +657,22 @@ public int getFixedKillerCount() { return this.fixedKillerCount; }
     }
 
     /**
+     * 返回渐进式地图重置是否使用“先比较、后只恢复差异”的优化模式。
+     */
+    public boolean isDifferentialResetEnabled() {
+        return differentialResetEnabled;
+    }
+
+    /**
+     * 更新差异重置开关。
+     * 新值只影响后续创建的重置任务，不会改变已经运行到一半的扫描或恢复流程。
+     */
+    public void setDifferentialResetEnabled(boolean differentialResetEnabled) {
+        this.differentialResetEnabled = differentialResetEnabled;
+        this.sync();
+    }
+
+    /**
      * 返回当前是否有渐进式重置任务正在执行。
      */
     public boolean isGradualResetInProgress() {
@@ -840,6 +864,13 @@ this.fixedKillerCount = nbtCompound.contains("FixedKillerCount") ? nbtCompound.g
             this.gradualResetEnabled = true;
         }
 
+        // 旧存档没有该字段时按默认开启处理，升级 jar 后无需管理员逐个世界重新执行指令。
+        if (nbtCompound.contains("DifferentialResetEnabled")) {
+            this.differentialResetEnabled = nbtCompound.getBoolean("DifferentialResetEnabled");
+        } else {
+            this.differentialResetEnabled = true;
+        }
+
         for (Role role : WatheRoles.ROLES) {
             this.setRoles(uuidListFromNbt(nbtCompound, role.identifier().toString()), role);
         }
@@ -912,6 +943,7 @@ this.fixedKillerCount = nbtCompound.contains("FixedKillerCount") ? nbtCompound.g
         nbtCompound.putInt("KillerDividend", killerDividend);
         nbtCompound.putInt("VigilanteDividend", vigilanteDividend);
         nbtCompound.putBoolean("GradualResetEnabled", gradualResetEnabled);
+        nbtCompound.putBoolean("DifferentialResetEnabled", differentialResetEnabled);
 
         for (Role role : WatheRoles.ROLES) {
             nbtCompound.put(role.identifier().toString(), nbtFromUuidList(getAllWithRole(role)));

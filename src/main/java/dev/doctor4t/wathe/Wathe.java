@@ -98,6 +98,7 @@ public class Wathe implements ModInitializer {
             SetKillerCountCommand.register(dispatcher);
             SetGameModeCommand.register(dispatcher);
             SetGradualResetCommand.register(dispatcher);
+            SetDifferentialResetCommand.register(dispatcher);
             MoodEffectDeathCommand.register(dispatcher);
             MoodStaminaPenaltyCommand.register(dispatcher);
             MoodTaskCommand.register(dispatcher);

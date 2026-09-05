@@ -206,7 +206,12 @@ public class GameFunctions {
                         return;
                     }
 
-                    MapResetTask task = new MapResetTask(world, () -> {
+                    /*
+                     * 差异重置是渐进式重置的子模式，并在任务创建时固定本次使用的值。
+                     * 这样管理员即使在扫描期间切换调试开关，也只会影响下一次开局，
+                     * 不会让当前任务在完整复制与差异恢复之间切换到不一致的中间状态。
+                     */
+                    MapResetTask task = new MapResetTask(world, game.isDifferentialResetEnabled(), () -> {
                         // 地图已经在 initializeGame 之前恢复完成，
                         // 因此下一次初始化时要跳过原版的一次性排队重置。
                         game.setSkipQueuedMapResetOnce(true);
