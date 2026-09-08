@@ -377,7 +377,41 @@ public interface GameConstants {
     //停电最短恢复时间
     int BLACKOUT_MIN_DURATION = getInTicks(0, 5);
     //停电最长恢复时间
-    int BLACKOUT_MAX_DURATION = getInTicks(0, 30);
+    int BLACKOUT_MAX_DURATION = getInTicks(0, 20);
+    /**
+     * 自然恢复时，同一个区块分段内一次最多恢复多少盏灯。
+     *
+     * <p>停电灯会按 16x16x16 的 ChunkSection 分组。同一分段内的更新放在同一个服务端 tick，
+     * 客户端便可以合并方块同步并只安排一次分段网格重建；但单批也不能无限大，
+     * 否则极端高密度灯墙仍可能在一个 tick 内制造明显尖峰。</p>
+     */
+    int BLACKOUT_RECOVERY_MAX_LIGHTS_PER_BATCH = 64;
+    /**
+     * 每个服务端 tick 最多处理多少个停电恢复批次。
+     *
+     * <p>这里优先保证稳定帧时间。恢复窗口很短、灯又异常多时，未完成的批次允许在
+     * {@link #BLACKOUT_MAX_DURATION} 之后继续少量 tick，而不是为了死守截止时间一次性恢复全部灯。</p>
+     */
+    int BLACKOUT_RECOVERY_MAX_BATCHES_PER_TICK = 2;
+    /**
+     * 单个服务端 tick 可用于恢复灯光的软时间预算，单位为纳秒。
+     *
+     * <p>预算会在每个完整区块分段批次结束后检查，避免拆散同一批方块、导致客户端重复重建；
+     * 因此它是防止继续追加新批次的软上限，不会中途打断已经开始的批次。</p>
+     */
+    long BLACKOUT_RECOVERY_MAX_NANOS_PER_TICK = 2_000_000L;
+    /**
+     * 停电进入恢复阶段后，全局恢复灯音效下一次播放的最短间隔，单位为 tick。
+     *
+     * <p>间隔不能过短，否则地图灯很多时虽然没有方块更新压力，也会让所有玩家持续听到
+     * 密集重复的声音。默认 0.25 秒是一个能感知“正在恢复”又不会喧宾夺主的下限。</p>
+     */
+    int BLACKOUT_RECOVERY_SOUND_MIN_INTERVAL = getInTicks(0, 0)+5;
+    /**
+     * 停电进入恢复阶段后，全局恢复灯音效下一次播放的最长间隔，单位为 tick。
+     * 每次播放后都会在这个范围内重新随机，直到所有灯恢复完成。
+     */
+    int BLACKOUT_RECOVERY_SOUND_MAX_INTERVAL = getInTicks(0, 2);
     //每杀一个平民所增加的时间
     int TIME_ON_CIVILIAN_KILL = getInTicks(0, 45);
 

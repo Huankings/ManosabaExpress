@@ -11,10 +11,12 @@ import dev.doctor4t.wathe.game.GameFunctions;
 import dev.doctor4t.wathe.index.WatheProperties;
 import dev.doctor4t.wathe.index.WatheSounds;
 import dev.doctor4t.wathe.record.GameRecordManager;
+import net.minecraft.block.Block;
 import net.minecraft.block.BlockState;
 import net.minecraft.nbt.NbtCompound;
 import net.minecraft.nbt.NbtElement;
 import net.minecraft.nbt.NbtList;
+import net.minecraft.network.RegistryByteBuf;
 import net.minecraft.network.packet.s2c.play.PlaySoundS2CPacket;
 import net.minecraft.registry.Registries;
 import net.minecraft.registry.RegistryWrapper;
@@ -25,6 +27,7 @@ import net.minecraft.sound.SoundEvent;
 import net.minecraft.state.property.Properties;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Box;
+import net.minecraft.util.math.ChunkSectionPos;
 import net.minecraft.util.math.MathHelper;
 import net.minecraft.world.World;
 import org.jetbrains.annotations.NotNull;
@@ -34,14 +37,37 @@ import org.ladysnake.cca.api.v3.component.sync.AutoSyncedComponent;
 import org.ladysnake.cca.api.v3.component.tick.ClientTickingComponent;
 import org.ladysnake.cca.api.v3.component.tick.ServerTickingComponent;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 public class WorldBlackoutComponent implements AutoSyncedComponent, ServerTickingComponent, ClientTickingComponent {
     public static final ComponentKey<WorldBlackoutComponent> KEY = ComponentRegistry.getOrCreate(Wathe.id("blackout"), WorldBlackoutComponent.class);
     public static final int DEFAULT_OVERLAY_OPACITY_PERCENT = 80;
+    /**
+     * 停电只改变同一个灯方块的 LIT / ACTIVE 属性，不需要通知六个相邻方块重新计算形状。
+     *
+     * <p>NOTIFY_LISTENERS 仍会把方块变化发送给观察该区块的客户端，并保留亮度变化所需的
+     * 光照检查；FORCE_STATE 则跳过邻居 prepare/updateNeighbors 链，避免相连霓虹灯传播 ACTIVE
+     * 时把一次停电更新放大成额外的连锁方块更新。</p>
+     */
+    private static final int BLACKOUT_BLOCK_UPDATE_FLAGS = Block.NOTIFY_LISTENERS | Block.FORCE_STATE;
     private final World world;
-    private final List<BlackoutDetails> blackouts = new ArrayList<>();
+    /**
+     * 服务端尚未恢复的灯集合。LinkedHashSet 既保留稳定的存档顺序，也让批次完成后的删除为 O(1)，
+     * 避免旧 ArrayList 在每恢复一盏灯时搬移后续全部元素。
+     */
+    private final Set<BlackoutDetails> blackouts = new LinkedHashSet<>();
+    /**
+     * 按计划恢复时间排序的区块分段批次。服务端每 tick 只查看队首已到期批次，
+     * 不再像旧实现一样遍历所有灯并给每盏灯单独递减倒计时。
+     */
+    private final ArrayDeque<RecoveryBatch> recoveryBatches = new ArrayDeque<>();
     private int ticks = 0;
     /**
      * 当前这一次停电的“全局时间线总时长”。
@@ -76,6 +102,12 @@ public class WorldBlackoutComponent implements AutoSyncedComponent, ServerTickin
      */
     private boolean restoredEventSent = false;
     /**
+     * 恢复阶段下一次全局灯光恢复声还要等待的 tick 数。
+     * 只在服务端使用，不参与客户端黑幕同步；每次播放后都会按 GameConstants 的最短/最长
+     * 间隔重新随机，因而不会形成机械的固定节拍，也不会为每盏灯单独发送声音包。
+     */
+    private int recoverySoundTicksUntilNext = 0;
+    /**
      * 客户端黑幕强度调试值，0 表示关闭黑幕，100 表示完全不透明。
      *
      * <p>这个值放在世界组件里并同步给客户端，而不是只存在服务端命令类，
@@ -103,6 +135,7 @@ public class WorldBlackoutComponent implements AutoSyncedComponent, ServerTickin
     public void reset() {
         for (BlackoutDetails detail : this.blackouts) detail.end(this.world);
         this.blackouts.clear();
+        this.recoveryBatches.clear();
         clearBlackoutTimelineState();
         if (this.world instanceof ServerWorld serverWorld) {
             clearAllBlackoutEffects(serverWorld);
@@ -117,7 +150,11 @@ public class WorldBlackoutComponent implements AutoSyncedComponent, ServerTickin
      * 扩展职业（例如工程师电力恢复系统）不再需要 mixin 私有 ticks 字段。</p>
      */
     public void restorePower() {
+        boolean hadBlackout = this.ticks > 0 || !this.blackouts.isEmpty();
         this.reset();
+        if (hadBlackout && this.world instanceof ServerWorld serverWorld) {
+            sendRecoveryCompletedSound(serverWorld);
+        }
     }
 
     @Override
@@ -129,23 +166,13 @@ public class WorldBlackoutComponent implements AutoSyncedComponent, ServerTickin
          */
         if (this.ticks > 0) {
             this.ticks--;
-        } else if (this.blackouts.isEmpty()) {
+        } else {
             clearBlackoutTimelineState();
         }
     }
 
     @Override
     public void serverTick() {
-        for (int i = 0; i < this.blackouts.size(); i++) {
-            BlackoutDetails detail = this.blackouts.get(i);
-            detail.tick(this.world);
-            if (detail.time <= 0) {
-                detail.end(this.world);
-                this.blackouts.remove(i);
-                i--;
-            }
-        }
-
         if (this.world instanceof ServerWorld serverWorld) {
             if (this.ticks > 0) {
                 applyBlackoutEffects(serverWorld);
@@ -165,11 +192,28 @@ public class WorldBlackoutComponent implements AutoSyncedComponent, ServerTickin
             if (!this.recoveringEventSent && this.blackoutTotalTicks > 0 && elapsedTicksInclusive >= this.blackoutMinDurationTicks) {
                 this.recoveringEventSent = true;
                 GameRecordManager.recordGlobalEvent(serverWorld, Wathe.id("blackout_recovering"), null, null);
+                sendRecoveryStartedSound(serverWorld);
             }
 
-            if (!this.restoredEventSent && this.blackoutTotalTicks > 0 && elapsedTicksInclusive >= this.blackoutMaxDurationTicks) {
+            if (this.blackoutTotalTicks > 0 && elapsedTicksInclusive >= this.blackoutMinDurationTicks) {
+                processRecoveryBatches(elapsedTicksInclusive);
+                if (!this.blackouts.isEmpty() && !this.restoredEventSent) {
+                    tickRecoverySound(serverWorld);
+                }
+            }
+
+            /*
+             * “完全恢复”必须以真实恢复队列清空为准。正常数量的灯仍会在 MAX_DURATION 当 tick
+             * 恢复完毕；若极端地图触发了批次/耗时预算，尾部允许延后几个 tick，避免为了严格
+             * 追赶截止时间重新制造服务器 TPS 和客户端区块重建尖峰。
+             */
+            if (!this.restoredEventSent
+                    && this.blackoutTotalTicks > 0
+                    && elapsedTicksInclusive >= this.blackoutMaxDurationTicks
+                    && this.blackouts.isEmpty()) {
                 this.restoredEventSent = true;
                 GameRecordManager.recordGlobalEvent(serverWorld, Wathe.id("blackout_restored"), null, null);
+                sendRecoveryCompletedSound(serverWorld);
             }
         }
 
@@ -242,15 +286,17 @@ public class WorldBlackoutComponent implements AutoSyncedComponent, ServerTickin
         MapVariablesWorldComponent areas = MapVariablesWorldComponent.KEY.get(world);
 
         Box area = areas.playArea;
-        if (this.ticks > 0) return false;
+        // 配置时间线结束后仍可能有受预算保护的少量尾部批次，必须等它们恢复完才能开始下一次停电。
+        if (this.ticks > 0 || !this.blackouts.isEmpty()) return false;
         clearBlackoutTimelineState();
+        this.recoveryBatches.clear();
         BlackoutDuration duration = this.world instanceof ServerWorld serverWorld
                 ? BlackoutApi.resolveDuration(serverWorld, GameWorldComponent.KEY.get(serverWorld))
                 : BlackoutDuration.of(GameConstants.BLACKOUT_MIN_DURATION, GameConstants.BLACKOUT_MAX_DURATION);
         /*
-         * 全局回放时间线固定走 MAX_DURATION：
-         * 20 秒开始恢复，35 秒完全恢复。
-         * 单个灯源本身仍可以继续保留原版的随机恢复节奏。
+         * MIN_DURATION 是开始恢复的时间点，MAX_DURATION 是正常情况下的目标完成时间。
+         * 灯不再各自随机倒计时，而是在扫描完成后按区块分段组成批次并均匀铺进这个窗口，
+         * 从根源上避免随机结果把大量、空间上分散的灯挤到同一个 tick。
          */
         this.ticks = duration.maxTicks();
         this.blackoutTotalTicks = duration.maxTicks();
@@ -265,15 +311,91 @@ public class WorldBlackoutComponent implements AutoSyncedComponent, ServerTickin
                     BlockPos pos = new BlockPos(x, y, z);
                     BlockState state = this.world.getBlockState(pos);
                     if (!state.contains(Properties.LIT) || !state.contains(WatheProperties.ACTIVE)) continue;
-                    int lightDuration = this.blackoutMinDurationTicks + this.world.random.nextInt(Math.max(1, this.blackoutMaxDurationTicks - this.blackoutMinDurationTicks));
-                    BlackoutDetails detail = new BlackoutDetails(pos, lightDuration, state.get(Properties.LIT));
+                    BlackoutDetails detail = new BlackoutDetails(pos, 0, state.get(Properties.LIT));
                     detail.init(this.world);
                     this.blackouts.add(detail);
                 }
             }
         }
+        createBalancedRecoverySchedule();
         this.sync();
         return true;
+    }
+
+    /**
+     * 把全部待恢复灯按 ChunkSection 分组，再把分组均匀安排到恢复窗口。
+     *
+     * <p>客户端渲染网格和 Minecraft 的多方块更新包都以区块分段为重要边界。同一分段的灯
+     * 集中恢复，可以显著减少同一片网格在连续多个 tick 中反复重建。超过单批灯数上限的
+     * 超高密度分段会拆成数批，防止某一个分段本身形成尖峰。</p>
+     */
+    private void createBalancedRecoverySchedule() {
+        this.recoveryBatches.clear();
+        Map<Long, List<BlackoutDetails>> lightsBySection = new HashMap<>();
+        for (BlackoutDetails detail : this.blackouts) {
+            lightsBySection.computeIfAbsent(detail.sectionKey(), ignored -> new ArrayList<>()).add(detail);
+        }
+
+        List<RecoveryBatch> batches = new ArrayList<>();
+        for (Map.Entry<Long, List<BlackoutDetails>> entry : lightsBySection.entrySet()) {
+            List<BlackoutDetails> sectionLights = entry.getValue();
+            for (int start = 0; start < sectionLights.size(); start += GameConstants.BLACKOUT_RECOVERY_MAX_LIGHTS_PER_BATCH) {
+                int end = Math.min(sectionLights.size(), start + GameConstants.BLACKOUT_RECOVERY_MAX_LIGHTS_PER_BATCH);
+                batches.add(new RecoveryBatch(0, entry.getKey(), new ArrayList<>(sectionLights.subList(start, end))));
+            }
+        }
+
+        // 只随机区块批次的先后，不再给每盏灯独立随机时间，从而同时保留自然变化和稳定负载。
+        for (int index = batches.size() - 1; index > 0; index--) {
+            int swapIndex = this.world.random.nextInt(index + 1);
+            RecoveryBatch temporary = batches.get(index);
+            batches.set(index, batches.get(swapIndex));
+            batches.set(swapIndex, temporary);
+        }
+
+        int recoverySpan = Math.max(1, this.blackoutMaxDurationTicks - this.blackoutMinDurationTicks);
+        for (int index = 0; index < batches.size(); index++) {
+            int restoreAtElapsedTick = batches.size() == 1
+                    ? this.blackoutMaxDurationTicks
+                    : this.blackoutMinDurationTicks + (int) ((long) index * recoverySpan / (batches.size() - 1));
+            RecoveryBatch batch = batches.get(index).scheduledAt(restoreAtElapsedTick);
+            for (BlackoutDetails detail : batch.lights) {
+                detail.restoreAtElapsedTick = restoreAtElapsedTick;
+            }
+            this.recoveryBatches.addLast(batch);
+        }
+    }
+
+    /**
+     * 处理本 tick 已到期的恢复批次。
+     *
+     * <p>批次数上限约束客户端每 tick 需要重建的区块分段数量，纳秒预算约束服务端主线程。
+     * 两个预算都不会拆开一个已经开始的批次；到期但没来得及处理的批次留在队首，后续 tick
+     * 继续恢复。这样在恢复间隔很短、灯异常多时只延长尾部，而不会出现集中卡顿。</p>
+     */
+    private void processRecoveryBatches(int elapsedTicksInclusive) {
+        long startedAt = System.nanoTime();
+        int processedBatches = 0;
+        while (!this.recoveryBatches.isEmpty()) {
+            RecoveryBatch batch = this.recoveryBatches.peekFirst();
+            if (batch.restoreAtElapsedTick > elapsedTicksInclusive) {
+                return;
+            }
+            if (processedBatches >= GameConstants.BLACKOUT_RECOVERY_MAX_BATCHES_PER_TICK) {
+                return;
+            }
+            if (processedBatches > 0
+                    && System.nanoTime() - startedAt >= GameConstants.BLACKOUT_RECOVERY_MAX_NANOS_PER_TICK) {
+                return;
+            }
+
+            this.recoveryBatches.removeFirst();
+            for (BlackoutDetails detail : batch.lights) {
+                detail.end(this.world);
+                this.blackouts.remove(detail);
+            }
+            processedBatches++;
+        }
     }
 
     /**
@@ -290,6 +412,56 @@ public class WorldBlackoutComponent implements AutoSyncedComponent, ServerTickin
     private void sendBlackoutStartSounds(@NotNull ServerWorld serverWorld) {
         playGlobalSoundToPlayers(serverWorld, WatheSounds.AMBIENT_BLACKOUT, SoundCategory.PLAYERS, 100f, 1f);
         playGlobalSoundToPlayers(serverWorld, WatheSounds.BLOCK_LIGHT_TOGGLE, SoundCategory.BLOCKS, 0.5f, 1f);
+    }
+
+    /**
+     * 电力开始恢复时播放一次全局灯光恢复声。
+     *
+     * <p>这里刻意复用旧版逐灯真正恢复时的 {@link WatheSounds#BLOCK_LIGHT_TOGGLE}，
+     * 而不是旧版闪烁阶段的低音量 {@code BLOCK_BUTTON_TOGGLE_NO_POWER}；这样玩家听到的
+     * 声音与“灯已经恢复供电”的原始反馈一致，同时仍然只向每位玩家发送一个全局声音包。</p>
+     */
+    private void sendRecoveryStartedSound(@NotNull ServerWorld serverWorld) {
+        playGlobalSoundToPlayers(serverWorld, WatheSounds.BLOCK_LIGHT_TOGGLE, SoundCategory.BLOCKS, 0.5f, 0.5f);
+        this.recoverySoundTicksUntilNext = nextRecoverySoundInterval();
+    }
+
+    /**
+     * 最后一个恢复批次完成后只播放一次全局开灯声。
+     */
+    private void sendRecoveryCompletedSound(@NotNull ServerWorld serverWorld) {
+        // 完成声也保持旧版逐灯最终恢复时的音量和低音调，避免最后一次反馈突然变调。
+        playGlobalSoundToPlayers(serverWorld, WatheSounds.BLOCK_LIGHT_TOGGLE, SoundCategory.BLOCKS, 0.5f, 0.5f);
+        this.recoverySoundTicksUntilNext = 0;
+    }
+
+    /**
+     * 恢复阶段的全局循环提示声。
+     *
+     * <p>这是对旧版逐灯恢复音效的低成本还原：声音仍然会间歇性出现，让玩家明确知道
+     * 电力正在逐步回来，但所有玩家共享同一条全局节奏，不再随着灯数量生成海量声音包。</p>
+     */
+    private void tickRecoverySound(@NotNull ServerWorld serverWorld) {
+        if (this.recoverySoundTicksUntilNext > 0) {
+            this.recoverySoundTicksUntilNext--;
+        }
+        if (this.recoverySoundTicksUntilNext <= 0) {
+            // 使用旧版每盏灯最终恢复时的音效、音量和音调，保留原有听感但不恢复逐灯声音包。
+            playGlobalSoundToPlayers(serverWorld, WatheSounds.BLOCK_LIGHT_TOGGLE, SoundCategory.BLOCKS, 0.5f, 0.5f);
+            this.recoverySoundTicksUntilNext = nextRecoverySoundInterval();
+        }
+    }
+
+    /**
+     * 在配置的最短/最长间隔之间取一个随机值。非法或反向配置也会被钳制，避免调试时出现
+     * nextInt(0) 或负数间隔导致每 tick 播放声音。
+     */
+    private int nextRecoverySoundInterval() {
+        int min = Math.max(1, Math.min(GameConstants.BLACKOUT_RECOVERY_SOUND_MIN_INTERVAL,
+                GameConstants.BLACKOUT_RECOVERY_SOUND_MAX_INTERVAL));
+        int max = Math.max(min, Math.max(GameConstants.BLACKOUT_RECOVERY_SOUND_MIN_INTERVAL,
+                GameConstants.BLACKOUT_RECOVERY_SOUND_MAX_INTERVAL));
+        return min == max ? min : min + this.world.random.nextInt(max - min + 1);
     }
 
     /**
@@ -378,6 +550,37 @@ public class WorldBlackoutComponent implements AutoSyncedComponent, ServerTickin
         this.blackoutMaxDurationTicks = GameConstants.BLACKOUT_MAX_DURATION;
         this.recoveringEventSent = false;
         this.restoredEventSent = false;
+        this.recoverySoundTicksUntilNext = 0;
+    }
+
+    /**
+     * CCA 默认会把 writeToNbt 的完整内容同步给每位客户端，其中包含所有灯坐标。
+     * 客户端黑幕只需要时间线和调试配置，因此这里使用紧凑字段同步，避免大地图触发停电时
+     * 为每个玩家编码、发送并解析成千上万个灯坐标。完整灯列表仍由 writeToNbt 写入世界存档。
+     */
+    @Override
+    public void writeSyncPacket(@NotNull RegistryByteBuf buf, @NotNull ServerPlayerEntity recipient) {
+        buf.writeVarInt(Math.max(0, this.ticks));
+        buf.writeVarInt(Math.max(0, this.blackoutTotalTicks));
+        buf.writeVarInt(Math.max(1, this.blackoutMinDurationTicks));
+        buf.writeVarInt(Math.max(this.blackoutMinDurationTicks + 1, this.blackoutMaxDurationTicks));
+        buf.writeVarInt(MathHelper.clamp(this.overlayOpacityPercent, 0, 100));
+        buf.writeBoolean(this.potionEffectsEnabled);
+    }
+
+    /**
+     * 客户端只接收黑幕渲染所需状态；真实灯恢复完全由服务端方块更新包驱动。
+     */
+    @Override
+    public void applySyncPacket(@NotNull RegistryByteBuf buf) {
+        this.ticks = Math.max(0, buf.readVarInt());
+        this.blackoutTotalTicks = Math.max(0, buf.readVarInt());
+        this.blackoutMinDurationTicks = Math.max(1, buf.readVarInt());
+        this.blackoutMaxDurationTicks = Math.max(this.blackoutMinDurationTicks + 1, buf.readVarInt());
+        this.overlayOpacityPercent = MathHelper.clamp(buf.readVarInt(), 0, 100);
+        this.potionEffectsEnabled = buf.readBoolean();
+        this.blackouts.clear();
+        this.recoveryBatches.clear();
     }
 
     @Override
@@ -403,8 +606,14 @@ public class WorldBlackoutComponent implements AutoSyncedComponent, ServerTickin
             }
         }
         this.blackouts.clear();
+        this.recoveryBatches.clear();
+        this.ticks = tag.contains("ticks") ? Math.max(0, tag.getInt("ticks")) : 0;
+        this.blackoutTotalTicks = tag.contains("blackoutTotalTicks") ? Math.max(0, tag.getInt("blackoutTotalTicks")) : this.ticks;
+        this.blackoutMinDurationTicks = tag.contains("blackoutMinDurationTicks") ? Math.max(1, tag.getInt("blackoutMinDurationTicks")) : GameConstants.BLACKOUT_MIN_DURATION;
+        this.blackoutMaxDurationTicks = tag.contains("blackoutMaxDurationTicks") ? Math.max(this.blackoutMinDurationTicks + 1, tag.getInt("blackoutMaxDurationTicks")) : Math.max(this.blackoutMinDurationTicks + 1, GameConstants.BLACKOUT_MAX_DURATION);
+        int elapsedTicks = Math.max(0, this.blackoutTotalTicks - this.ticks);
         for (NbtElement element : tag.getList("blackouts", 10)) {
-            BlackoutDetails detail = new BlackoutDetails((NbtCompound) element);
+            BlackoutDetails detail = new BlackoutDetails((NbtCompound) element, elapsedTicks);
             /*
              * 客户端收到世界组件同步时只需要倒计时和配置来渲染 HUD。
              * 真实灯光状态由服务端方块更新同步，不在客户端 readNbt 里再次 init，
@@ -415,31 +624,67 @@ public class WorldBlackoutComponent implements AutoSyncedComponent, ServerTickin
             }
             this.blackouts.add(detail);
         }
-        this.ticks = tag.contains("ticks") ? Math.max(0, tag.getInt("ticks")) : 0;
-        this.blackoutTotalTicks = tag.contains("blackoutTotalTicks") ? Math.max(0, tag.getInt("blackoutTotalTicks")) : this.ticks;
-        this.blackoutMinDurationTicks = tag.contains("blackoutMinDurationTicks") ? Math.max(1, tag.getInt("blackoutMinDurationTicks")) : GameConstants.BLACKOUT_MIN_DURATION;
-        this.blackoutMaxDurationTicks = tag.contains("blackoutMaxDurationTicks") ? Math.max(this.blackoutMinDurationTicks + 1, tag.getInt("blackoutMaxDurationTicks")) : Math.max(this.blackoutMinDurationTicks + 1, GameConstants.BLACKOUT_MAX_DURATION);
+        if (!this.world.isClient) {
+            rebuildRecoveryScheduleFromSavedDetails();
+        }
         this.recoveringEventSent = tag.getBoolean("recoveringEventSent");
         this.restoredEventSent = tag.getBoolean("restoredEventSent");
         this.overlayOpacityPercent = tag.contains("overlayOpacityPercent") ? MathHelper.clamp(tag.getInt("overlayOpacityPercent"), 0, 100) : DEFAULT_OVERLAY_OPACITY_PERCENT;
         this.potionEffectsEnabled = !tag.contains("potionEffectsEnabled") || tag.getBoolean("potionEffectsEnabled");
     }
 
+    /**
+     * 世界读档时根据每盏灯保存的绝对恢复时间重新建立队列。
+     * 同一恢复 tick、同一区块分段的灯会重新合并，保证重启服务器后仍使用批处理路径。
+     */
+    private void rebuildRecoveryScheduleFromSavedDetails() {
+        Map<SavedBatchKey, List<BlackoutDetails>> grouped = new HashMap<>();
+        for (BlackoutDetails detail : this.blackouts) {
+            SavedBatchKey key = new SavedBatchKey(detail.restoreAtElapsedTick, detail.sectionKey());
+            grouped.computeIfAbsent(key, ignored -> new ArrayList<>()).add(detail);
+        }
+
+        List<RecoveryBatch> rebuilt = new ArrayList<>();
+        for (Map.Entry<SavedBatchKey, List<BlackoutDetails>> entry : grouped.entrySet()) {
+            List<BlackoutDetails> lights = entry.getValue();
+            for (int start = 0; start < lights.size(); start += GameConstants.BLACKOUT_RECOVERY_MAX_LIGHTS_PER_BATCH) {
+                int end = Math.min(lights.size(), start + GameConstants.BLACKOUT_RECOVERY_MAX_LIGHTS_PER_BATCH);
+                rebuilt.add(new RecoveryBatch(
+                        entry.getKey().restoreAtElapsedTick,
+                        entry.getKey().sectionKey,
+                        new ArrayList<>(lights.subList(start, end))
+                ));
+            }
+        }
+        rebuilt.sort(Comparator.comparingInt(batch -> batch.restoreAtElapsedTick));
+        this.recoveryBatches.addAll(rebuilt);
+    }
+
     public static class BlackoutDetails {
         private final BlockPos pos;
         private final boolean original;
-        private int time;
+        private int restoreAtElapsedTick;
 
-        public BlackoutDetails(BlockPos pos, int time, boolean original) {
+        public BlackoutDetails(BlockPos pos, int restoreAtElapsedTick, boolean original) {
             this.pos = pos;
-            this.time = time;
+            this.restoreAtElapsedTick = restoreAtElapsedTick;
             this.original = original;
         }
 
-        public BlackoutDetails(@NotNull NbtCompound tag) {
+        public BlackoutDetails(@NotNull NbtCompound tag, int currentElapsedTicks) {
             this.pos = new BlockPos(tag.getInt("x"), tag.getInt("y"), tag.getInt("z"));
-            this.time = tag.getInt("time");
+            /*
+             * 兼容优化前的存档：旧 time 表示“从读档时还剩多少 tick”，新字段表示从本轮停电
+             * 开始算起的绝对恢复 tick。迁移后队列无需再逐灯递减 time。
+             */
+            this.restoreAtElapsedTick = tag.contains("restoreAtElapsedTick")
+                    ? Math.max(0, tag.getInt("restoreAtElapsedTick"))
+                    : currentElapsedTicks + Math.max(0, tag.getInt("time"));
             this.original = tag.getBoolean("original");
+        }
+
+        private long sectionKey() {
+            return ChunkSectionPos.from(this.pos).asLong();
         }
 
         public void init(@NotNull World world) {
@@ -450,32 +695,14 @@ public class WorldBlackoutComponent implements AutoSyncedComponent, ServerTickin
              * 全局关灯声已经在 triggerBlackout() 开始阶段统一播放一次；
              * 这样可以避免灯很多的地图在同一 tick 发出大量灯音效包，挤掉停电环境音。
              */
-            world.setBlockState(this.pos, state.with(Properties.LIT, false).with(WatheProperties.ACTIVE, false));
+            world.setBlockState(this.pos, state.with(Properties.LIT, false).with(WatheProperties.ACTIVE, false), BLACKOUT_BLOCK_UPDATE_FLAGS);
         }
 
         public void end(@NotNull World world) {
             BlockState state = world.getBlockState(this.pos);
             if (!state.contains(Properties.LIT) || !state.contains(WatheProperties.ACTIVE)) return;
-            world.setBlockState(this.pos, state.with(Properties.LIT, this.original).with(WatheProperties.ACTIVE, true));
-            world.playSound(null, this.pos, WatheSounds.BLOCK_LIGHT_TOGGLE, SoundCategory.BLOCKS, 0.5f, 0.5f);
-        }
-
-        public void tick(World world) {
-            if (this.time > 0) this.time--;
-            if (this.time > 4) return;
-            BlockState state = world.getBlockState(this.pos);
-            if (!state.contains(Properties.LIT) || !state.contains(WatheProperties.ACTIVE)) return;
-            switch (this.time) {
-                case 0 -> this.end(world);
-                case 1, 3 -> {
-                    world.setBlockState(this.pos, state.with(Properties.LIT, false));
-                    world.playSound(null, this.pos, WatheSounds.BLOCK_BUTTON_TOGGLE_NO_POWER, SoundCategory.BLOCKS, 0.1f, 1f);
-                }
-                case 2, 5 -> {
-                    world.setBlockState(this.pos, state.with(Properties.LIT, true));
-                    world.playSound(null, this.pos, WatheSounds.BLOCK_BUTTON_TOGGLE_NO_POWER, SoundCategory.BLOCKS, 0.1f, 1f);
-                }
-            }
+            // 每盏灯只写入一次最终状态；恢复阶段的声音由世界组件在开始和完成时各全局播放一次。
+            world.setBlockState(this.pos, state.with(Properties.LIT, this.original).with(WatheProperties.ACTIVE, true), BLACKOUT_BLOCK_UPDATE_FLAGS);
         }
 
         public NbtCompound writeToNbt() {
@@ -483,9 +710,28 @@ public class WorldBlackoutComponent implements AutoSyncedComponent, ServerTickin
             tag.putInt("x", this.pos.getX());
             tag.putInt("y", this.pos.getY());
             tag.putInt("z", this.pos.getZ());
-            tag.putInt("time", this.time);
+            tag.putInt("restoreAtElapsedTick", this.restoreAtElapsedTick);
             tag.putBoolean("original", this.original);
             return tag;
         }
+    }
+
+    private static final class RecoveryBatch {
+        private final int restoreAtElapsedTick;
+        private final long sectionKey;
+        private final List<BlackoutDetails> lights;
+
+        private RecoveryBatch(int restoreAtElapsedTick, long sectionKey, List<BlackoutDetails> lights) {
+            this.restoreAtElapsedTick = restoreAtElapsedTick;
+            this.sectionKey = sectionKey;
+            this.lights = lights;
+        }
+
+        private RecoveryBatch scheduledAt(int restoreAtElapsedTick) {
+            return new RecoveryBatch(restoreAtElapsedTick, this.sectionKey, this.lights);
+        }
+    }
+
+    private record SavedBatchKey(int restoreAtElapsedTick, long sectionKey) {
     }
 }

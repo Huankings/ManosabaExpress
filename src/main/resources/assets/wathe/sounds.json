@@ -17,6 +17,11 @@
 		],
 		"subtitle": "subtitles.block.light.toggle"
 	},
+	"block.button.toggle_no_power": {
+		"sounds": [
+			"wathe:block/toggle_no_power"
+		]
+	},
 	"block.privacy_panel.toggle": {
 		"sounds": [
 			"wathe:block/privacy_panel_toggle"

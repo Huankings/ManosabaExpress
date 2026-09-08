@@ -13,9 +13,8 @@
 | 通用提示词目录 | `D:\哈比快车最新源码\wathe\txt要求\开发通用模板提示词` | 放后续可复用的简化提示词。 |
 | HarpyModLoader | `D:\哈比快车最新源码\harpymodloader\HarpyModLoader1` | 加载扩展职业、替换职业池、强制职业、权重和词条分配。 |
 | NoellesRoles | `D:\哈比快车最新源码\noellesroles\NoellesRoles - 副本 - 副本 - 副本5.7.1` | 大型扩展职业源码，Yarn 命名，很多 Wathe API 接入示例。 |
-| StupidExpress | `D:\哈比快车最新源码\stupidexpress\StupidExpress2.1` | 扩展职业 / 词条 / 独立胜利源码，Mojang 官方映射。 |
 | kinssaba | `D:\哈比快车最新源码\kinswathe\kinssaba` | KinsWathe 自改扩展职业源码，Yarn 命名，包含商店、经济、词条、本能和 RoleName HUD 示例。 |
-| StarryExpress | `D:\哈比快车最新源码\starryexpress\StarryExpress1.3.2` | StarryExpress 工程根目录，源码在 `...\src`，Mojang 官方映射。构建必须在父目录执行。 |
+| StarryExpress | `D:\哈比快车最新源码\starryexpress\StarryExpress1.3.2` | 仅提供指南书 / 图鉴和装饰内容；角色与词条玩法已迁移到 NoellesRoles。源码采用 Mojang 官方映射，构建必须在工程根目录执行。 |
 
 ## 接任务时的固定流程
 
@@ -114,6 +113,11 @@
 - 修改药水效果：`BlackoutApi.registerEffectRule(id, priority, handler)`，返回 `BlackoutEffectResult.nightVision()` / `blindness()` / `none()` / `pass()`。
 - 默认规则：杀手阵营获得夜视；平民、义警、中立获得失明。玩家只要拥有夜视，停电黑幕完全消失，Wathe 停电自己发放的失明也会让位并解除。
 - 调试指令：`/wathe:blackout trigger`、`/wathe:blackout restore`、`/wathe:blackout overlay <0-100>`、`/wathe:blackout potionEffects <true|false>`。
+- 大地图灯光恢复由 `WorldBlackoutComponent` 按 `ChunkSection` 分组并通过预算队列调度；不要改回“每 tick 遍历所有灯并逐灯倒计时”，也不要在恢复前让每盏灯反复切换 `LIT`。
+- 每盏灯在自然恢复阶段只允许写入一次最终状态；恢复开始和完全恢复只各播放一次全局声音，禁止重新加入逐灯恢复声音包。
+- 恢复阶段如需还原灯光反馈，只能使用 `BLACKOUT_RECOVERY_SOUND_MIN_INTERVAL` / `BLACKOUT_RECOVERY_SOUND_MAX_INTERVAL` 控制的全局随机间隔循环声；循环必须在灯全部恢复、强制恢复、停局和新局时清零，不能按灯发送声音。
+- 恢复性能参数集中在 `GameConstants.BLACKOUT_RECOVERY_*`。当恢复窗口很短且灯异常多时，允许尾部批次延后少量 tick，优先保证服务器 TPS 和客户端帧时间，不能为了严格追赶最大时间而绕过批次或耗时预算。
+- 停电 CCA 的客户端同步只包含时间线、黑幕和药水配置，不能重新把完整灯坐标列表发送给客户端；灯坐标只用于服务端运行状态和世界存档。
 - 扩展代码组织：按职业或词条拆到 `roles/<role>/<RoleName>BlackoutHandler` 或 `modifiers/<modifier>/*BlackoutHandler`，聚合 bootstrap 只调用各 handler 的 `init()`。NoellesRoles 的杀手侧中立 / 独立中立示例见 `NoellesRolesBlackoutBootstrap`。
 
 ### HarpyModLoader
@@ -160,19 +164,6 @@ Harpy 调试指令重点：
 - `client/roles/<role>/*StatusHud.java`：按职业拆分的普通屏幕 HUD provider。
 - `client/appearance`、`client/instinct`、`client/visibility`、`client/inventory`、`client/ui`：外观、本能、隐藏物品、背包按钮和界面。
 
-### StupidExpress
-
-- `StupidExpress.java`
-- `constants/SERoles.java`、`SEModifiers.java`、`SEItems.java`、`SEComponents.java`
-- `shop/SEShops.java`、`shop/SEShopRegistry.java`
-- `victory/StupidExpressVictoryRules.java`、`StupidExpressVictoryUtil.java`
-- `role/*`、`modifier/*`
-- `communication/StupidExpressCommunicationManager.java`
-- `voice/StupidExpressVoiceChatPlugin.java`
-- `record/StupidExpressReplay.java`、`StupidExpressReplayFormatters.java`
-
-注意：StupidExpress 使用 Mojang 官方映射，例如 `ResourceLocation`、`Component`、`ServerPlayer`、`ItemStack#getDefaultInstance()`。
-
 ### kinssaba
 
 - `KinsWathe.java`
@@ -188,20 +179,18 @@ kinssaba 使用 Yarn 命名，经济和任务收入集中在 `KinsWatheRoles.reg
 ### StarryExpress
 
 - `StarryExpress.java`
-- `StarryExpressRoles.java`
-- `StarryExpressShops.java`
-- `StarryExpressItems.java`
-- `client/instinct/*`
-- `client/role_name/*`
-- `client/visibility/*`
+- `StarryExpressItems.java`、`ModBlocks.java`、`ModSounds.java`：装饰物品、方块和声音注册。
+- `client/gui/screen/GuidebookScreen.java`：指南书 / 图鉴界面，读取 Wathe、HarpyModLoader 和 NoellesRoles 的注册资料。
+- `client/inventory/StarryInventoryButtons.java`：在背包界面提供指南书入口。
+- `client/render/blockentity/PlushBlockEntityRenderer.java`：装饰方块渲染。
 
-StarryExpress 使用 Mojang 官方映射；用户给出的 `...\src` 是源码目录，构建时要回到 `D:\哈比快车最新源码\starryexpress\StarryExpress1.3.2`。
+StarryExpress 当前只作为指南书 / 图鉴和装饰 Mod 使用，不再定义或注册角色、词条及其玩法逻辑。指南书中的角色资料来自 Wathe、HarpyModLoader 和 NoellesRoles 的现有注册表；源码采用 Mojang 官方映射，构建时要在 `D:\哈比快车最新源码\starryexpress\StarryExpress1.3.2` 执行。
 
 ## 映射命名差异
 
 跨项目复制逻辑时必须先转换命名：
 
-| Yarn / Wathe / Noelles / kinssaba | Mojang 官方映射 / Stupid / Starry |
+| Yarn / Wathe / Noelles / kinssaba | Mojang 官方映射 / StarryExpress 指南书 |
 | --- | --- |
 | `Identifier` | `ResourceLocation` |
 | `Text` | `Component` |
@@ -213,7 +202,7 @@ StarryExpress 使用 Mojang 官方映射；用户给出的 `...\src` 是源码�
 | `getUuid()` | `getUUID()` |
 | `getStackInHand(...)` | `getItemInHand(...)` |
 
-不要直接把 StupidExpress / StarryExpress 的 Mojang 命名代码粘到 Wathe / Noelles / kinssaba，也不要反过来硬粘。
+不要直接把 StarryExpress 指南书的 Mojang 命名代码粘到 Wathe / Noelles / kinssaba，也不要反过来硬粘。
 
 ## 职业和阵营注册规则
 
@@ -482,7 +471,7 @@ Wathe 的地图雾和扩展职业临时雾效统一走：
 
 - `InventoryScreenType.LIMITED`：Wathe 局内限制背包，职业选人按钮通常只挂这里。
 - `InventoryScreenType.VANILLA`：原版玩家背包，适合图鉴、帮助入口等非职业状态按钮。
-- `InventoryScreenType.CREATIVE`：创造背包，适合 StarryExpress 图鉴这类创造模式也要显示的入口。
+- `InventoryScreenType.CREATIVE`：创造背包，适合 StarryExpress 指南书这类创造模式也要显示的入口。
 - 扩展在客户端初始化时用 `InventoryButtonApi.registerProvider(id, priority, provider)` 注册。provider 返回 `null` 表示当前 screen 不需要按钮。
 - `InventoryButtonContext.addWidget(groupId, widget)` 会把 widget 加入命名分组；动态列表用 `replaceGroup` / `clearGroup` / `setGroupVisible`，不要直接操作 screen 内部 children。
 - “删除 widget”在 API 里表现为隐藏、禁用和解除焦点，目的是兼容 MC screen 内部列表没有稳定公开删除接口的情况。
@@ -524,6 +513,24 @@ Wathe 的地图雾和扩展职业临时雾效统一走：
 
 回放数据尽量存稳定 id、UUID 和必要显示名兜底；展示文字用 `Text.translatable(...)` / `Component.translatable(...)`，不要把中文句子硬编码进记录数据。
 
+### 回溯职业修正（Replay timeline correction）
+
+时停/时间回溯类扩展在最终历史帧落地后，如果只静默修改运行时职业表，Wathe 回放仍会沿用初始职业快照和此前的 `ROLE_CHANGED` 时间线。此时必须使用：
+
+```java
+GameRecordManager.recordRoleCorrection(world, playerUuid, oldRole, newRole);
+```
+
+该方法写入 `ROLE_CHANGED` 结构，并带有 `rewind_role_restore=true` 与回溯终点 tick。`ReplayGenerator` 会将其视为职业时间线屏障：不显示修正事件本身，修正后的职业用于后续事件；位于屏障之前但 tick 晚于回溯终点的旧职业变化不会再次覆盖修正结果。
+
+接入约束：
+
+- 先恢复扩展自己的 CCA/世界组件和运行时职业映射，再记录 correction；
+- correction 只用于回放时间线，不触发 `ModdedRoleAssigned`、职业开局物品或任务初始化；
+- 正常时间线中的真实转职仍使用 `recordRoleChange(...)` 或 `GameWorldComponent.addRole(...)`；
+- `ReplayGenerator.sendLiveEvent(...)` 与完整回放都会隐藏 correction 事件，但都会应用它对后续职业缓存的影响；
+- 不要把 `GameWorldComponent` 整体加入时停快照来解决回放问题，除非同时评估角色变更副作用和全局配置回滚。
+
 ## CCA、网络包和客户端分层
 
 需要跨 tick、死亡、掉线、回合重置、客户端显示的状态，优先建 CCA 组件：
@@ -554,7 +561,7 @@ Wathe 的地图雾和扩展职业临时雾效统一走：
 2. 在 Wathe 设计一个窄 API：注册 handler、priority、PASS 语义、上下文 record；背包按钮类需求优先考虑 `InventoryButtonApi` 的 screen type、group 和 lifecycle，普通屏幕 HUD 优先考虑 `HudOverlayApi` 的 layer 和存活过滤。
 3. 疯魔类需求优先抽成 `PsychoModeApi` profile / shield rule / client visual provider；持续时间、护盾、授予物品、锁栏、声音、背景音乐、皮肤、结束回放名称都应由 profile 或对应 handler 表达。
 4. Wathe 原逻辑改成先询问 API，再走默认行为。
-5. 把 NoellesRoles / StupidExpress / kinssaba / StarryExpress 中相关逻辑接入 API。
+5. 把 NoellesRoles / kinssaba 中相关逻辑接入 API；StarryExpress 只在指南书或装饰功能涉及对应客户端 API 时接入。
 6. 删除或停用已不需要的扩展 mixin，并同步 mixin json。
 7. 如果新增或调整了 API，同步更新 Wathe / 扩展 README 与 AGENTS，避免后续维护继续按旧 mixin 路线开发。
 8. 编译 Wathe，复制 jar，再编译受影响扩展。
@@ -603,7 +610,6 @@ Wathe 改动会影响扩展时，复制输出 jar：
 
 - 到 Harpy：`D:\哈比快车最新源码\harpymodloader\HarpyModLoader1\libs`
 - 到 NoellesRoles：`D:\哈比快车最新源码\noellesroles\NoellesRoles - 副本 - 副本 - 副本5.7.1\libs`
-- 到 StupidExpress：`D:\哈比快车最新源码\stupidexpress\StupidExpress2.1\libs`
 - 到 kinssaba：`D:\哈比快车最新源码\kinswathe\kinssaba\libs`
 - 到 StarryExpress：`D:\哈比快车最新源码\starryexpress\StarryExpress1.3.2\libs`
 
@@ -637,9 +643,6 @@ cd "D:\哈比快车最新源码\harpymodloader\HarpyModLoader1"
 cd "D:\哈比快车最新源码\noellesroles\NoellesRoles - 副本 - 副本 - 副本5.7.1"
 .\gradlew.bat build
 
-cd "D:\哈比快车最新源码\stupidexpress\StupidExpress2.1"
-gradle build
-
 cd "D:\哈比快车最新源码\kinswathe\kinssaba"
 .\gradlew.bat build
 
@@ -647,7 +650,7 @@ cd "D:\哈比快车最新源码\starryexpress\StarryExpress1.3.2"
 .\gradlew.bat build
 ```
 
-StupidExpress 当前按用户历史要求用本机 `gradle build`。StarryExpress 构建目录是父目录，不是 `src`。
+StarryExpress 当前只构建指南书和装饰内容；其源码路径虽然位于 `src`，构建目录仍是父目录 `StarryExpress1.3.2`。
 
 ## 后续提示词简化格式
 
@@ -656,7 +659,7 @@ StupidExpress 当前按用户历史要求用本机 `gradle build`。StarryExpres
 ```text
 请按 Wathe 根目录 AGENTS.md 的流程处理。
 任务类型：接口公开化 / Wathe 功能 / 扩展职业 / bug 修复 / 商店经济 / 胜利结算 / HUD 外观
-目标工程：Wathe / Harpy / NoellesRoles / StupidExpress / kinssaba / StarryExpress / 多工程联调
+目标工程：Wathe / Harpy / NoellesRoles / kinssaba / StarryExpress（指南书） / 多工程联调
 需求：
 复现或现状：
 期望：

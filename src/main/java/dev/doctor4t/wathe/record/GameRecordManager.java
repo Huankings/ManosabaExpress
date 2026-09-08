@@ -339,6 +339,33 @@ public final class GameRecordManager {
         addEvent(world, GameRecordTypes.ROLE_CHANGED, null, null, data);
     }
 
+    /**
+     * 记录时间回溯造成的职业显示修正。
+     *
+     * <p>这仍然使用 ROLE_CHANGED 数据结构，方便旧回放读取 old/new_role；
+     * 但额外标记为 rewind correction，ReplayGenerator 会把它当成新的时间线分支，
+     * 忽略修正之前、却因为世界时间倒流而排序到修正之后的旧职业变化。
+     * 该事件本身不应显示给玩家，只负责修正后续事件的职业缓存。</p>
+     */
+    public static void recordRoleCorrection(ServerWorld world, UUID playerUuid, @Nullable Role oldRole, @Nullable Role newRole) {
+        if (!hasActiveMatch() || !isInitialSnapshotComplete() || playerUuid == null) {
+            return;
+        }
+        NbtCompound data = new NbtCompound();
+        data.putUuid("player", playerUuid);
+        if (oldRole != null) {
+            data.putString("old_role", oldRole.identifier().toString());
+            data.putString("old_faction", oldRole.getFaction().name());
+        }
+        if (newRole != null) {
+            data.putString("new_role", newRole.identifier().toString());
+            data.putString("new_faction", newRole.getFaction().name());
+        }
+        data.putBoolean("rewind_role_restore", true);
+        data.putLong("rewind_role_restore_cutoff_tick", world.getTime());
+        addEvent(world, GameRecordTypes.ROLE_CHANGED, null, null, data);
+    }
+
     public static void recordPoisoned(ServerPlayerEntity victim, @Nullable UUID poisonerId, int ticks, Identifier source, @Nullable NbtCompound extra) {
         if (!hasActiveMatch()) {
             return;

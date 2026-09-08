@@ -68,7 +68,7 @@ public class ScoreboardRoleSelectorComponent implements AutoSyncedComponent {
     /** 管理员调试覆盖允许的最大票数；只影响 /roleWeights set，不影响自动算法上限。 */
     private static final double MAX_DEBUG_WEIGHT = 10_000.0D;
     /** 自动算法最大票数。调高会强化长期缺口补偿，调低会让全体概率更接近均匀。 */
-    private static final double MAX_ASSIGNMENT_WEIGHT = 3.5D;
+    private static final double MAX_ASSIGNMENT_WEIGHT = 4.5D;
 
     /**
      * 每局结束后有效历史保留的比例。当前 0.975 的数学半衰期约为 27 局。

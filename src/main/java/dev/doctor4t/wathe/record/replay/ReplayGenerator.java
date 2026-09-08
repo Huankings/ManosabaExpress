@@ -81,6 +81,13 @@ public final class ReplayGenerator {
     }
 
     public static void sendLiveEvent(ServerWorld world, GameRecordManager.MatchRecord match, GameRecordEvent event) {
+        /*
+         * 时间回溯职业修正只用于维护后续事件的职业缓存，不是玩家在正常时间线中的独立行为。
+         * 实时回放路径也必须过滤它，否则完整回放虽不显示，在线旁观者仍会看到内部修正行。
+         */
+        if (isInternalRoleCorrection(event)) {
+            return;
+        }
         Map<UUID, PlayerInfo> playerInfoCache = buildPlayerInfoCacheUntil(match, event);
         setContextualPlayerInfoCache(playerInfoCache);
         setContextualPlayerDisplayMode(PlayerDisplayMode.NAME_WITH_ROLE);
@@ -154,12 +161,13 @@ public final class ReplayGenerator {
      */
     private static Map<UUID, PlayerInfo> buildPlayerInfoCacheUntil(GameRecordManager.MatchRecord match, GameRecordEvent limitEvent) {
         Map<UUID, PlayerInfo> cache = buildInitialPlayerInfoCache(match);
+        Map<UUID, List<RoleCorrection>> roleCorrections = new HashMap<>();
         List<GameRecordEvent> sortedEvents = sortedEvents(match);
         for (GameRecordEvent event : sortedEvents) {
             if (event.seq() > limitEvent.seq()) {
                 break;
             }
-            applyRoleChange(cache, event);
+            applyRoleChange(cache, event, roleCorrections);
         }
         return cache;
     }
@@ -245,6 +253,7 @@ public final class ReplayGenerator {
         List<Text> lines = new ArrayList<>();
         long startTick = match.getStartTick();
         List<GameRecordEvent> sortedEvents = sortedEvents(match);
+        Map<UUID, List<RoleCorrection>> roleCorrections = new HashMap<>();
 
         for (GameRecordEvent event : sortedEvents) {
             Map<UUID, PlayerInfo> eventCache = new HashMap<>(playerInfoCache);
@@ -252,18 +261,19 @@ public final class ReplayGenerator {
             setContextualPlayerDisplayMode(displayMode);
             DefaultReplayFormatters.setPlayerInfoCache(eventCache);
             ReplayEventFormatter formatter = ReplayRegistry.getFormatter(event.type());
+            boolean internalRoleCorrection = isInternalRoleCorrection(event);
             if (formatter == null) {
                 DefaultReplayFormatters.clearPlayerInfoCache();
                 clearContextualPlayerInfoCache();
                 clearContextualPlayerDisplayMode();
-                applyRoleChange(playerInfoCache, event);
+                applyRoleChange(playerInfoCache, event, roleCorrections);
                 continue;
             }
-            Text formatted = formatter.format(event, match, world);
+            Text formatted = internalRoleCorrection ? null : formatter.format(event, match, world);
             DefaultReplayFormatters.clearPlayerInfoCache();
             clearContextualPlayerInfoCache();
             clearContextualPlayerDisplayMode();
-            applyRoleChange(playerInfoCache, event);
+            applyRoleChange(playerInfoCache, event, roleCorrections);
             if (formatted == null || !eventFilter.test(event)) {
                 continue;
             }
@@ -303,7 +313,11 @@ public final class ReplayGenerator {
      * 当前这条 role_changed 事件自己的显示文本仍会使用推进前的缓存，
      * 因此玩家名会保持变更前职业，而句尾 old/new role 字段单独展示转变内容。</p>
      */
-    private static void applyRoleChange(Map<UUID, PlayerInfo> cache, GameRecordEvent event) {
+    private static void applyRoleChange(
+            Map<UUID, PlayerInfo> cache,
+            GameRecordEvent event,
+            Map<UUID, List<RoleCorrection>> roleCorrections
+    ) {
         if (!GameRecordTypes.ROLE_CHANGED.equals(event.type())) {
             return;
         }
@@ -314,12 +328,51 @@ public final class ReplayGenerator {
             return;
         }
 
+        if (isInternalRoleCorrection(event)) {
+            long cutoffTick = event.data().contains("rewind_role_restore_cutoff_tick")
+                    ? event.data().getLong("rewind_role_restore_cutoff_tick")
+                    : event.worldTick();
+            roleCorrections.computeIfAbsent(uuid, ignored -> new ArrayList<>())
+                    .add(new RoleCorrection(event.seq(), cutoffTick));
+        } else if (shouldIgnoreInvalidatedRoleChange(event, uuid, roleCorrections)) {
+            return;
+        }
+
         PlayerInfo previous = cache.get(uuid);
         String playerName = previous != null ? previous.name() : uuid.toString();
         Role newRole = data.contains("new_role") ? WatheRoles.getRole(Identifier.tryParse(data.getString("new_role"))) : null;
         if (newRole != null) {
             cache.put(uuid, buildPlayerInfo(playerName, newRole));
         }
+    }
+
+    private static boolean isInternalRoleCorrection(GameRecordEvent event) {
+        return GameRecordTypes.ROLE_CHANGED.equals(event.type())
+                && event.data().getBoolean("rewind_role_restore");
+    }
+
+    private static boolean shouldIgnoreInvalidatedRoleChange(
+            GameRecordEvent event,
+            UUID uuid,
+            Map<UUID, List<RoleCorrection>> roleCorrections
+    ) {
+        List<RoleCorrection> corrections = roleCorrections.get(uuid);
+        if (corrections == null || corrections.isEmpty()) {
+            return false;
+        }
+        for (RoleCorrection correction : corrections) {
+            /*
+             * 修正事件的 seq 一定晚于被回溯抹掉的旧事件，但世界 tick 已倒回。
+             * 满足“旧 seq + 位于回溯终点之后”时，该角色变化属于被废弃的未来时间线。
+             */
+            if (event.seq() < correction.seq() && event.worldTick() > correction.cutoffTick()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private record RoleCorrection(int seq, long cutoffTick) {
     }
 
     private static void sendReplayToPlayer(ServerPlayerEntity player, List<Text> replayLines) {

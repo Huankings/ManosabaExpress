@@ -5,7 +5,7 @@ Wathe 是一个基于 **Minecraft 1.21.1 + Fabric** 的列车狼人杀 / 社交�
 - 让服务器能围绕“杀手、平民、义警、中立”等阵营组织一局对局；
 - 支持地图投票、多维度地图、地图变量、地图增强配置和地图重置；
 - 提供心情 / 任务 / 商店 / 金币 / 毒药 / 尸体 / 回放 / 本能透视等核心系统；
-- 把职业扩展常用的 mixin 注入点整理成公开 API，方便 NoellesRoles、StupidExpress、KinsWathe、StarryExpress 等扩展职业 Mod 接入；
+- 把职业扩展常用的 mixin 注入点整理成公开 API，方便 NoellesRoles、KinsWathe 等扩展职业 Mod 接入，也支持 StarryExpress 指南书读取和展示职业资料；
 - 通过 HarpyModLoader 这类加载层，把本体职业位替换为扩展职业池，实现更复杂的职业局。
 
 如果把整个玩法看成一台列车桌游引擎，那么 Wathe 本体负责“开局、分配、胜负、基础资源和 UI”，扩展 Mod 负责“新职业、新技能、新结算规则和新商品”。
@@ -631,6 +631,30 @@ Wathe 本体提供了不少社交推理玩法道具：
 
 局内实时回放只发送给非存活视角，避免活人通过聊天气泡类 Mod 泄露信息。对局结束后，完整回放会发送给所有玩家。
 
+### 回溯职业修正接口
+
+时间回溯可能把世界时间倒回到一次职业变化之前，但对局记录本身仍然保留回溯前已经写入的 `ROLE_CHANGED` 事件。扩展如果在回溯结束后修复了运行时职业映射，不要直接调用普通 `recordRoleChange(...)`：普通事件会按倒回后的世界 tick 排序，旧时间线中的转职事件可能再次把回放职业缓存覆盖回未来状态。
+
+Wathe 提供专用入口：
+
+```java
+GameRecordManager.recordRoleCorrection(
+        world,
+        playerUuid,
+        oldRole,
+        newRole
+);
+```
+
+该入口仍记录为 `ROLE_CHANGED`，但附带内部字段 `rewind_role_restore=true` 和回溯终点 tick。`ReplayGenerator` 会把它作为新的回放时间线分支：
+
+- 修正事件本身不会显示为一条聊天回放；
+- 修正后的职业会用于后续事件中的玩家名牌/职业显示；
+- 位于修正屏障之前、但 world tick 晚于回溯终点的旧职业变化会被视为已废弃的未来时间线，不再重新应用；
+- 修正屏障之后正常发生的新转职仍会继续生效。
+
+此接口只修正回放显示缓存，不会修改 `GameWorldComponent` 的角色表，也不会触发职业分配事件。扩展必须先完成自己的运行时状态恢复，再调用该接口；不要用它替代正常转职记录。
+
 扩展格式化示例：
 
 ```java
@@ -704,6 +728,18 @@ GameRecordManager.recordGlobalEvent(
 
 默认规则是杀手阵营获得夜视，平民、义警和中立获得失明；如果玩家在停电期间拥有夜视，客户端黑幕会完全消失，Wathe 停电系统自己给出的失明也会立即解除。黑幕不透明度和药水效果可用 `/wathe:blackout overlay <0-100>`、`/wathe:blackout potionEffects <true|false>` 调试。
 
+大地图的灯光恢复采用按 `ChunkSection` 分组的预算队列：同一个 16×16×16 区块分段内的灯集中同步，
+每盏灯只写入一次最终状态，不再执行逐灯的“灭、亮、灭、恢复”方块闪烁，也不再逐灯发送恢复声音。
+开始恢复和完全恢复各播放一次有限的全局声音。每 tick 的最大批次数、单批最大灯数和软耗时预算集中在
+`GameConstants.BLACKOUT_RECOVERY_*`；恢复窗口过短且灯异常多时，尾部批次允许延后少量 tick，优先保护
+服务器 TPS 和客户端区块重建帧时间。CCA 客户端同步只发送黑幕时间线和配置，不发送完整灯坐标列表；
+完整待恢复列表仍会写入世界存档，服务器重启后可重建恢复队列。
+
+恢复阶段还会播放低频全局循环提示声，使用旧版逐灯真正恢复时的 `BLOCK_LIGHT_TOGGLE`
+（`light_toggle.ogg`，音量 `0.5`、音调 `0.5`）：开始恢复时立即播放一次，后续间隔在
+`BLACKOUT_RECOVERY_SOUND_MIN_INTERVAL` 与 `BLACKOUT_RECOVERY_SOUND_MAX_INTERVAL` 之间随机，
+直到最后一盏灯恢复。强制恢复、停局和新局会清理循环计时，不会跨局残留。
+
 ### 背包按钮公开 API
 
 背包按钮统一由 `dev.doctor4t.wathe.api.client.inventory` 包提供。扩展 Mod 不需要再 mixin
@@ -765,9 +801,8 @@ final class MyRoleInventoryButtons implements InventoryButtonExtension {
 | --- | --- | --- |
 | HarpyModLoader | `D:\哈比快车最新源码\harpymodloader\HarpyModLoader1` | 扩展职业加载层，注册 modded 游戏模式，按阵营替换职业位，管理强制职业和权重 |
 | NoellesRoles | `D:\哈比快车最新源码\noellesroles\NoellesRoles - 副本 - 副本 - 副本5.7.1` | 大型职业扩展，使用职业注册、经济、商店、任务、回放、本能、HUD、床 / 托盘效果等 API |
-| StupidExpress | `D:\哈比快车最新源码\stupidexpress\StupidExpress2.1` | 中立 / 独立胜利职业扩展，重点使用 `VictoryApi`、`ShopApi`、`TaskCompletionApi`、`ReplayRegistry` |
 | KinsWathe / kinssaba | `D:\哈比快车最新源码\kinswathe\kinssaba` | 职业与词条扩展，包含 Licensed Villain 等自定义胜利，使用商店、经济、任务、本能、HUD API |
-| StarryExpress | `D:\哈比快车最新源码\starryexpress\StarryExpress1.3.2\src` | 小型职业扩展，包含 Starstruck、Muzzler、Allergic 等，使用任务完成、本能、商店和回放 API |
+| StarryExpress | `D:\哈比快车最新源码\starryexpress\StarryExpress1.3.2` | 指南书 / 图鉴与装饰 Mod；角色和词条玩法已迁移到 NoellesRoles，StarryExpress 不再注册或实现角色、词条功能 |
 
 HarpyModLoader 的思路是“先让 Wathe 开一局 modded murder，再由加载层按阵营替换默认职业”。例如先给所有人设成 `WatheRoles.CIVILIAN`，再从扩展职业池里挑选杀手、中立、义警、平民职业覆盖。Wathe 本体提供稳定的职业映射、结算、回放和 API，扩展加载层负责“这局到底出现哪些职业”。
 
