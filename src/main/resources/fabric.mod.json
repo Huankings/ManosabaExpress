@@ -60,6 +60,7 @@
 			"wathe:instinct",
 			"wathe:map_voting",
 			"wathe:rolecounter",
+			"wathe:debug_disguise",
 			"wathe:note"
 		],
 		"loom:injected_interfaces": {

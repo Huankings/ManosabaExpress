@@ -67,5 +67,7 @@ public class WatheComponents implements WorldComponentInitializer, EntityCompone
         registry.registerScoreboardComponent(ScoreboardRoleSelectorComponent.KEY, ScoreboardRoleSelectorComponent::new);
         registry.registerScoreboardComponent(MapVotingComponent.KEY, MapVotingComponent::new);
         registry.registerScoreboardComponent(GameRoundEndComponent.KEY, GameRoundEndComponent::new);
+        /* 调试变形是跨地图、跨维度、跨玩家离线状态的全服规则，因此挂在全局 scoreboard。 */
+        registry.registerScoreboardComponent(DebugDisguiseComponent.KEY, DebugDisguiseComponent::new);
     }
 }

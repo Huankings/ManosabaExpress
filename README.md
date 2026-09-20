@@ -900,6 +900,13 @@ Wathe 默认规则仍受 `/wathe:playerCollision` 和 `/wathe:startnoCollision` 
 | `/wathe:blackout restore` | 调试用：立即恢复电力并清理停电黑幕 / 药水 |
 | `/wathe:blackout overlay [0-100]` | 查看或设置停电黑幕不透明度，0 为关闭，100 为完全不透明 |
 | `/wathe:blackout potionEffects [true|false]` | 查看或开关停电期间 Wathe 统一发放的夜视 / 失明 |
+| `/wathe:debugDisguise set <targets> <appearance> permanent` | 管理员调试：让指定玩家永久显示为目标玩家的外观和准心名字 |
+| `/wathe:debugDisguise set <targets> <appearance> seconds <seconds>` | 管理员调试：让指定玩家限时显示为目标玩家，按现实时间秒数倒计时 |
+| `/wathe:debugDisguise setAll <appearance> permanent` | 管理员调试：让所有玩家永久显示为目标玩家 |
+| `/wathe:debugDisguise setAll <appearance> seconds <seconds>` | 管理员调试：让所有玩家限时显示为目标玩家 |
+| `/wathe:debugDisguise clear <targets>` | 解除指定玩家的调试变形；存在全局规则时，这些玩家会排除全局变形并恢复原貌 |
+| `/wathe:debugDisguise clearAll` | 解除所有调试变形、全局规则和全局排除 |
+| `/wathe:debugDisguise list` | 查看当前有效的全局/单人调试变形及剩余时间 |
 | `/wathe:mapvoting restart` | 重新开始地图投票 |
 | `/wathe:mapvoting onlyop <true|false>` | 是否只允许 OP 投票 |
 | `/wathe:mapvoting randommapcount <count>` | 每轮随机候选地图数量 |

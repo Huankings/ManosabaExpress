@@ -111,6 +111,7 @@ public class Wathe implements ModInitializer {
             GameplayAliveGameModeCommand.register(dispatcher);
             MapVoteCommand.register(dispatcher);
             BlackoutCommand.register(dispatcher);
+            DebugDisguiseCommand.register(dispatcher);
         }));
 
         /*

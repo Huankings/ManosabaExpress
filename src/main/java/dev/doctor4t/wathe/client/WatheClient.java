@@ -23,6 +23,7 @@ import dev.doctor4t.wathe.cca.PlayerInstinctComponent;
 import dev.doctor4t.wathe.cca.PlayerMoodComponent;
 import dev.doctor4t.wathe.cca.TrainWorldComponent;
 import dev.doctor4t.wathe.client.gui.RoundTextRenderer;
+import dev.doctor4t.wathe.client.appearance.DebugDisguiseClientHandler;
 import dev.doctor4t.wathe.client.gui.BlackoutOverlayRenderer;
 import dev.doctor4t.wathe.client.gui.StoreRenderer;
 import dev.doctor4t.wathe.client.gui.TimeRenderer;
@@ -123,6 +124,8 @@ public class WatheClient implements ClientModInitializer {
         WatheConfig.init(Wathe.MOD_ID, WatheConfig.class);
         ensureDefaultInstinctHandlersRegistered();
         PsychoModeClientApi.registerDefaultClientHandlers();
+        // 管理员调试变形作为最低优先级兜底接入，不覆盖扩展模组的正常职业变形。
+        DebugDisguiseClientHandler.register();
         BlackoutOverlayRenderer.register();
 
         // Initialize ScreenParticle
