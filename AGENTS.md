@@ -260,8 +260,17 @@ Harpymodloader.setRoleMaximum(MY_ROLE, 1);
 - 静态职业商店：`ShopApi.registerStaticRoleShop(...)`
 - 只追加 / 移除 / 替换默认商店条目：`ShopApi.registerShopModifier(id, priority, handler)`
 - 通用购买逻辑：`ShopApi.defaultPurchase(context)`
+- 统一购买冷却判断：`ShopApi.isPurchaseCooldownBlocked(...)`
 
 扩展 provider 的 `purchase(...)` 只负责判断商品是否交付成功；不要自己扣钱、播放通用购买音效或写通用购买回放。扣钱、失败提示、音效和回放由 `PlayerShopComponent#tryBuy(...)` 统一做。
+
+商店商品必须明确区分交付类型：
+
+- 普通 `new ShopEntry(...)`、`giveToInventory(...)`、`directToHotbar(...)` 都是 `PurchaseType.ITEM`。
+- 疯魔、停电、恢复电力、刷新冷却等购买后立即执行能力且不给显示物品的商品，必须用 `ShopEntry.action(...)`，类型为 `PurchaseType.ACTION`。
+- `/wathe:shopCooldownBypass <true|false>` 默认关闭；开启后只有 `ITEM` 可以在商品物品冷却期间继续购买，`ACTION` 始终受冷却限制。
+- 开关只影响商店购买检查，不清理物品冷却，也不改变物品 use、攻击或能力 packet 的真实冷却校验。
+- 覆写 provider `purchase(...)` 时调用 `ShopApi.isPurchaseCooldownBlocked(...)`，不要在扩展里重新读取世界开关或直接复制 `isCoolingDown` 组合条件。
 
 非杀手职业商店不要使用默认只适合杀手快捷栏的交付逻辑，优先用：
 

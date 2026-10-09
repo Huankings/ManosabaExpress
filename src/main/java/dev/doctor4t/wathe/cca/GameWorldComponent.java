@@ -78,6 +78,11 @@ public int getFixedKillerCount() { return this.fixedKillerCount; }
      */
     private boolean moodEffectDeathEnabled = true;
     /**
+     * 是否允许普通“购买后给予物品”的商品在物品冷却期间继续购买。
+     * 即时 ACTION 商品无论该值如何都仍受冷却限制。
+     */
+    private boolean shopItemCooldownBypassEnabled = GameConstants.DEFAULT_SHOP_ITEM_COOLDOWN_BYPASS_ENABLED;
+    /**
      * 中等心情体力惩罚开关。
      *
      * <p>默认关闭。开启后，心情低于 MID 阈值时会使用中等惩罚：
@@ -212,6 +217,16 @@ public int getFixedKillerCount() { return this.fixedKillerCount; }
      */
     public void setMoodEffectDeathEnabled(boolean moodEffectDeathEnabled) {
         this.moodEffectDeathEnabled = moodEffectDeathEnabled;
+        this.sync();
+    }
+
+    public boolean isShopItemCooldownBypassEnabled() {
+        return shopItemCooldownBypassEnabled;
+    }
+
+    /** 修改后立即同步，并随当前世界保存，方便管理员只对目标地图开启调试。 */
+    public void setShopItemCooldownBypassEnabled(boolean enabled) {
+        this.shopItemCooldownBypassEnabled = enabled;
         this.sync();
     }
 
@@ -824,6 +839,8 @@ this.fixedKillerCount = nbtCompound.contains("FixedKillerCount") ? nbtCompound.g
             this.legacyRequiredStartPlayerCount = Math.max(1, nbtCompound.getInt("RequiredStartPlayerCount"));
         }
         this.moodEffectDeathEnabled = !nbtCompound.contains("MoodEffectDeathEnabled") || nbtCompound.getBoolean("MoodEffectDeathEnabled");
+        this.shopItemCooldownBypassEnabled = nbtCompound.contains("ShopItemCooldownBypassEnabled")
+                && nbtCompound.getBoolean("ShopItemCooldownBypassEnabled");
         this.midMoodStaminaPenaltyEnabled = nbtCompound.contains("MidMoodStaminaPenaltyEnabled")
                 ? nbtCompound.getBoolean("MidMoodStaminaPenaltyEnabled")
                 : GameConstants.DEFAULT_MID_MOOD_STAMINA_PENALTY_ENABLED;
@@ -924,6 +941,7 @@ this.fixedKillerCount = nbtCompound.contains("FixedKillerCount") ? nbtCompound.g
             nbtCompound.putInt("RequiredStartPlayerCount", this.legacyRequiredStartPlayerCount);
         }
         nbtCompound.putBoolean("MoodEffectDeathEnabled", moodEffectDeathEnabled);
+        nbtCompound.putBoolean("ShopItemCooldownBypassEnabled", shopItemCooldownBypassEnabled);
         nbtCompound.putBoolean("MidMoodStaminaPenaltyEnabled", midMoodStaminaPenaltyEnabled);
         nbtCompound.putBoolean("DepressiveMoodStaminaPenaltyEnabled", depressiveMoodStaminaPenaltyEnabled);
         nbtCompound.putBoolean("AllowAlivePlayersJump", allowAlivePlayersJump);

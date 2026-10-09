@@ -5,6 +5,7 @@ import dev.doctor4t.wathe.Wathe;
 import dev.doctor4t.wathe.api.client.appearance.PlayerAppearanceApi;
 import dev.doctor4t.wathe.api.client.gui.RoleNameHudApi;
 import dev.doctor4t.wathe.cca.DebugDisguiseComponent;
+import dev.doctor4t.wathe.entity.PlayerBodyEntity;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.network.AbstractClientPlayerEntity;
 import net.minecraft.client.util.SkinTextures;
@@ -42,6 +43,11 @@ public final class DebugDisguiseClientHandler {
                 DEBUG_PRIORITY,
                 DebugDisguiseClientHandler::resolveSkin
         );
+        PlayerAppearanceApi.registerBodySkin(
+                Wathe.id("debug_disguise/body_skin"),
+                DEBUG_PRIORITY,
+                DebugDisguiseClientHandler::resolveBodySkin
+        );
         RoleNameHudApi.registerName(
                 Wathe.id("debug_disguise/role_name"),
                 DEBUG_PRIORITY,
@@ -54,6 +60,49 @@ public final class DebugDisguiseClientHandler {
 
     private static @Nullable SkinTextures resolveSkin(@NotNull AbstractClientPlayerEntity player) {
         DebugDisguiseComponent.DisguiseEntry entry = resolveEntry(player.getUuid());
+        return resolveSkin(entry);
+    }
+
+    private static @Nullable SkinTextures resolveBodySkin(@NotNull PlayerBodyEntity body) {
+        DebugDisguiseComponent.DisguiseEntry entry = resolveBodyEntry(body.getPlayerUuid());
+        return resolveSkin(entry);
+    }
+
+    /** 供 Tab / 旁观菜单读取“这个真实玩家当前应显示的调试身份”。 */
+    public static @Nullable DebugDisguiseComponent.DisguiseEntry resolveIdentity(@NotNull UUID playerUuid) {
+        MinecraftClient client = MinecraftClient.getInstance();
+        if (client.world == null) {
+            return null;
+        }
+        DebugDisguiseComponent component = DebugDisguiseComponent.KEY.get(client.world.getScoreboard());
+        long now = System.currentTimeMillis();
+        DebugDisguiseComponent.DisguiseEntry personal = component.getIdentityEntry(playerUuid);
+        if (DebugDisguiseComponent.isActive(personal, now)) {
+            return personal;
+        }
+        if (component.isIdentityExcludedFromGlobal(playerUuid)) {
+            return null;
+        }
+        DebugDisguiseComponent.DisguiseEntry global = component.getIdentityGlobalEntry();
+        return DebugDisguiseComponent.isActive(global, now) ? global : null;
+    }
+
+    @Nullable
+    public static Text resolveIdentityName(@NotNull UUID playerUuid) {
+        DebugDisguiseComponent.DisguiseEntry entry = resolveIdentity(playerUuid);
+        return entry == null ? null : Text.literal(entry.appearanceName());
+    }
+
+    /**
+     * Tab 头像和旁观菜单图标共用这套异步皮肤缓存；不读取被调试玩家实体当前皮肤，
+     * 避免玩家外观变形再套到身份头像上。
+     */
+    public static @Nullable SkinTextures resolveIdentitySkin(@NotNull UUID playerUuid) {
+        DebugDisguiseComponent.DisguiseEntry entry = resolveIdentity(playerUuid);
+        return resolveSkin(entry);
+    }
+
+    private static @Nullable SkinTextures resolveSkin(@Nullable DebugDisguiseComponent.DisguiseEntry entry) {
         if (entry == null) {
             return null;
         }
@@ -99,6 +148,24 @@ public final class DebugDisguiseClientHandler {
             return null;
         }
         DebugDisguiseComponent.DisguiseEntry global = component.getGlobalEntry();
+        return DebugDisguiseComponent.isActive(global, now) ? global : null;
+    }
+
+    private static @Nullable DebugDisguiseComponent.DisguiseEntry resolveBodyEntry(@NotNull UUID ownerUuid) {
+        MinecraftClient client = MinecraftClient.getInstance();
+        if (client.world == null) {
+            return null;
+        }
+        DebugDisguiseComponent component = DebugDisguiseComponent.KEY.get(client.world.getScoreboard());
+        long now = System.currentTimeMillis();
+        DebugDisguiseComponent.DisguiseEntry personal = component.getBodyEntry(ownerUuid);
+        if (DebugDisguiseComponent.isActive(personal, now)) {
+            return personal;
+        }
+        if (component.isBodyExcludedFromGlobal(ownerUuid)) {
+            return null;
+        }
+        DebugDisguiseComponent.DisguiseEntry global = component.getBodyGlobalEntry();
         return DebugDisguiseComponent.isActive(global, now) ? global : null;
     }
 }

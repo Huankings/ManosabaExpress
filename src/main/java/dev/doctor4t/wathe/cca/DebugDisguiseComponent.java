@@ -47,6 +47,27 @@ public final class DebugDisguiseComponent implements AutoSyncedComponent, Server
     /** 全局规则存在时，clear 命令用这个集合表达“明确排除全局规则”。 */
     private final Set<UUID> globalExclusions = new HashSet<>();
 
+    @Nullable
+    private DisguiseEntry bodyGlobalEntry;
+    private final Map<UUID, DisguiseEntry> bodyEntries = new HashMap<>();
+    /** 尸体全局规则的单独排除名单，和玩家本体规则互不影响。 */
+    private final Set<UUID> bodyGlobalExclusions = new HashSet<>();
+
+    @Nullable
+    private DisguiseEntry identityGlobalEntry;
+    private final Map<UUID, DisguiseEntry> identityEntries = new HashMap<>();
+    private final Set<UUID> identityGlobalExclusions = new HashSet<>();
+
+    @Nullable
+    private DisguiseEntry chatIdentityGlobalEntry;
+    private final Map<UUID, DisguiseEntry> chatIdentityEntries = new HashMap<>();
+    private final Set<UUID> chatIdentityGlobalExclusions = new HashSet<>();
+
+    @Nullable
+    private DisguiseEntry replayIdentityGlobalEntry;
+    private final Map<UUID, DisguiseEntry> replayIdentityEntries = new HashMap<>();
+    private final Set<UUID> replayIdentityGlobalExclusions = new HashSet<>();
+
     public DebugDisguiseComponent(@NotNull Scoreboard scoreboard, @Nullable MinecraftServer server) {
         this.scoreboard = scoreboard;
     }
@@ -135,6 +156,254 @@ public final class DebugDisguiseComponent implements AutoSyncedComponent, Server
         return this.globalExclusions.size();
     }
 
+    @Nullable
+    public DisguiseEntry getBodyGlobalEntry() {
+        return this.bodyGlobalEntry;
+    }
+
+    @Nullable
+    public DisguiseEntry getBodyEntry(@NotNull UUID ownerUuid) {
+        return this.bodyEntries.get(ownerUuid);
+    }
+
+    public boolean isBodyExcludedFromGlobal(@NotNull UUID ownerUuid) {
+        return this.bodyGlobalExclusions.contains(ownerUuid);
+    }
+
+    public void setBodyEntries(@NotNull Iterable<UUID> owners,
+                               @NotNull UUID appearanceUuid,
+                               @NotNull String appearanceName,
+                               long expiresAtMillis) {
+        for (UUID ownerUuid : owners) {
+            this.bodyEntries.put(ownerUuid, new DisguiseEntry(appearanceUuid, appearanceName, expiresAtMillis));
+            this.bodyGlobalExclusions.remove(ownerUuid);
+        }
+        this.sync();
+    }
+
+    public void setBodyGlobal(@NotNull UUID appearanceUuid, @NotNull String appearanceName, long expiresAtMillis) {
+        this.bodyGlobalEntry = new DisguiseEntry(appearanceUuid, appearanceName, expiresAtMillis);
+        this.bodyGlobalExclusions.clear();
+        this.sync();
+    }
+
+    public int clearBodyEntries(@NotNull Iterable<UUID> owners) {
+        int changed = 0;
+        for (UUID ownerUuid : owners) {
+            boolean removed = this.bodyEntries.remove(ownerUuid) != null;
+            if (this.bodyGlobalEntry != null) {
+                removed |= this.bodyGlobalExclusions.add(ownerUuid);
+            } else {
+                removed |= this.bodyGlobalExclusions.remove(ownerUuid);
+            }
+            if (removed) {
+                changed++;
+            }
+        }
+        if (changed > 0) {
+            this.sync();
+        }
+        return changed;
+    }
+
+    public void clearBodyAll() {
+        this.bodyGlobalEntry = null;
+        this.bodyEntries.clear();
+        this.bodyGlobalExclusions.clear();
+        this.sync();
+    }
+
+    public Map<UUID, DisguiseEntry> getBodyEntriesSnapshot() {
+        return Collections.unmodifiableMap(new HashMap<>(this.bodyEntries));
+    }
+
+    public int getBodyGlobalExclusionCount() {
+        return this.bodyGlobalExclusions.size();
+    }
+
+    @Nullable
+    public DisguiseEntry getIdentityGlobalEntry() {
+        return this.identityGlobalEntry;
+    }
+
+    @Nullable
+    public DisguiseEntry getIdentityEntry(@NotNull UUID playerUuid) {
+        return this.identityEntries.get(playerUuid);
+    }
+
+    public boolean isIdentityExcludedFromGlobal(@NotNull UUID playerUuid) {
+        return this.identityGlobalExclusions.contains(playerUuid);
+    }
+
+    public void setIdentityEntries(@NotNull Iterable<UUID> players,
+                                   @NotNull UUID identityUuid,
+                                   @NotNull String identityName,
+                                   long expiresAtMillis) {
+        for (UUID playerUuid : players) {
+            this.identityEntries.put(playerUuid, new DisguiseEntry(identityUuid, identityName, expiresAtMillis));
+            this.identityGlobalExclusions.remove(playerUuid);
+        }
+        this.sync();
+    }
+
+    public void setIdentityGlobal(@NotNull UUID identityUuid, @NotNull String identityName, long expiresAtMillis) {
+        this.identityGlobalEntry = new DisguiseEntry(identityUuid, identityName, expiresAtMillis);
+        this.identityGlobalExclusions.clear();
+        this.sync();
+    }
+
+    public int clearIdentityEntries(@NotNull Iterable<UUID> players) {
+        int changed = 0;
+        for (UUID playerUuid : players) {
+            boolean removed = this.identityEntries.remove(playerUuid) != null;
+            if (this.identityGlobalEntry != null) {
+                removed |= this.identityGlobalExclusions.add(playerUuid);
+            } else {
+                removed |= this.identityGlobalExclusions.remove(playerUuid);
+            }
+            if (removed) {
+                changed++;
+            }
+        }
+        if (changed > 0) {
+            this.sync();
+        }
+        return changed;
+    }
+
+    public void clearIdentityAll() {
+        this.identityGlobalEntry = null;
+        this.identityEntries.clear();
+        this.identityGlobalExclusions.clear();
+        this.sync();
+    }
+
+    public Map<UUID, DisguiseEntry> getIdentityEntriesSnapshot() {
+        return Collections.unmodifiableMap(new HashMap<>(this.identityEntries));
+    }
+
+    public int getIdentityGlobalExclusionCount() {
+        return this.identityGlobalExclusions.size();
+    }
+
+    @Nullable
+    public DisguiseEntry getChatIdentityGlobalEntry() { return this.chatIdentityGlobalEntry; }
+
+    @Nullable
+    public DisguiseEntry getChatIdentityEntry(@NotNull UUID playerUuid) { return this.chatIdentityEntries.get(playerUuid); }
+
+    public boolean isChatIdentityExcludedFromGlobal(@NotNull UUID playerUuid) {
+        return this.chatIdentityGlobalExclusions.contains(playerUuid);
+    }
+
+    public void setChatIdentityEntries(@NotNull Iterable<UUID> players, @NotNull UUID identityUuid,
+                                       @NotNull String identityName, long expiresAtMillis) {
+        for (UUID playerUuid : players) {
+            this.chatIdentityEntries.put(playerUuid, new DisguiseEntry(identityUuid, identityName, expiresAtMillis));
+            this.chatIdentityGlobalExclusions.remove(playerUuid);
+        }
+        this.sync();
+    }
+
+    public void setChatIdentityGlobal(@NotNull UUID identityUuid, @NotNull String identityName, long expiresAtMillis) {
+        this.chatIdentityGlobalEntry = new DisguiseEntry(identityUuid, identityName, expiresAtMillis);
+        this.chatIdentityGlobalExclusions.clear();
+        this.sync();
+    }
+
+    public int clearChatIdentityEntries(@NotNull Iterable<UUID> players) {
+        int changed = 0;
+        for (UUID playerUuid : players) {
+            boolean removed = this.chatIdentityEntries.remove(playerUuid) != null;
+            if (this.chatIdentityGlobalEntry != null) {
+                removed |= this.chatIdentityGlobalExclusions.add(playerUuid);
+            } else {
+                removed |= this.chatIdentityGlobalExclusions.remove(playerUuid);
+            }
+            if (removed) changed++;
+        }
+        if (changed > 0) this.sync();
+        return changed;
+    }
+
+    public void clearChatIdentityAll() {
+        this.chatIdentityGlobalEntry = null;
+        this.chatIdentityEntries.clear();
+        this.chatIdentityGlobalExclusions.clear();
+        this.sync();
+    }
+
+    public Map<UUID, DisguiseEntry> getChatIdentityEntriesSnapshot() {
+        return Collections.unmodifiableMap(new HashMap<>(this.chatIdentityEntries));
+    }
+
+    public int getChatIdentityGlobalExclusionCount() { return this.chatIdentityGlobalExclusions.size(); }
+
+    @Nullable
+    public DisguiseEntry getReplayIdentityGlobalEntry() {
+        return this.replayIdentityGlobalEntry;
+    }
+
+    @Nullable
+    public DisguiseEntry getReplayIdentityEntry(@NotNull UUID playerUuid) {
+        return this.replayIdentityEntries.get(playerUuid);
+    }
+
+    public boolean isReplayIdentityExcludedFromGlobal(@NotNull UUID playerUuid) {
+        return this.replayIdentityGlobalExclusions.contains(playerUuid);
+    }
+
+    public void setReplayIdentityEntries(@NotNull Iterable<UUID> players,
+                                         @NotNull UUID identityUuid,
+                                         @NotNull String identityName,
+                                         long expiresAtMillis) {
+        for (UUID playerUuid : players) {
+            this.replayIdentityEntries.put(playerUuid, new DisguiseEntry(identityUuid, identityName, expiresAtMillis));
+            this.replayIdentityGlobalExclusions.remove(playerUuid);
+        }
+        this.sync();
+    }
+
+    public void setReplayIdentityGlobal(@NotNull UUID identityUuid, @NotNull String identityName, long expiresAtMillis) {
+        this.replayIdentityGlobalEntry = new DisguiseEntry(identityUuid, identityName, expiresAtMillis);
+        this.replayIdentityGlobalExclusions.clear();
+        this.sync();
+    }
+
+    public int clearReplayIdentityEntries(@NotNull Iterable<UUID> players) {
+        int changed = 0;
+        for (UUID playerUuid : players) {
+            boolean removed = this.replayIdentityEntries.remove(playerUuid) != null;
+            if (this.replayIdentityGlobalEntry != null) {
+                removed |= this.replayIdentityGlobalExclusions.add(playerUuid);
+            } else {
+                removed |= this.replayIdentityGlobalExclusions.remove(playerUuid);
+            }
+            if (removed) {
+                changed++;
+            }
+        }
+        if (changed > 0) {
+            this.sync();
+        }
+        return changed;
+    }
+
+    public void clearReplayIdentityAll() {
+        this.replayIdentityGlobalEntry = null;
+        this.replayIdentityEntries.clear();
+        this.replayIdentityGlobalExclusions.clear();
+        this.sync();
+    }
+
+    public Map<UUID, DisguiseEntry> getReplayIdentityEntriesSnapshot() {
+        return Collections.unmodifiableMap(new HashMap<>(this.replayIdentityEntries));
+    }
+
+    public int getReplayIdentityGlobalExclusionCount() {
+        return this.replayIdentityGlobalExclusions.size();
+    }
+
     /** 只在服务端 tick 调用，避免客户端组件修改持久化状态。 */
     @Override
     public void serverTick() {
@@ -145,10 +414,58 @@ public final class DebugDisguiseComponent implements AutoSyncedComponent, Server
             this.globalExclusions.clear();
             changed = true;
         }
+        if (this.bodyGlobalEntry != null && !isActive(this.bodyGlobalEntry, now)) {
+            this.bodyGlobalEntry = null;
+            this.bodyGlobalExclusions.clear();
+            changed = true;
+        }
+        if (this.identityGlobalEntry != null && !isActive(this.identityGlobalEntry, now)) {
+            this.identityGlobalEntry = null;
+            this.identityGlobalExclusions.clear();
+            changed = true;
+        }
+        if (this.chatIdentityGlobalEntry != null && !isActive(this.chatIdentityGlobalEntry, now)) {
+            this.chatIdentityGlobalEntry = null;
+            this.chatIdentityGlobalExclusions.clear();
+            changed = true;
+        }
+        if (this.replayIdentityGlobalEntry != null && !isActive(this.replayIdentityGlobalEntry, now)) {
+            this.replayIdentityGlobalEntry = null;
+            this.replayIdentityGlobalExclusions.clear();
+            changed = true;
+        }
         var iterator = this.playerEntries.entrySet().iterator();
         while (iterator.hasNext()) {
             if (!isActive(iterator.next().getValue(), now)) {
                 iterator.remove();
+                changed = true;
+            }
+        }
+        var bodyIterator = this.bodyEntries.entrySet().iterator();
+        while (bodyIterator.hasNext()) {
+            if (!isActive(bodyIterator.next().getValue(), now)) {
+                bodyIterator.remove();
+                changed = true;
+            }
+        }
+        var identityIterator = this.identityEntries.entrySet().iterator();
+        while (identityIterator.hasNext()) {
+            if (!isActive(identityIterator.next().getValue(), now)) {
+                identityIterator.remove();
+                changed = true;
+            }
+        }
+        var chatIterator = this.chatIdentityEntries.entrySet().iterator();
+        while (chatIterator.hasNext()) {
+            if (!isActive(chatIterator.next().getValue(), now)) {
+                chatIterator.remove();
+                changed = true;
+            }
+        }
+        var replayIdentityIterator = this.replayIdentityEntries.entrySet().iterator();
+        while (replayIdentityIterator.hasNext()) {
+            if (!isActive(replayIdentityIterator.next().getValue(), now)) {
+                replayIdentityIterator.remove();
                 changed = true;
             }
         }
@@ -160,6 +477,10 @@ public final class DebugDisguiseComponent implements AutoSyncedComponent, Server
     @Override
     public void readFromNbt(@NotNull NbtCompound tag, RegistryWrapper.WrapperLookup registryLookup) {
         this.globalEntry = tag.contains("Global") ? DisguiseEntry.fromNbt(tag.getCompound("Global")) : null;
+        this.bodyGlobalEntry = tag.contains("BodyGlobal") ? DisguiseEntry.fromNbt(tag.getCompound("BodyGlobal")) : null;
+        this.identityGlobalEntry = tag.contains("IdentityGlobal") ? DisguiseEntry.fromNbt(tag.getCompound("IdentityGlobal")) : null;
+        this.chatIdentityGlobalEntry = tag.contains("ChatIdentityGlobal") ? DisguiseEntry.fromNbt(tag.getCompound("ChatIdentityGlobal")) : null;
+        this.replayIdentityGlobalEntry = tag.contains("ReplayIdentityGlobal") ? DisguiseEntry.fromNbt(tag.getCompound("ReplayIdentityGlobal")) : null;
         this.playerEntries.clear();
         for (NbtElement element : tag.getList("Players", NbtElement.COMPOUND_TYPE)) {
             NbtCompound playerTag = (NbtCompound) element;
@@ -177,12 +498,86 @@ public final class DebugDisguiseComponent implements AutoSyncedComponent, Server
                 this.globalExclusions.add(uuid);
             }
         }
+        this.bodyEntries.clear();
+        for (NbtElement element : tag.getList("Bodies", NbtElement.COMPOUND_TYPE)) {
+            NbtCompound bodyTag = (NbtCompound) element;
+            if (bodyTag.contains("OwnerUuid")) {
+                DisguiseEntry entry = DisguiseEntry.fromNbt(bodyTag);
+                if (entry != null) {
+                    this.bodyEntries.put(bodyTag.getUuid("OwnerUuid"), entry);
+                }
+            }
+        }
+        this.bodyGlobalExclusions.clear();
+        for (NbtElement element : tag.getList("BodyGlobalExclusions", NbtElement.INT_ARRAY_TYPE)) {
+            UUID uuid = NbtHelper.toUuid(element);
+            if (uuid != null) {
+                this.bodyGlobalExclusions.add(uuid);
+            }
+        }
+        this.identityEntries.clear();
+        for (NbtElement element : tag.getList("Identities", NbtElement.COMPOUND_TYPE)) {
+            NbtCompound identityTag = (NbtCompound) element;
+            if (identityTag.contains("PlayerUuid")) {
+                DisguiseEntry entry = DisguiseEntry.fromNbt(identityTag);
+                if (entry != null) {
+                    this.identityEntries.put(identityTag.getUuid("PlayerUuid"), entry);
+                }
+            }
+        }
+        this.identityGlobalExclusions.clear();
+        for (NbtElement element : tag.getList("IdentityGlobalExclusions", NbtElement.INT_ARRAY_TYPE)) {
+            UUID uuid = NbtHelper.toUuid(element);
+            if (uuid != null) {
+                this.identityGlobalExclusions.add(uuid);
+            }
+        }
+        this.chatIdentityEntries.clear();
+        for (NbtElement element : tag.getList("ChatIdentities", NbtElement.COMPOUND_TYPE)) {
+            NbtCompound chatTag = (NbtCompound) element;
+            if (chatTag.contains("PlayerUuid")) {
+                DisguiseEntry entry = DisguiseEntry.fromNbt(chatTag);
+                if (entry != null) this.chatIdentityEntries.put(chatTag.getUuid("PlayerUuid"), entry);
+            }
+        }
+        this.chatIdentityGlobalExclusions.clear();
+        for (NbtElement element : tag.getList("ChatIdentityGlobalExclusions", NbtElement.INT_ARRAY_TYPE)) {
+            UUID uuid = NbtHelper.toUuid(element);
+            if (uuid != null) this.chatIdentityGlobalExclusions.add(uuid);
+        }
+        this.replayIdentityEntries.clear();
+        for (NbtElement element : tag.getList("ReplayIdentities", NbtElement.COMPOUND_TYPE)) {
+            NbtCompound replayTag = (NbtCompound) element;
+            if (replayTag.contains("PlayerUuid")) {
+                DisguiseEntry entry = DisguiseEntry.fromNbt(replayTag);
+                if (entry != null) {
+                    this.replayIdentityEntries.put(replayTag.getUuid("PlayerUuid"), entry);
+                }
+            }
+        }
+        this.replayIdentityGlobalExclusions.clear();
+        for (NbtElement element : tag.getList("ReplayIdentityGlobalExclusions", NbtElement.INT_ARRAY_TYPE)) {
+            UUID uuid = NbtHelper.toUuid(element);
+            if (uuid != null) {
+                this.replayIdentityGlobalExclusions.add(uuid);
+            }
+        }
     }
 
     @Override
     public void writeToNbt(@NotNull NbtCompound tag, RegistryWrapper.WrapperLookup registryLookup) {
         if (this.globalEntry != null) {
             tag.put("Global", this.globalEntry.toNbt());
+        }
+        if (this.bodyGlobalEntry != null) {
+            tag.put("BodyGlobal", this.bodyGlobalEntry.toNbt());
+        }
+        if (this.identityGlobalEntry != null) {
+            tag.put("IdentityGlobal", this.identityGlobalEntry.toNbt());
+        }
+        if (this.chatIdentityGlobalEntry != null) tag.put("ChatIdentityGlobal", this.chatIdentityGlobalEntry.toNbt());
+        if (this.replayIdentityGlobalEntry != null) {
+            tag.put("ReplayIdentityGlobal", this.replayIdentityGlobalEntry.toNbt());
         }
         NbtList players = new NbtList();
         for (Map.Entry<UUID, DisguiseEntry> entry : this.playerEntries.entrySet()) {
@@ -196,6 +591,52 @@ public final class DebugDisguiseComponent implements AutoSyncedComponent, Server
             exclusions.add(NbtHelper.fromUuid(uuid));
         }
         tag.put("GlobalExclusions", exclusions);
+        NbtList bodies = new NbtList();
+        for (Map.Entry<UUID, DisguiseEntry> entry : this.bodyEntries.entrySet()) {
+            NbtCompound bodyTag = entry.getValue().toNbt();
+            bodyTag.putUuid("OwnerUuid", entry.getKey());
+            bodies.add(bodyTag);
+        }
+        tag.put("Bodies", bodies);
+        NbtList bodyExclusions = new NbtList();
+        for (UUID uuid : this.bodyGlobalExclusions) {
+            bodyExclusions.add(NbtHelper.fromUuid(uuid));
+        }
+        tag.put("BodyGlobalExclusions", bodyExclusions);
+        NbtList identities = new NbtList();
+        for (Map.Entry<UUID, DisguiseEntry> entry : this.identityEntries.entrySet()) {
+            NbtCompound identityTag = entry.getValue().toNbt();
+            identityTag.putUuid("PlayerUuid", entry.getKey());
+            identities.add(identityTag);
+        }
+        tag.put("Identities", identities);
+        NbtList identityExclusions = new NbtList();
+        for (UUID uuid : this.identityGlobalExclusions) {
+            identityExclusions.add(NbtHelper.fromUuid(uuid));
+        }
+        tag.put("IdentityGlobalExclusions", identityExclusions);
+        NbtList chatIdentities = new NbtList();
+        for (Map.Entry<UUID, DisguiseEntry> entry : this.chatIdentityEntries.entrySet()) {
+            NbtCompound chatTag = entry.getValue().toNbt();
+            chatTag.putUuid("PlayerUuid", entry.getKey());
+            chatIdentities.add(chatTag);
+        }
+        tag.put("ChatIdentities", chatIdentities);
+        NbtList chatExclusions = new NbtList();
+        for (UUID uuid : this.chatIdentityGlobalExclusions) chatExclusions.add(NbtHelper.fromUuid(uuid));
+        tag.put("ChatIdentityGlobalExclusions", chatExclusions);
+        NbtList replayIdentities = new NbtList();
+        for (Map.Entry<UUID, DisguiseEntry> entry : this.replayIdentityEntries.entrySet()) {
+            NbtCompound replayTag = entry.getValue().toNbt();
+            replayTag.putUuid("PlayerUuid", entry.getKey());
+            replayIdentities.add(replayTag);
+        }
+        tag.put("ReplayIdentities", replayIdentities);
+        NbtList replayExclusions = new NbtList();
+        for (UUID uuid : this.replayIdentityGlobalExclusions) {
+            replayExclusions.add(NbtHelper.fromUuid(uuid));
+        }
+        tag.put("ReplayIdentityGlobalExclusions", replayExclusions);
     }
 
     public record DisguiseEntry(@NotNull UUID appearanceUuid, @NotNull String appearanceName, long expiresAtMillis) {

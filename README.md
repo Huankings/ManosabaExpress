@@ -442,6 +442,9 @@ Wathe 的地图通常是“模板区复制到游戏区”。配置项来自：
 - 杀手能力角色默认有金币 HUD 和被动金币收入；
 - 注册了商店或经济规则的扩展职业也可以显示金币 HUD；
 - 商店购买由 Wathe 统一扣钱、播放音效、发送失败提示、记录回放；
+- 商品交付类型分为 `ShopEntry.PurchaseType.ITEM` 与 `ACTION`：普通构造、`giveToInventory`、`directToHotbar` 默认是给予物品，`ShopEntry.action(...)` 是购买即生效；
+- `/wathe:shopCooldownBypass <true|false>` 控制普通给予类商品能否在物品冷却期间继续购买，默认关闭并随世界保存；无参数可查询状态；
+- 即使该开关开启，疯魔模式、停电和扩展注册的其它 `ACTION` 商品仍然会被冷却拦截；开关也不会清除、缩短或绕过物品实际使用时的冷却；
 - 开发环境下如果余额不足，会自动补测试资金，方便调试购买流程；
 - `balance` 旧字段仍保留，用作 `wathe:money` 的镜像，兼容旧扩展源码；
 - 多货币 API 仍保留，但默认杀手商店当前已恢复为纯金币价格，任务币发放常量目前暂停。
@@ -459,6 +462,10 @@ ShopApi.registerRoleShop(MY_ROLE, player -> List.of(
         )
 ));
 ```
+
+购买即执行能力而不交付显示物品时，必须使用 `ShopEntry.action(...)`。自定义 provider 如果覆写
+`purchase(...)`，应调用 `ShopApi.isPurchaseCooldownBlocked(context)`；只有旧式集中交付逻辑无法从
+条目本身表达类型时，才使用带 `actionPurchase` 参数的重载，不能在扩展里重新复制开关判断。
 
 ## 本能、HUD 与客户端体验
 
@@ -907,6 +914,34 @@ Wathe 默认规则仍受 `/wathe:playerCollision` 和 `/wathe:startnoCollision` 
 | `/wathe:debugDisguise clear <targets>` | 解除指定玩家的调试变形；存在全局规则时，这些玩家会排除全局变形并恢复原貌 |
 | `/wathe:debugDisguise clearAll` | 解除所有调试变形、全局规则和全局排除 |
 | `/wathe:debugDisguise list` | 查看当前有效的全局/单人调试变形及剩余时间 |
+| `/wathe:debugBodyDisguise set <owners> <appearance> permanent` | 管理员调试：让指定死者的尸体永久显示为目标玩家的尸体外观 |
+| `/wathe:debugBodyDisguise set <owners> <appearance> seconds <seconds>` | 管理员调试：让指定死者的尸体按现实时间限时显示为目标玩家 |
+| `/wathe:debugBodyDisguise setAll <appearance> permanent` | 管理员调试：让所有尸体永久显示为目标玩家的尸体外观 |
+| `/wathe:debugBodyDisguise setAll <appearance> seconds <seconds>` | 管理员调试：让所有尸体按现实时间限时显示为目标玩家 |
+| `/wathe:debugBodyDisguise clear <owners>` | 解除指定死者尸体的调试变形；存在全局规则时，这些尸体会排除全局变形 |
+| `/wathe:debugBodyDisguise clearAll` | 解除所有尸体调试变形、全局规则和全局排除 |
+| `/wathe:debugBodyDisguise list` | 查看当前有效的尸体全局/单人调试变形及剩余时间 |
+| `/wathe:debugIdentity set <targets> <identity> permanent` | 管理员调试：让指定玩家的 Tab 名/头像和旁观按钮名永久显示为目标玩家 |
+| `/wathe:debugIdentity set <targets> <identity> seconds <seconds>` | 管理员调试：让指定玩家的 Tab 名/头像和旁观按钮名按现实时间限时显示为目标玩家 |
+| `/wathe:debugIdentity setAll <identity> permanent` | 管理员调试：让所有玩家永久使用目标玩家的 Tab/旁观显示身份 |
+| `/wathe:debugIdentity setAll <identity> seconds <seconds>` | 管理员调试：让所有玩家限时使用目标玩家的 Tab/旁观显示身份 |
+| `/wathe:debugIdentity clear <targets>` | 解除指定玩家的 Tab/旁观身份伪装；存在全局规则时排除全局伪装 |
+| `/wathe:debugIdentity clearAll` | 解除所有 Tab/旁观身份伪装规则 |
+| `/wathe:debugIdentity list` | 查看当前有效的 Tab/旁观身份全局/单人伪装及剩余时间 |
+| `/wathe:debugChatIdentity set <targets> <identity> permanent` | 管理员调试：让指定玩家的聊天栏发送者名称永久显示为目标玩家，聊天气泡仍归真实发送者 |
+| `/wathe:debugChatIdentity set <targets> <identity> seconds <seconds>` | 管理员调试：让指定玩家的聊天栏发送者名称按现实时间限时显示为目标玩家 |
+| `/wathe:debugChatIdentity setAll <identity> permanent` | 管理员调试：让所有玩家永久使用目标玩家的聊天栏显示名称 |
+| `/wathe:debugChatIdentity setAll <identity> seconds <seconds>` | 管理员调试：让所有玩家限时使用目标玩家的聊天栏显示名称 |
+| `/wathe:debugChatIdentity clear <targets>` | 解除指定玩家的聊天栏身份伪装；存在全局规则时排除全局伪装 |
+| `/wathe:debugChatIdentity clearAll` | 解除所有聊天栏身份伪装规则 |
+| `/wathe:debugChatIdentity list` | 查看当前有效的聊天栏身份全局/单人伪装及剩余时间 |
+| `/wathe:debugReplayIdentity set <targets> <identity> permanent` | 管理员调试：让指定玩家后续回放事件中的名字永久显示为目标玩家 |
+| `/wathe:debugReplayIdentity set <targets> <identity> seconds <seconds>` | 管理员调试：让指定玩家后续回放事件中的名字按现实时间限时显示为目标玩家 |
+| `/wathe:debugReplayIdentity setAll <identity> permanent` | 管理员调试：让所有玩家后续回放事件中的名字永久显示为目标玩家 |
+| `/wathe:debugReplayIdentity setAll <identity> seconds <seconds>` | 管理员调试：让所有玩家后续回放事件中的名字限时显示为目标玩家 |
+| `/wathe:debugReplayIdentity clear <targets>` | 解除指定玩家的回放身份伪装；存在全局规则时排除全局伪装 |
+| `/wathe:debugReplayIdentity clearAll` | 解除所有回放身份伪装规则 |
+| `/wathe:debugReplayIdentity list` | 查看当前有效的回放身份全局/单人伪装及剩余时间 |
 | `/wathe:mapvoting restart` | 重新开始地图投票 |
 | `/wathe:mapvoting onlyop <true|false>` | 是否只允许 OP 投票 |
 | `/wathe:mapvoting randommapcount <count>` | 每轮随机候选地图数量 |

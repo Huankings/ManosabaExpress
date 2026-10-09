@@ -145,7 +145,7 @@ public final class ShopApi {
     public static @NotNull ShopPurchaseResult defaultPurchase(@NotNull ShopPurchaseContext context) {
         PlayerEntity player = context.player();
         ShopEntry entry = context.entry();
-        if (!entry.shopPrice().canAfford(context.shop()) || player.getItemCooldownManager().isCoolingDown(entry.stack().getItem())) {
+        if (!entry.shopPrice().canAfford(context.shop()) || isPurchaseCooldownBlocked(context)) {
             return ShopPurchaseResult.FAIL_SHOW_MESSAGE;
         }
 
@@ -159,6 +159,44 @@ public final class ShopApi {
         return entry.shouldShowPurchaseFailedMessage(player)
                 ? ShopPurchaseResult.FAIL_SHOW_MESSAGE
                 : ShopPurchaseResult.FAIL_SILENT;
+    }
+
+    /**
+     * 判断当前购买是否应被商品物品冷却拦截。
+     *
+     * <p>调试开关只放宽“购买后给予物品”的商品；ACTION 商品仍然保留冷却限制，
+     * 防止疯魔模式、停电等购买即生效的能力在冷却期间重复触发。</p>
+     */
+    public static boolean isPurchaseCooldownBlocked(@NotNull ShopPurchaseContext context) {
+        return isPurchaseCooldownBlocked(context, context.entry().isActionPurchase());
+    }
+
+    /**
+     * 给拥有自定义交付分支的 provider 使用的冷却判定重载。
+     *
+     * <p>当 provider 不调用 {@link #defaultPurchase(ShopPurchaseContext)}，但仍由自己判断
+     * 某个物品是即时效果时，应把该事实传入本方法，避免复制 Wathe 的世界开关逻辑。</p>
+     */
+    public static boolean isPurchaseCooldownBlocked(
+            @NotNull ShopPurchaseContext context,
+            boolean actionPurchase
+    ) {
+        return isPurchaseCooldownBlocked(context.player(), context.entry().stack().getItem(), actionPurchase);
+    }
+
+    /**
+     * 兼容仍保留旧版 {@code handlePurchase} 入口的扩展：使用玩家世界中的同一个开关，
+     * 不要在扩展里复制世界组件读取和 ACTION/ITEM 分支。
+     */
+    public static boolean isPurchaseCooldownBlocked(
+            @NotNull PlayerEntity player,
+            @NotNull Item item,
+            boolean actionPurchase
+    ) {
+        if (!player.getItemCooldownManager().isCoolingDown(item)) {
+            return false;
+        }
+        return actionPurchase || !GameWorldComponent.KEY.get(player.getWorld()).isShopItemCooldownBypassEnabled();
     }
 
     public static int getDefaultPrice(@NotNull Item item, int fallback) {

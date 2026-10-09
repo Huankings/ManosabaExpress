@@ -12,10 +12,20 @@ public class ShopEntry {
     private final ItemStack stack;
     private final ShopPrice price;
     private final Type type;
+    private final PurchaseType purchaseType;
 
     @FunctionalInterface
     public interface PurchaseAction {
         boolean buy(@NotNull PlayerEntity player);
+    }
+
+    /**
+     * 商店条目的交付类型。ITEM 会给予物品，ACTION 会在购买时直接执行能力。
+     * 冷却绕过开关只允许 ITEM 使用，避免即时能力在冷却期间重复触发。
+     */
+    public enum PurchaseType {
+        ITEM,
+        ACTION
     }
 
     public enum Type {
@@ -39,9 +49,19 @@ public class ShopEntry {
     }
 
     public ShopEntry(@NotNull ItemStack stack, @NotNull ShopPrice price, @NotNull Type type) {
+        this(stack, price, type, PurchaseType.ITEM);
+    }
+
+    public ShopEntry(
+            @NotNull ItemStack stack,
+            @NotNull ShopPrice price,
+            @NotNull Type type,
+            @NotNull PurchaseType purchaseType
+    ) {
         this.stack = stack;
         this.price = price;
         this.type = type;
+        this.purchaseType = purchaseType;
     }
 
     public boolean onBuy(@NotNull PlayerEntity player) {
@@ -136,7 +156,7 @@ public class ShopEntry {
             @NotNull PurchaseAction action,
             boolean showPurchaseFailedMessage
     ) {
-        return new ShopEntry(stack, price, type) {
+        return new ShopEntry(stack, price, type, PurchaseType.ACTION) {
             @Override
             public boolean onBuy(@NotNull PlayerEntity player) {
                 return action.buy(player);
@@ -174,5 +194,13 @@ public class ShopEntry {
 
     public Type type() {
         return type;
+    }
+
+    public PurchaseType purchaseType() {
+        return this.purchaseType;
+    }
+
+    public boolean isActionPurchase() {
+        return this.purchaseType == PurchaseType.ACTION;
     }
 }

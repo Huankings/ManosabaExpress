@@ -22,6 +22,7 @@ import dev.doctor4t.wathe.record.replay.ReplayGenerator;
 import dev.doctor4t.wathe.record.replay.ReplayRegistry;
 import dev.doctor4t.wathe.task.TaskPointSyncManager;
 import dev.doctor4t.wathe.util.*;
+import dev.doctor4t.wathe.communication.DebugIdentityCommunication;
 import dev.upcraft.datasync.api.DataSyncAPI;
 import dev.upcraft.datasync.api.util.Entitlements;
 import net.fabricmc.api.ModInitializer;
@@ -84,6 +85,7 @@ public class Wathe implements ModInitializer {
         CommandRegistrationCallback.EVENT.register(((dispatcher, registryAccess, environment) -> {
             MapVariablesCommand.register(dispatcher);
             GameSettingsCommand.register(dispatcher);
+            ShopCooldownBypassCommand.register(dispatcher);
             GiveRoomKeyCommand.register(dispatcher);
             StartCommand.register(dispatcher);
             StopCommand.register(dispatcher);
@@ -112,7 +114,12 @@ public class Wathe implements ModInitializer {
             MapVoteCommand.register(dispatcher);
             BlackoutCommand.register(dispatcher);
             DebugDisguiseCommand.register(dispatcher);
+            DebugBodyDisguiseCommand.register(dispatcher);
+            DebugIdentityCommand.register(dispatcher);
+            DebugChatIdentityCommand.register(dispatcher);
+            DebugReplayIdentityCommand.register(dispatcher);
         }));
+        DebugIdentityCommunication.register();
 
         /*
          * 保留原版支持者检测逻辑。

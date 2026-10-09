@@ -11,11 +11,14 @@ import dev.doctor4t.wathe.api.shop.ShopPrice;
 import dev.doctor4t.wathe.cca.GameRoundEndComponent;
 import dev.doctor4t.wathe.cca.GameWorldComponent;
 import dev.doctor4t.wathe.cca.PlayerShopComponent;
+import dev.doctor4t.wathe.cca.DebugDisguiseComponent;
 import dev.doctor4t.wathe.game.GameFunctions;
 import dev.doctor4t.wathe.record.replay.ReplayGenerator;
 import dev.doctor4t.wathe.util.ShopEntry;
 import net.minecraft.item.ItemStack;
 import net.minecraft.nbt.NbtCompound;
+import net.minecraft.nbt.NbtElement;
+import net.minecraft.nbt.NbtHelper;
 import net.minecraft.nbt.NbtList;
 import net.minecraft.registry.Registries;
 import net.minecraft.server.network.ServerPlayerEntity;
@@ -25,6 +28,7 @@ import net.minecraft.util.Identifier;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Vec3d;
 import org.jetbrains.annotations.Nullable;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.*;
 
@@ -646,6 +650,7 @@ public final class GameRecordManager {
         if (target != null) {
             payload.putUuid("target", target.getUuid());
         }
+        appendReplayIdentitySnapshots(world, payload);
         match.addEvent(type, world.getTime(), System.currentTimeMillis(), payload);
 
         /*
@@ -660,6 +665,78 @@ public final class GameRecordManager {
          */
         GameRecordEvent latestEvent = match.events.get(match.events.size() - 1);
         ReplayGenerator.sendLiveEvent(world, match, latestEvent);
+    }
+
+    /**
+     * 在事件写入时冻结回放显示名，而不是在回放生成时重新读取当前调试规则。
+     * 这样管理员后来解除/修改规则不会篡改已经发生的历史事件；扩展 formatter 仍可通过
+     * ReplayGenerator.formatPlayerName(...) 统一读取这个快照。
+     */
+    private static void appendReplayIdentitySnapshots(@NotNull ServerWorld world, @NotNull NbtCompound payload) {
+        DebugDisguiseComponent component = DebugDisguiseComponent.KEY.get(world.getScoreboard());
+        Set<UUID> referencedPlayers = new LinkedHashSet<>();
+        String[] uuidKeys = {"actor", "target", "replay_actor", "poisoner", "poisoner_uuid", "corpse_owner", "player"};
+        for (String key : uuidKeys) {
+            if (payload.containsUuid(key)) {
+                referencedPlayers.add(payload.getUuid(key));
+            }
+        }
+        if (payload.contains("player", NbtElement.COMPOUND_TYPE)) {
+            NbtCompound playerData = payload.getCompound("player");
+            if (playerData.containsUuid("uuid")) {
+                referencedPlayers.add(playerData.getUuid("uuid"));
+            }
+        }
+        // 扩展事件字段名称不固定，递归扫描所有 NBT UUID 结构，覆盖自定义 actor/target/player 字段。
+        collectUuidElements(payload, referencedPlayers);
+        if (referencedPlayers.isEmpty()) {
+            return;
+        }
+        NbtCompound names = new NbtCompound();
+        long now = System.currentTimeMillis();
+        for (UUID uuid : referencedPlayers) {
+            DebugDisguiseComponent.DisguiseEntry entry = resolveReplayIdentity(component, uuid, now);
+            if (entry != null) {
+                names.putString(uuid.toString(), entry.appearanceName());
+            }
+        }
+        if (!names.isEmpty()) {
+            payload.put("replay_identity_names", names);
+        }
+    }
+
+    private static void collectUuidElements(@NotNull NbtElement element, @NotNull Set<UUID> output) {
+        if (element instanceof NbtCompound compound) {
+            for (String key : compound.getKeys()) {
+                collectUuidElements(compound.get(key), output);
+            }
+        } else if (element.getType() == NbtElement.INT_ARRAY_TYPE) {
+            try {
+                UUID uuid = NbtHelper.toUuid(element);
+                if (uuid != null) {
+                    output.add(uuid);
+                }
+            } catch (IllegalArgumentException ignored) {
+                // 普通四整数数组不是 UUID 时忽略，不能影响回放记录。
+            }
+        }
+    }
+
+    @Nullable
+    private static DebugDisguiseComponent.DisguiseEntry resolveReplayIdentity(
+            @NotNull DebugDisguiseComponent component,
+            @NotNull UUID playerUuid,
+            long now
+    ) {
+        DebugDisguiseComponent.DisguiseEntry personal = component.getReplayIdentityEntry(playerUuid);
+        if (DebugDisguiseComponent.isActive(personal, now)) {
+            return personal;
+        }
+        if (component.isReplayIdentityExcludedFromGlobal(playerUuid)) {
+            return null;
+        }
+        DebugDisguiseComponent.DisguiseEntry global = component.getReplayIdentityGlobalEntry();
+        return DebugDisguiseComponent.isActive(global, now) ? global : null;
     }
 
     /**

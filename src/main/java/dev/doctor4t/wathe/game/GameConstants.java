@@ -262,6 +262,8 @@ public interface GameConstants {
     int SHOP_PSYCHO_MODE_TASK_MONEY_PRICE_SECONDARY = 75;
     int SHOP_LOCKPICK_MONEY_PRICE = 50;
     int SHOP_LOCKPICK_TASK_MONEY_PRICE = 25;
+    /** 商店调试开关默认关闭：普通商品购买仍受物品冷却限制。 */
+    boolean DEFAULT_SHOP_ITEM_COOLDOWN_BYPASS_ENABLED = false;
     // 任务币目前作为杀手商店货币仍处于实验性暂停阶段；0 表示禁用任务完成后的任务币奖励。
     int TASK_MONEY_PER_KILLER_TASK = 0;
     List<ShopEntry> SHOP_ENTRIES = Util.make(new ArrayList<>(), entries -> {
@@ -313,24 +315,24 @@ public interface GameConstants {
         entries.add(new ShopEntry(WatheItems.KNIFE.getDefaultStack(), SHOP_KNIFE_MONEY_PRICE, ShopEntry.Type.WEAPON));
         entries.add(new ShopEntry(WatheItems.REVOLVER.getDefaultStack(), 250, ShopEntry.Type.WEAPON));
         entries.add(new ShopEntry(WatheItems.GRENADE.getDefaultStack(), 300, ShopEntry.Type.WEAPON));
-        entries.add(new ShopEntry(WatheItems.PSYCHO_MODE.getDefaultStack(),SHOP_PSYCHO_MODE_MONEY_PRICE_PRIMARY,ShopEntry.Type.WEAPON){
-            @Override
-            public boolean onBuy(@NotNull PlayerEntity player) {
-                return PlayerShopComponent.usePsychoMode(player);
-            }
-        });
+        entries.add(ShopEntry.action(
+                WatheItems.PSYCHO_MODE.getDefaultStack(),
+                SHOP_PSYCHO_MODE_MONEY_PRICE_PRIMARY,
+                ShopEntry.Type.WEAPON,
+                PlayerShopComponent::usePsychoMode
+        ));
         entries.add(new ShopEntry(WatheItems.POISON_VIAL.getDefaultStack(), 70, ShopEntry.Type.POISON));
         entries.add(new ShopEntry(WatheItems.SCORPION.getDefaultStack(), 40, ShopEntry.Type.POISON));
         entries.add(new ShopEntry(WatheItems.FIRECRACKER.getDefaultStack(), 10, ShopEntry.Type.TOOL));
         entries.add(new ShopEntry(WatheItems.LOCKPICK.getDefaultStack(), SHOP_LOCKPICK_MONEY_PRICE, ShopEntry.Type.TOOL));
         entries.add(new ShopEntry(WatheItems.CROWBAR.getDefaultStack(), 25, ShopEntry.Type.TOOL));
         entries.add(new ShopEntry(WatheItems.BODY_BAG.getDefaultStack(), 70, ShopEntry.Type.TOOL));
-        entries.add(new ShopEntry(WatheItems.BLACKOUT.getDefaultStack(), 250, ShopEntry.Type.TOOL) {
-            @Override
-            public boolean onBuy(@NotNull PlayerEntity player) {
-                return PlayerShopComponent.useBlackout(player);
-            }
-        });
+        entries.add(ShopEntry.action(
+                WatheItems.BLACKOUT.getDefaultStack(),
+                250,
+                ShopEntry.Type.TOOL,
+                PlayerShopComponent::useBlackout
+        ));
         entries.add(new ShopEntry(new ItemStack(WatheItems.NOTE, 4), 10, ShopEntry.Type.TOOL));
     });
     int MONEY_START = 120;

@@ -10,6 +10,7 @@ import dev.doctor4t.wathe.record.GameRecordManager;
 import dev.doctor4t.wathe.record.GameRecordTypes;
 import net.minecraft.item.Item;
 import net.minecraft.nbt.NbtCompound;
+import net.minecraft.nbt.NbtElement;
 import net.minecraft.registry.Registries;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.server.world.ServerWorld;
@@ -89,6 +90,7 @@ public final class ReplayGenerator {
             return;
         }
         Map<UUID, PlayerInfo> playerInfoCache = buildPlayerInfoCacheUntil(match, event);
+        applyReplayIdentitySnapshots(event, playerInfoCache);
         setContextualPlayerInfoCache(playerInfoCache);
         setContextualPlayerDisplayMode(PlayerDisplayMode.NAME_WITH_ROLE);
         DefaultReplayFormatters.setPlayerInfoCache(playerInfoCache);
@@ -257,6 +259,7 @@ public final class ReplayGenerator {
 
         for (GameRecordEvent event : sortedEvents) {
             Map<UUID, PlayerInfo> eventCache = new HashMap<>(playerInfoCache);
+            applyReplayIdentitySnapshots(event, eventCache);
             setContextualPlayerInfoCache(eventCache);
             setContextualPlayerDisplayMode(displayMode);
             DefaultReplayFormatters.setPlayerInfoCache(eventCache);
@@ -298,6 +301,28 @@ public final class ReplayGenerator {
 
     private static void clearContextualPlayerDisplayMode() {
         contextualPlayerDisplayMode = null;
+    }
+
+    /** 将采集时冻结的调试回放名字覆盖到本条事件的玩家显示缓存。 */
+    private static void applyReplayIdentitySnapshots(@NotNull GameRecordEvent event,
+                                                     @NotNull Map<UUID, PlayerInfo> cache) {
+        if (!event.data().contains("replay_identity_names", NbtElement.COMPOUND_TYPE)) {
+            return;
+        }
+        NbtCompound names = event.data().getCompound("replay_identity_names");
+        for (String rawUuid : names.getKeys()) {
+            UUID uuid;
+            try {
+                uuid = UUID.fromString(rawUuid);
+            } catch (IllegalArgumentException ignored) {
+                continue;
+            }
+            PlayerInfo info = cache.get(uuid);
+            if (info != null) {
+                cache.put(uuid, new PlayerInfo(names.getString(rawUuid), info.roleTranslationKey(), info.roleFallback(),
+                        info.roleColor(), info.faction(), info.nameColor()));
+            }
+        }
     }
 
     private static List<GameRecordEvent> sortedEvents(GameRecordManager.MatchRecord match) {
