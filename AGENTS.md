@@ -91,7 +91,7 @@
 - 手持物隐藏：`HeldItemInvisibilityApi`
 - 低心情幻觉手持物：`PsychosisItemApi`（指定/随机物品、手臂姿势与 priority 覆盖）
 - 背包按钮：`InventoryButtonApi`、`InventoryScreenType`、`InventoryButtonContext`、`InventoryPageState`、`InventoryPageSwitchWidget`
-- 床 / 托盘 / 毒药 / 回放：`BedEffectRegistry`、`TrayEffectRegistry`、`CanSeePoison`、`ReplayRegistry`
+- 床 / 托盘 / 毒药 / 回放：`BedEffectRegistry`、`BedParticleRegistry`、`TrayEffectRegistry`、`TrayParticleRegistry`、`CanSeePoison`、`ReplayRegistry`
 
 ## 停电机制 API
 
@@ -100,6 +100,14 @@
 - `TrayEffectHandler#replayDisplay` 提供效果本地化名称，Wathe 通用回放会将效果渲染为醒目的白色 `[效果名]`；扩展不再为每个托盘效果注册 placement/take/consume 三套 formatter。
 - `TrayTakeRegistry.registerRule` 注册取物上限规则，返回背包与主手同类物品的最大总数；Wathe 默认值为 1。
 - `TrayParticleRegistry.registerProvider` 注册客户端托盘粒子 provider。原生毒药粒子由 Wathe 默认 provider 调度，扩展不应再 mixin `BeveragePlateBlockEntity`。
+
+## 床粒子公开化 API（最新）
+
+- `BedEffectRegistry` 负责服务端床效果的放置、睡眠触发、所有者和回放状态；`BedParticleRegistry` 只负责客户端粒子表现，二者不要混用。
+- `BedParticleRegistry.registerProvider(id, priority, provider)` 注册客户端床粒子 provider；provider 上下文通过 `BedParticleContext` 提供客户端世界、床坐标、`TrimmedBedBlockEntity` 和本地观察者。
+- provider 返回 `true` 表示本次床效果已经处理，返回 `false` 才继续询问低优先级 provider；priority 越高越先执行，相同 id 会替换旧注册。
+- Wathe 原生蝎子床粒子已经由默认 provider 调度，并保留杀手 / `CanSeePoison` 可见性和原有稀疏刷新概率。扩展不应再 mixin `TrimmedBedBlockEntity.clientTick`。
+- 扩展按职业拆到 `client/roles/<role>/<RoleName>BedParticleHandler`，再由 `client/bed/*BedParticles` 聚合入口调用；床粒子只能改变客户端视觉，不代表服务端床效果已经触发。
 
 ### 低心情幻觉手持物接入
 

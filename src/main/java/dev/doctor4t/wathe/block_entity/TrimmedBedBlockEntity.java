@@ -1,10 +1,12 @@
 package dev.doctor4t.wathe.block_entity;
 
+import dev.doctor4t.wathe.api.bed.BedParticleRegistry;
 import dev.doctor4t.wathe.index.WatheBlockEntities;
 import dev.doctor4t.wathe.index.WatheItems;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.entity.BlockEntity;
 import net.minecraft.block.entity.BlockEntityType;
+import net.minecraft.client.world.ClientWorld;
 import net.minecraft.nbt.NbtCompound;
 import net.minecraft.network.listener.ClientPlayPacketListener;
 import net.minecraft.network.packet.Packet;
@@ -89,7 +91,10 @@ public class TrimmedBedBlockEntity extends BlockEntity {
 
     @SuppressWarnings("unused")
     public static <T extends BlockEntity> void clientTick(World world, BlockPos pos, BlockState state, T t) {
-
+        if (world instanceof ClientWorld clientWorld && t instanceof TrimmedBedBlockEntity bed) {
+            // 床粒子统一交给公开注册表调度，扩展无需再注入本类的 clientTick。
+            BedParticleRegistry.tickClient(clientWorld, pos, bed);
+        }
     }
 
     @Override

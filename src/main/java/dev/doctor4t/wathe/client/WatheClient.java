@@ -11,6 +11,7 @@ import dev.doctor4t.wathe.api.client.tooltip.ItemTooltipApi;
 import dev.doctor4t.wathe.api.client.inventory.InventoryPageState;
 import dev.doctor4t.wathe.api.client.invisibility.HeldItemInvisibilityApi;
 import dev.doctor4t.wathe.api.client.psycho.PsychoModeClientApi;
+import dev.doctor4t.wathe.api.bed.BedParticleRegistry;
 import dev.doctor4t.wathe.api.tray.TrayParticleRegistry;
 import dev.doctor4t.wathe.api.event.GameEvents;
 import dev.doctor4t.wathe.api.instinct.InstinctApi;
@@ -136,6 +137,8 @@ public class WatheClient implements ClientModInitializer {
         // Register particle factories
         // 实体工厂注册
         WatheParticles.registerFactories();
+        // Wathe 原生蝎子床粒子由公共床粒子 API 统一调度，扩展 provider 可按优先级叠加。
+        BedParticleRegistry.registerDefaultProvider();
         // Wathe 原生毒药粒子由公共托盘粒子 API 统一调度，扩展 provider 可按优先级叠加。
         TrayParticleRegistry.registerDefaultProvider();
 

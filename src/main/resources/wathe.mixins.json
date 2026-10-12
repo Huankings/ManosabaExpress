@@ -63,7 +63,6 @@
     "client.scenery.SceneryWorldRendererMixin",
     "client.scenery.WorldRendererMixin",
     "client.self.NoteItemMixin",
-    "client.self.TrimmedBedBlockEntityMixin",
     "client.ui.InGameHudMixin",
     "client.ui.PlayerListHudMixin",
     "client.ui.TeleportSpectatorMenuMixin",

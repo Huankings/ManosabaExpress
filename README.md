@@ -600,6 +600,8 @@ Wathe 本体提供了不少社交推理玩法道具：
 
 - `TrayEffectRegistry`
 - `BedEffectRegistry`
+- `TrayParticleRegistry`
+- `BedParticleRegistry`
 - `CanSeePoison`
 - `ReplayRegistry` 的 tray / bed formatter
 
@@ -712,6 +714,8 @@ GameRecordManager.recordGlobalEvent(
 | `ItemTooltipApi` | 物品多行描述、实际冷却读秒和动态附加文本 | 扩展物品说明、动态枪械冷却、物品组件状态 |
 | `TrayEffectRegistry` | 托盘效果 | 毒药、药剂、陷阱 |
 | `BedEffectRegistry` | 床效果 | 床毒、床炸弹 |
+| `TrayParticleRegistry` | 托盘客户端粒子 | 原生毒药粒子、扩展药剂粒子 |
+| `BedParticleRegistry` | 床客户端粒子 | 原生蝎子粒子、扩展床效果粒子 |
 | `AllowPlayerDeath` | 死亡拦截 | 护盾、免死、替死 |
 | `AllowPlayerPunching` | 攻击权限 | 特殊职业允许 / 禁止拳击 |
 | `AllowPlayerOpenLockedDoor` | 锁门权限 | 万能钥匙、职业开门 |
@@ -1095,3 +1099,9 @@ VictoryApi.registerRule(MyMod.id("victory/my_role"), VictoryApi.DEFAULT_PRIORITY
 ### 托盘公开 API（1.3.3）
 
 `TrayEffectHandler#replayDisplay` 为效果提供统一回放名称；Wathe 自动生成托盘放置、取物和消费句式，并以白色 `[效果名]` 显示。`TrayTakeRegistry.registerRule` 可按职业/物品覆盖背包加主手的同类物品上限，默认上限为 1。`TrayParticleRegistry.registerProvider` 可注册托盘粒子 provider，原生毒药粒子已迁移到该调度器，扩展无需再 mixin 托盘方块实体。
+
+### 床粒子公开 API（1.3.3）
+
+`BedEffectRegistry` 继续负责服务端床效果的放置、睡眠触发、所有者和回放；`BedParticleRegistry.registerProvider` 负责客户端床粒子。provider 通过 `BedParticleContext` 读取床效果 ID、坐标、客户端世界和观察者，按 priority 从高到低执行，返回 `true` 表示本次已经处理，返回 `false` 才继续低优先级 provider。
+
+Wathe 原生蝎子床粒子已经迁移到默认 provider，并保留原有的杀手 / `CanSeePoison` 可见性规则和刷新概率。扩展床粒子应按职业拆分 handler 后注册，不应再注入 `TrimmedBedBlockEntity.clientTick`；该 API 只影响客户端视觉，不改变真实床效果和回放。
