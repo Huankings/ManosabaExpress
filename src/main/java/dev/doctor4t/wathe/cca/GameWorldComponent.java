@@ -78,6 +78,26 @@ public int getFixedKillerCount() { return this.fixedKillerCount; }
      */
     private boolean moodEffectDeathEnabled = true;
     /**
+     * 多任务叠加心情扣除倍率开关。
+     * 开启后玩家当前有几个任务，就按几个任务的倍数扣除心情；默认关闭以兼容原玩法。
+     */
+    private boolean moodTaskDrainMultiplierEnabled = GameConstants.DEFAULT_MOOD_TASK_DRAIN_MULTIPLIER_ENABLED;
+    /**
+     * 是否使用随机事件发放后续心情任务。
+     * false 为原有的固定心情阈值模式，true 为首个任务后按 35~55 秒随机事件发放。
+     */
+    private boolean randomMoodTaskSpawnEnabled = GameConstants.DEFAULT_RANDOM_MOOD_TASK_SPAWN_ENABLED;
+    /**
+     * 当前世界实际允许的最大心情任务槽位。
+     * 最低值由 GameConstants.MIN_CONFIGURED_MOOD_TASK_SLOTS 统一限制，允许高于历史默认的 3 个。
+     */
+    private int configuredMoodTaskSlots = GameConstants.DEFAULT_CONFIGURED_MOOD_TASK_SLOTS;
+    /**
+     * 卡死任务自动清理开关。
+     * 关闭期间只暂停累计和清理，不清空本局已经积累的计数，重新开启后可以继续累计。
+     */
+    private boolean stuckMoodTaskCleanupEnabled = GameConstants.DEFAULT_STUCK_TASK_CLEANUP_ENABLED;
+    /**
      * 是否允许普通“购买后给予物品”的商品在物品冷却期间继续购买。
      * 即时 ACTION 商品无论该值如何都仍受冷却限制。
      */
@@ -217,6 +237,55 @@ public int getFixedKillerCount() { return this.fixedKillerCount; }
      */
     public void setMoodEffectDeathEnabled(boolean moodEffectDeathEnabled) {
         this.moodEffectDeathEnabled = moodEffectDeathEnabled;
+        this.sync();
+    }
+
+    public boolean isMoodTaskDrainMultiplierEnabled() {
+        return this.moodTaskDrainMultiplierEnabled;
+    }
+
+    /** 修改多任务心情扣除倍率开关，并立即同步到所有客户端。 */
+    public void setMoodTaskDrainMultiplierEnabled(boolean enabled) {
+        this.moodTaskDrainMultiplierEnabled = enabled;
+        this.sync();
+    }
+
+    public boolean isRandomMoodTaskSpawnEnabled() {
+        return this.randomMoodTaskSpawnEnabled;
+    }
+
+    /** 修改任务发放模式，并立即同步；已有任务不会因为切换模式被删除。 */
+    public void setRandomMoodTaskSpawnEnabled(boolean enabled) {
+        this.randomMoodTaskSpawnEnabled = enabled;
+        this.sync();
+    }
+
+    public int getConfiguredMoodTaskSlots() {
+        return this.configuredMoodTaskSlots;
+    }
+
+    /**
+     * 修改当前世界的最大任务槽位。
+     *
+     * <p>槽位降低时必须立刻收缩所有玩家已经存在的超额任务，避免新的上限只影响后续发放，
+     * 却让当前任务数量暂时突破设置。收缩只做“删除任务”语义，不奖励心情、不写完成回放。</p>
+     */
+    public void setConfiguredMoodTaskSlots(int slots) {
+        int sanitizedSlots = Math.max(GameConstants.MIN_CONFIGURED_MOOD_TASK_SLOTS, slots);
+        this.configuredMoodTaskSlots = sanitizedSlots;
+        for (PlayerEntity player : this.world.getPlayers()) {
+            PlayerMoodComponent.KEY.get(player).trimActiveTasksToLimit(sanitizedSlots);
+        }
+        this.sync();
+    }
+
+    public boolean isStuckMoodTaskCleanupEnabled() {
+        return this.stuckMoodTaskCleanupEnabled;
+    }
+
+    /** 修改卡死任务清理开关；关闭时保留已累计的计数。 */
+    public void setStuckMoodTaskCleanupEnabled(boolean enabled) {
+        this.stuckMoodTaskCleanupEnabled = enabled;
         this.sync();
     }
 
@@ -839,6 +908,17 @@ this.fixedKillerCount = nbtCompound.contains("FixedKillerCount") ? nbtCompound.g
             this.legacyRequiredStartPlayerCount = Math.max(1, nbtCompound.getInt("RequiredStartPlayerCount"));
         }
         this.moodEffectDeathEnabled = !nbtCompound.contains("MoodEffectDeathEnabled") || nbtCompound.getBoolean("MoodEffectDeathEnabled");
+        this.moodTaskDrainMultiplierEnabled = nbtCompound.contains("MoodTaskDrainMultiplierEnabled")
+                ? nbtCompound.getBoolean("MoodTaskDrainMultiplierEnabled")
+                : GameConstants.DEFAULT_MOOD_TASK_DRAIN_MULTIPLIER_ENABLED;
+        this.randomMoodTaskSpawnEnabled = nbtCompound.contains("RandomMoodTaskSpawnEnabled")
+                && nbtCompound.getBoolean("RandomMoodTaskSpawnEnabled");
+        this.configuredMoodTaskSlots = nbtCompound.contains("ConfiguredMoodTaskSlots")
+                ? Math.max(GameConstants.MIN_CONFIGURED_MOOD_TASK_SLOTS, nbtCompound.getInt("ConfiguredMoodTaskSlots"))
+                : GameConstants.DEFAULT_CONFIGURED_MOOD_TASK_SLOTS;
+        this.stuckMoodTaskCleanupEnabled = nbtCompound.contains("StuckMoodTaskCleanupEnabled")
+                ? nbtCompound.getBoolean("StuckMoodTaskCleanupEnabled")
+                : GameConstants.DEFAULT_STUCK_TASK_CLEANUP_ENABLED;
         this.shopItemCooldownBypassEnabled = nbtCompound.contains("ShopItemCooldownBypassEnabled")
                 && nbtCompound.getBoolean("ShopItemCooldownBypassEnabled");
         this.midMoodStaminaPenaltyEnabled = nbtCompound.contains("MidMoodStaminaPenaltyEnabled")
@@ -941,6 +1021,10 @@ this.fixedKillerCount = nbtCompound.contains("FixedKillerCount") ? nbtCompound.g
             nbtCompound.putInt("RequiredStartPlayerCount", this.legacyRequiredStartPlayerCount);
         }
         nbtCompound.putBoolean("MoodEffectDeathEnabled", moodEffectDeathEnabled);
+        nbtCompound.putBoolean("MoodTaskDrainMultiplierEnabled", moodTaskDrainMultiplierEnabled);
+        nbtCompound.putBoolean("RandomMoodTaskSpawnEnabled", randomMoodTaskSpawnEnabled);
+        nbtCompound.putInt("ConfiguredMoodTaskSlots", configuredMoodTaskSlots);
+        nbtCompound.putBoolean("StuckMoodTaskCleanupEnabled", stuckMoodTaskCleanupEnabled);
         nbtCompound.putBoolean("ShopItemCooldownBypassEnabled", shopItemCooldownBypassEnabled);
         nbtCompound.putBoolean("MidMoodStaminaPenaltyEnabled", midMoodStaminaPenaltyEnabled);
         nbtCompound.putBoolean("DepressiveMoodStaminaPenaltyEnabled", depressiveMoodStaminaPenaltyEnabled);

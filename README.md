@@ -368,16 +368,16 @@ Wathe 的地图通常是“模板区复制到游戏区”。配置项来自：
 本项目对原任务系统做了重要调整：
 
 - 心情值限制在 `0.0 ~ 1.0`；
-- 只要身上有任意任务，就按单任务速度掉心情，不再按任务数量叠加掉心情；
-- 第一个任务仍按冷却刷新；
-- 低心情会按阈值临时开放第二 / 第三个并行任务槽；
+- 默认只要身上有任意任务，就按单任务速度掉心情；开启多任务倍率开关后，会按当前任务数量倍数扣除心情；
+- 固定阈值模式下，第一个任务仍按原有冷却刷新，低心情只会按原有阈值临时补到最多 3 个任务；把动态槽位设置到 4 个或更多不会改变固定阈值模式；
+- 随机事件模式下，开局首个任务仍使用 `TIME_TO_FIRST_TASK`，首个任务成功发放后，后续任务按 35~55 秒随机事件发放，任务完成不会重置计时；
 - 扩展 Mod 可以通过 `MoodTaskApi.assignRandomTasks(...)` / `fillRandomTaskSlots(...)` 主动发放随机心情任务，也可以用 `MoodTaskApi.assignTask(player, taskId)` 指定发放某个注册任务；
 - 扩展 Mod 可以用 `MoodTaskApi.registerAssignmentRule(...)` 在任务进入任务栏前阻止 Wathe 自动发放、外部随机发放或指定发放；专属职业任务节奏应使用这个入口，不要用 tick 删除任务来兜底；
 - 心情任务现在按 `Identifier` 注册，内置任务默认进入随机池，扩展任务默认只允许指定发放，除非定义里显式启用随机池；
-- 外部主动发放任务仍然和自动任务共用最多 3 个同时任务的上限；
+- 外部主动发放任务和随机事件模式共用当前世界的动态最大任务槽位，默认 3，最低为 1，也可以通过指令设置为更高数量；固定阈值模式仍最多自动补到 3 个；
 - 心情回升后不会强行删除已有任务，但不会继续补新任务；
 - 完成一个任务只移除该任务，不会清空全部任务；
-- 长期卡住的任务会在其他任务完成若干次后自动移除，但不奖励心情；
+- 长期卡住的任务会在其他任务完成若干次后自动移除，但不奖励心情；管理员可以关闭清理机制，关闭期间保留已有累计值并暂停继续累计；
 - 任务完成会记录回放，并触发 `TaskCompletionApi`。
 
 内置任务包括：
@@ -891,6 +891,11 @@ Wathe 默认规则仍受 `/wathe:playerCollision` 和 `/wathe:startnoCollision` 
 | `/wathe:moodTask assign <task> [player]` | 指定发放某个心情任务，不写玩家时默认自己 |
 | `/wathe:moodTask remove <task> [player]` | 只移除某个心情任务，不加心情、不触发任务完成 |
 | `/wathe:moodTask complete <task> [player]` | 按完成流程完成某个心情任务，会加心情并触发任务完成 API |
+| `/wathe:moodTaskSettings` | 查看多任务心情设置 |
+| `/wathe:moodTaskSettings drainMultiplier <true|false>` | 开关按任务数量倍数扣除心情 |
+| `/wathe:moodTaskSettings spawnMode <threshold|random>` | 切换固定心情阈值或随机事件发放模式 |
+| `/wathe:moodTaskSettings maxSlots <数量>` | 设置最大任务槽位，最低为 1，默认 3 |
+| `/wathe:moodTaskSettings stuckCleanup <true|false>` | 开关卡死任务自动清理，关闭期间保留已有累计值 |
 | `/wathe:allowjump <true|false|check>` | 开关局内存活玩家跳跃 |
 | `/wathe:playerCollision <true|false|check>` | 开关局内存活玩家碰撞 |
 | `/wathe:startnoCollision <seconds|check>` | 设置开局无碰撞保护时间 |

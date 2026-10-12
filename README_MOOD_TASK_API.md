@@ -67,6 +67,11 @@ MoodTaskApi.completeTask(target, MY_TASK, true);
 - `removeTask`：只删除任务，不加心情、不触发完成事件、不写任务完成回放。
 - `completeTask`：按正常完成流程结算；`rewardMood=true` 时会按 Wathe 心情规则回复心情。
 
+所有自动和外部发放都会遵守当前世界的动态最大任务槽位。默认值为 3，管理员可使用
+`/wathe:moodTaskSettings maxSlots <数量>` 调整，最低为 1，也允许设置为高于 3 的数量。
+固定心情阈值模式仍只按 Wathe 原有阈值自动补到最多 3 个任务；高于 3 的槽位只供
+随机事件模式以及扩展通过 API 主动发放任务使用。
+
 ## 发放拦截
 
 如果扩展职业要完全接管任务节奏，不要在 tick 里等任务出现后再删除。那会导致客户端看到任务短暂闪现。应在 Wathe 发放前注册拦截规则：
@@ -86,6 +91,7 @@ MoodTaskApi.registerAssignmentRule(
 | 来源 | 含义 |
 | --- | --- |
 | `INTERNAL_PRIMARY_COOLDOWN` | Wathe 在任务栏为空且第一个任务冷却结束后自动刷任务 |
+| `INTERNAL_RANDOM_EVENT` | 随机事件模式下，首个任务之后由 35~55 秒独立计时器触发的任务 |
 | `INTERNAL_SLOT_REFILL` | Wathe 因低心情并行槽位或任务完成后阈值检查自动补任务 |
 | `EXTERNAL_RANDOM` | 扩展或调试入口调用 `assignRandomTask` / `assignRandomTasks` |
 | `EXTERNAL_SPECIFIC` | 扩展或调试入口调用 `assignTask(player, taskId)` |
@@ -99,6 +105,11 @@ MoodTaskApi.registerAssignmentRule(
 /wathe:moodTask assign <task> [player]
 /wathe:moodTask remove <task> [player]
 /wathe:moodTask complete <task> [player]
+/wathe:moodTaskSettings
+/wathe:moodTaskSettings drainMultiplier <true|false>
+/wathe:moodTaskSettings spawnMode <threshold|random>
+/wathe:moodTaskSettings maxSlots <数量>
+/wathe:moodTaskSettings stuckCleanup <true|false>
 ```
 
 不写 `[player]` 时默认作用于执行指令的玩家自己。

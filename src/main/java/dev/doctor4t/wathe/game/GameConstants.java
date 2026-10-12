@@ -155,12 +155,45 @@ public interface GameConstants {
     int MIN_TASK_COOLDOWN = getInTicks(0, 30);
     int MAX_TASK_COOLDOWN = getInTicks(1, 0);
     /**
-     * 玩家身上允许同时挂起的心情任务上限。
+     * 随机任务事件模式下，首个任务之后每次随机事件允许发放任务的最短间隔。
      *
-     * <p>低心情阈值自动补任务、以及扩展通过公开 API 主动发任务，都必须共同遵守这个上限。
-     * 这样扩展职业可以绕开心情阈值额外塞任务，但不会把 HUD 和任务完成逻辑推到 Wathe 没设计过的数量。</p>
+     * <p>注意：随机模式的开局首个任务仍然使用 {@link #TIME_TO_FIRST_TASK}，
+     * 只有首个任务已经成功发放后，后续事件才会使用这里的 35 秒下限。</p>
      */
-    int MAX_CONCURRENT_MOOD_TASKS = 3;
+    int RANDOM_MOOD_TASK_MIN_COOLDOWN = getInTicks(0, 35);
+    /**
+     * 随机任务事件模式下，首个任务之后每次随机事件允许发放任务的最长间隔。
+     */
+    int RANDOM_MOOD_TASK_MAX_COOLDOWN = getInTicks(0, 55);
+    /**
+     * 多任务心情扣除倍率开关的默认状态。
+     * 关闭时保持原有的单任务固定心情下降速度。
+     */
+    boolean DEFAULT_MOOD_TASK_DRAIN_MULTIPLIER_ENABLED = false;
+    /**
+     * 任务发放模式的默认状态。
+     * false 表示使用原有的固定心情阈值补任务模式，true 表示使用随机事件模式。
+     */
+    boolean DEFAULT_RANDOM_MOOD_TASK_SPAWN_ENABLED = false;
+    /**
+     * 运行时最大任务槽位允许设置的最低值，避免管理员把任务系统设置成完全不可发放。
+     */
+    int MIN_CONFIGURED_MOOD_TASK_SLOTS = 1;
+    /**
+     * 新世界和旧存档缺少配置字段时使用的默认任务槽位数量。
+     * 原有玩法默认最多同时存在 3 个任务，因此这里保持为 3。
+     */
+    int DEFAULT_CONFIGURED_MOOD_TASK_SLOTS = 3;
+    /**
+     * 卡死任务自动清理机制的默认状态。
+     * 默认开启，兼容当前已有的 4 次 / 6 次清理规则。
+     */
+    boolean DEFAULT_STUCK_TASK_CLEANUP_ENABLED = true;
+    /**
+     * 旧版公开常量，保留给扩展源码和旧二进制兼容使用。
+     * 实际运行时上限由 GameWorldComponent 的任务槽位设置决定，允许高于这个历史默认值。
+     */
+    int MAX_CONCURRENT_MOOD_TASKS = DEFAULT_CONFIGURED_MOOD_TASK_SLOTS;
     float SECOND_TASK_MOOD_THRESHOLD = 0.51f;
     float THIRD_TASK_MOOD_THRESHOLD = 0.17f;
     float MOOD_BREAKDOWN_WARNING_THRESHOLD = 0.15f;

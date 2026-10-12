@@ -68,12 +68,12 @@ import static dev.doctor4t.wathe.Wathe.isSkyVisibleAdjacent;
  *
  * <p>本次改造后的关键点如下：
  * 1. 心情仍然被限制在 0~1；
- * 2. 只要身上还有任意任务，就按原版单任务速度持续掉心情，不再按任务数量叠乘；
+ * 2. 只要身上还有任意任务就持续掉心情；默认保持原版单任务速度，开启全局倍率开关后才按任务数量叠乘；
  * 3. 第一个任务依旧走时间冷却刷新；
  * 4. 第二、第三个任务不会永久解锁，而是只在当前心情真的落入对应阈值区间时补刷；
  * 5. 任务做完后，其他任务不会消失；
  * 6. 如果某个任务一直留在任务栏里，系统会累计“其他任务完成了多少次”，达到阈值后自动清掉该卡死任务，但不会给心情奖励；
- * 7. 扩展可以通过公开 API 主动发放任务，但最多仍只能同时存在 {@link GameConstants#MAX_CONCURRENT_MOOD_TASKS} 个任务。
+ * 7. 扩展可以通过公开 API 主动发放任务，但必须遵守当前世界的动态任务槽位设置。
  */
 public class PlayerMoodComponent implements AutoSyncedComponent, ServerTickingComponent, ClientTickingComponent {
     public static final ComponentKey<PlayerMoodComponent> KEY = ComponentRegistry.getOrCreate(Wathe.id("mood"), PlayerMoodComponent.class);
@@ -123,6 +123,13 @@ public class PlayerMoodComponent implements AutoSyncedComponent, ServerTickingCo
      * 只有当任务栏为空时才会倒计时，保持原版“做完再等一段时间刷一个”的节奏。
      */
     private int nextTaskTimer = GameConstants.TIME_TO_FIRST_TASK;
+
+    /** 本局是否已经成功发放过第一个自动任务，用于区分随机模式的首个 30 秒计时。 */
+    private boolean primaryTaskHasSpawned = false;
+
+    /** 上一次处理任务计时器时观察到的发放模式，用于检测管理员运行中切换模式。 */
+    private boolean observedRandomTaskSpawnMode = false;
+    private boolean taskSpawnModeInitialized = false;
 
     /**
      * 当前真实心情值，范围固定为 0~1。
@@ -200,6 +207,8 @@ public class PlayerMoodComponent implements AutoSyncedComponent, ServerTickingCo
         this.timesGotten.clear();
         this.stuckTaskCompletionCounts.clear();
         this.nextTaskTimer = GameConstants.TIME_TO_FIRST_TASK;
+        this.primaryTaskHasSpawned = false;
+        this.taskSpawnModeInitialized = false;
         this.mood = 1f;
         this.externalMoodDrainMultiplier = 1f;
         this.externalMoodDrainProtectionTicks = 0;
@@ -310,7 +319,10 @@ public class PlayerMoodComponent implements AutoSyncedComponent, ServerTickingCo
     }
 
     private float getCurrentMoodDrainPerTick() {
-        return GameConstants.MOOD_DRAIN * this.externalMoodDrainMultiplier;
+        GameWorldComponent gameWorld = GameWorldComponent.KEY.get(this.player.getWorld());
+        int activeTaskCount = Math.max(1, this.activeTasks.size());
+        float taskCountMultiplier = gameWorld.isMoodTaskDrainMultiplierEnabled() ? activeTaskCount : 1f;
+        return GameConstants.MOOD_DRAIN * this.externalMoodDrainMultiplier * taskCountMultiplier;
     }
 
     /**
@@ -346,7 +358,17 @@ public class PlayerMoodComponent implements AutoSyncedComponent, ServerTickingCo
         if (!hasRealMood(role)) {
             return 1;
         }
-        return Math.max(1, GameConstants.getUnlockedMoodTaskSlots(this.mood));
+        /*
+         * 固定心情阈值模式始终只使用 Wathe 原有的 1 / 2 / 3 个任务档位。
+         * 即使管理员把动态槽位上限设置成 4 个或更多，这里也绝不把最低心情档扩展到该数量；
+         * 高于 3 的槽位仅供随机事件模式和扩展主动发放任务使用。
+         *
+         * 动态上限仍需要参与 Math.min：管理员把上限调低到 1 或 2 时，
+         * 固定阈值模式必须尊重更低的全局上限，不能继续补出第 2 / 第 3 个任务。
+         */
+        int configuredSlots = GameWorldComponent.KEY.get(this.player.getWorld()).getConfiguredMoodTaskSlots();
+        int thresholdSlots = Math.max(1, GameConstants.getUnlockedMoodTaskSlots(this.mood));
+        return Math.min(configuredSlots, thresholdSlots);
     }
 
     /**
@@ -362,8 +384,12 @@ public class PlayerMoodComponent implements AutoSyncedComponent, ServerTickingCo
             return;
         }
 
-        if (this.assignRandomTask(MoodTaskApi.AssignmentSource.INTERNAL_PRIMARY_COOLDOWN) != null && allowExtraTaskSlots) {
-            this.fillTasksUpToExpectedCount(this.getExpectedConcurrentTaskCount(getCurrentRole()));
+        Identifier taskId = this.assignRandomTask(MoodTaskApi.AssignmentSource.INTERNAL_PRIMARY_COOLDOWN);
+        if (taskId != null) {
+            this.primaryTaskHasSpawned = true;
+            if (allowExtraTaskSlots) {
+                this.fillTasksUpToExpectedCount(this.getExpectedConcurrentTaskCount(getCurrentRole()));
+            }
         }
 
         this.nextTaskTimer = this.getRandomTaskCooldown();
@@ -382,7 +408,10 @@ public class PlayerMoodComponent implements AutoSyncedComponent, ServerTickingCo
             return 0;
         }
 
-        int cappedExpectedTaskCount = Math.min(expectedTaskCount, GameConstants.MAX_CONCURRENT_MOOD_TASKS);
+        int cappedExpectedTaskCount = Math.min(
+                expectedTaskCount,
+                GameWorldComponent.KEY.get(this.player.getWorld()).getConfiguredMoodTaskSlots()
+        );
         int filled = 0;
         while (this.activeTasks.size() < cappedExpectedTaskCount) {
             Identifier taskId = this.assignRandomTask(MoodTaskApi.AssignmentSource.INTERNAL_SLOT_REFILL);
@@ -421,6 +450,59 @@ public class PlayerMoodComponent implements AutoSyncedComponent, ServerTickingCo
     }
 
     /**
+     * 生成随机事件模式下首个任务之后的下一次发放间隔。
+     * 首个任务本身仍由 TIME_TO_FIRST_TASK 控制，不会调用这个方法。
+     */
+    private int getRandomMoodTaskEventCooldown() {
+        float random = this.player.getRandom().nextFloat();
+        int cooldown = (int) (random * (GameConstants.RANDOM_MOOD_TASK_MAX_COOLDOWN - GameConstants.RANDOM_MOOD_TASK_MIN_COOLDOWN)
+                + GameConstants.RANDOM_MOOD_TASK_MIN_COOLDOWN);
+        return Math.max(cooldown, 2);
+    }
+
+    /**
+     * 运行中切换任务发放模式时，只重排之后的计时，不清理已有任务。
+     * 在首个自动任务尚未发放前保留 TIME_TO_FIRST_TASK，确保随机模式开局仍是 30 秒。
+     */
+    private void updateTaskSpawnMode(boolean randomMode) {
+        if (!this.taskSpawnModeInitialized) {
+            this.observedRandomTaskSpawnMode = randomMode;
+            this.taskSpawnModeInitialized = true;
+            return;
+        }
+        if (this.observedRandomTaskSpawnMode == randomMode) {
+            return;
+        }
+
+        this.observedRandomTaskSpawnMode = randomMode;
+        if (this.primaryTaskHasSpawned) {
+            this.nextTaskTimer = randomMode ? this.getRandomMoodTaskEventCooldown() : this.getRandomTaskCooldown();
+        }
+    }
+
+    /**
+     * 随机事件模式的任务计时器。
+     * 计时器不依赖当前任务数量，也不会因为某个任务完成而重置；满槽时只跳过本次发放。
+     */
+    private void tickRandomTaskEvents() {
+        this.nextTaskTimer--;
+        if (this.nextTaskTimer > 0) {
+            return;
+        }
+
+        int maxSlots = GameWorldComponent.KEY.get(this.player.getWorld()).getConfiguredMoodTaskSlots();
+        if (this.activeTasks.size() < maxSlots) {
+            Identifier taskId = this.assignRandomTask(MoodTaskApi.AssignmentSource.INTERNAL_RANDOM_EVENT);
+            if (taskId != null) {
+                this.primaryTaskHasSpawned = true;
+            }
+        }
+
+        // 无论本次是否因为满槽或没有候选任务而跳过，都继续安排下一次独立随机事件。
+        this.nextTaskTimer = this.getRandomMoodTaskEventCooldown();
+    }
+
+    /**
      * 当前已有多少个心情任务。
      *
      * <p>这个读入口给扩展 API 和调试逻辑使用，避免外部为了看数量直接依赖 {@link #tasks} 的可变 Map。</p>
@@ -432,10 +514,33 @@ public class PlayerMoodComponent implements AutoSyncedComponent, ServerTickingCo
     /**
      * 当前还剩多少个可发放任务槽。
      *
-     * <p>这里统一使用 {@link GameConstants#MAX_CONCURRENT_MOOD_TASKS}，确保低心情自动任务和扩展主动任务都共用同一条上限规则。</p>
+     * <p>这里统一使用当前世界的动态槽位设置，确保自动任务和扩展主动任务共用同一条上限规则。</p>
      */
     public int getRemainingMoodTaskSlots() {
-        return Math.max(0, GameConstants.MAX_CONCURRENT_MOOD_TASKS - this.activeTasks.size());
+        int configuredSlots = GameWorldComponent.KEY.get(this.player.getWorld()).getConfiguredMoodTaskSlots();
+        return Math.max(0, configuredSlots - this.activeTasks.size());
+    }
+
+    /**
+     * 当管理员降低全局任务槽位时，按加入顺序保留较早任务，删除较新的超额任务。
+     * 该操作只等价于 remove，不会触发完成奖励、回放或卡死任务累计。
+     */
+    public void trimActiveTasksToLimit(int maxSlots) {
+        int sanitizedSlots = Math.max(GameConstants.MIN_CONFIGURED_MOOD_TASK_SLOTS, maxSlots);
+        if (this.activeTasks.size() <= sanitizedSlots) {
+            return;
+        }
+
+        ArrayList<Identifier> activeIds = new ArrayList<>(this.activeTasks.keySet());
+        for (int index = activeIds.size() - 1; this.activeTasks.size() > sanitizedSlots && index >= 0; index--) {
+            this.removeActiveTask(activeIds.get(index));
+        }
+
+        if (this.player.getWorld().isClient()) {
+            return;
+        }
+        this.sync();
+        this.dirty = false;
     }
 
     /**
@@ -680,12 +785,15 @@ public class PlayerMoodComponent implements AutoSyncedComponent, ServerTickingCo
             TaskCompletionApi.handleTaskCompleted(serverPlayer, GameWorldComponent.KEY.get(serverPlayer.getWorld()), taskId, MoodTaskApi.getLegacyTask(taskId), rewardMood);
         }
 
-        this.incrementStuckTaskCounters();
-        this.clearStuckTasksIfNeeded();
+        GameWorldComponent gameWorld = GameWorldComponent.KEY.get(this.player.getWorld());
+        if (gameWorld.isStuckMoodTaskCleanupEnabled()) {
+            this.incrementStuckTaskCounters();
+            this.clearStuckTasksIfNeeded();
+        }
 
-        if (this.activeTasks.isEmpty()) {
+        if (this.activeTasks.isEmpty() && !gameWorld.isRandomMoodTaskSpawnEnabled()) {
             this.nextTaskTimer = this.getRandomTaskCooldown();
-        } else {
+        } else if (!gameWorld.isRandomMoodTaskSpawnEnabled()) {
             this.fillTasksUpToExpectedCount(this.getExpectedConcurrentTaskCount(getCurrentRole()));
         }
         return true;
@@ -910,12 +1018,15 @@ public class PlayerMoodComponent implements AutoSyncedComponent, ServerTickingCo
             return;
         }
 
-        // 真实心情角色只要身上还有任务，就按原版单任务速度掉心情。
+        boolean randomTaskSpawnMode = gameWorldComponent.isRandomMoodTaskSpawnEnabled();
+        this.updateTaskSpawnMode(randomTaskSpawnMode);
+
+        // 真实心情角色只要身上还有任务，就按当前开关决定单任务或多任务倍率掉心情。
         if (hasRealMood && !this.activeTasks.isEmpty() && !this.hasMoodDrainProtection()) {
             this.setMoodSilently(this.mood - this.getCurrentMoodDrainPerTick());
         }
 
-        if (hasRealMood) {
+        if (hasRealMood && !randomTaskSpawnMode) {
             /**
              * 多任务现在改成“严格按当前心情阈值补刷”：
              * 1. 心情继续处在低阈值区间时，会把缺的任务补回来；
@@ -925,8 +1036,12 @@ public class PlayerMoodComponent implements AutoSyncedComponent, ServerTickingCo
             this.fillTasksUpToExpectedCount(this.getExpectedConcurrentTaskCount(role));
         }
 
-        // 第一个任务槽位仍然走时间刷新机制。
-        this.tickPrimaryTaskCooldown(hasRealMood);
+        // 两种模式都保留开局首个任务的 TIME_TO_FIRST_TASK；之后才分流到各自的调度规则。
+        if (randomTaskSpawnMode) {
+            this.tickRandomTaskEvents();
+        } else {
+            this.tickPrimaryTaskCooldown(hasRealMood);
+        }
 
         ArrayList<Identifier> completedTasks = new ArrayList<>();
         ArrayList<Map.Entry<Identifier, TrainTask>> currentTasks = new ArrayList<>(this.activeTasks.entrySet());
@@ -1013,7 +1128,7 @@ public class PlayerMoodComponent implements AutoSyncedComponent, ServerTickingCo
                 source,
                 source != MoodTaskApi.AssignmentSource.EXTERNAL_SPECIFIC,
                 this.activeTasks.size(),
-                GameConstants.MAX_CONCURRENT_MOOD_TASKS
+                GameWorldComponent.KEY.get(serverPlayer.getWorld()).getConfiguredMoodTaskSlots()
         );
         return MoodTaskApi.canAssignTask(context);
     }
@@ -1213,6 +1328,9 @@ public class PlayerMoodComponent implements AutoSyncedComponent, ServerTickingCo
     public void writeToNbt(@NotNull NbtCompound tag, RegistryWrapper.@NotNull WrapperLookup registryLookup) {
         tag.putFloat("mood", this.mood);
         tag.putInt("nextTaskTimer", this.nextTaskTimer);
+        tag.putBoolean("primaryTaskHasSpawned", this.primaryTaskHasSpawned);
+        tag.putBoolean("observedRandomTaskSpawnMode", this.observedRandomTaskSpawnMode);
+        tag.putBoolean("taskSpawnModeInitialized", this.taskSpawnModeInitialized);
         tag.putFloat("externalMoodDrainMultiplier", this.externalMoodDrainMultiplier);
         tag.putInt("externalMoodDrainProtectionTicks", this.externalMoodDrainProtectionTicks);
 
@@ -1254,6 +1372,12 @@ public class PlayerMoodComponent implements AutoSyncedComponent, ServerTickingCo
     public void readFromNbt(@NotNull NbtCompound tag, RegistryWrapper.@NotNull WrapperLookup registryLookup) {
         this.mood = tag.contains("mood", NbtElement.FLOAT_TYPE) ? tag.getFloat("mood") : 1f;
         this.nextTaskTimer = tag.contains("nextTaskTimer", NbtElement.INT_TYPE) ? tag.getInt("nextTaskTimer") : GameConstants.TIME_TO_FIRST_TASK;
+        this.primaryTaskHasSpawned = tag.contains("primaryTaskHasSpawned", NbtElement.BYTE_TYPE)
+                && tag.getBoolean("primaryTaskHasSpawned");
+        this.observedRandomTaskSpawnMode = tag.contains("observedRandomTaskSpawnMode", NbtElement.BYTE_TYPE)
+                && tag.getBoolean("observedRandomTaskSpawnMode");
+        this.taskSpawnModeInitialized = tag.contains("taskSpawnModeInitialized", NbtElement.BYTE_TYPE)
+                && tag.getBoolean("taskSpawnModeInitialized");
         this.externalMoodDrainMultiplier = tag.contains("externalMoodDrainMultiplier", NbtElement.FLOAT_TYPE)
                 ? Math.max(0f, tag.getFloat("externalMoodDrainMultiplier"))
                 : 1f;

@@ -28,7 +28,7 @@ import java.util.Objects;
  * <p>默认策略：</p>
  * <p>1. Wathe 内置任务显式加入随机池；</p>
  * <p>2. 扩展任务默认不进随机池，只能通过 {@link #assignTask(ServerPlayerEntity, Identifier)} 指定发放；</p>
- * <p>3. 所有外部发放仍然遵守 {@link GameConstants#MAX_CONCURRENT_MOOD_TASKS} 上限和 Wathe 的对局/存活检查。</p>
+ * <p>3. 所有外部发放仍然遵守当前世界的动态任务槽位设置和 Wathe 的对局/存活检查。</p>
  */
 public final class MoodTaskApi {
     public static final int DEFAULT_PRIORITY = 0;
@@ -204,7 +204,7 @@ public final class MoodTaskApi {
 
         PlayerMoodComponent moodComponent = PlayerMoodComponent.KEY.get(player);
         int activeTaskCount = moodComponent.getActiveMoodTaskCount();
-        int maxTaskCount = GameConstants.MAX_CONCURRENT_MOOD_TASKS;
+        int maxTaskCount = getConfiguredMaxTaskCount(player);
 
         AssignmentStatus validationStatus = validateAssignmentBase(player, requestedCount);
         if (validationStatus != AssignmentStatus.SUCCESS) {
@@ -248,7 +248,7 @@ public final class MoodTaskApi {
 
         PlayerMoodComponent moodComponent = PlayerMoodComponent.KEY.get(player);
         int activeTaskCount = moodComponent.getActiveMoodTaskCount();
-        int maxTaskCount = GameConstants.MAX_CONCURRENT_MOOD_TASKS;
+        int maxTaskCount = getConfiguredMaxTaskCount(player);
 
         AssignmentStatus validationStatus = validateAssignmentBase(player, 1);
         if (validationStatus != AssignmentStatus.SUCCESS) {
@@ -284,7 +284,7 @@ public final class MoodTaskApi {
                     AssignmentStatus.TASK_LIMIT_REACHED,
                     1,
                     PlayerMoodComponent.KEY.get(player).getActiveMoodTaskCount(),
-                    GameConstants.MAX_CONCURRENT_MOOD_TASKS
+                    getConfiguredMaxTaskCount(player)
             );
         }
         return assignRandomTasks(player, remainingSlots);
@@ -378,11 +378,19 @@ public final class MoodTaskApi {
             return AssignmentStatus.MOOD_TASKS_UNSUPPORTED;
         }
 
-        if (moodComponent.getActiveMoodTaskCount() >= GameConstants.MAX_CONCURRENT_MOOD_TASKS) {
+        if (moodComponent.getActiveMoodTaskCount() >= getConfiguredMaxTaskCount(player)) {
             return AssignmentStatus.TASK_LIMIT_REACHED;
         }
 
         return AssignmentStatus.SUCCESS;
+    }
+
+    /**
+     * 读取当前世界的动态任务槽位，保证公开 API 与 Wathe 内部自动发放使用同一条限制。
+     * 旧版固定常量仍保留用于二进制兼容，但不再直接决定运行时上限。
+     */
+    private static int getConfiguredMaxTaskCount(@NotNull ServerPlayerEntity player) {
+        return GameWorldComponent.KEY.get(player.getWorld()).getConfiguredMoodTaskSlots();
     }
 
     private static synchronized @NotNull List<PrioritizedCompletionRule> completionRuleSnapshot() {
@@ -521,7 +529,7 @@ public final class MoodTaskApi {
                 @NotNull ServerPlayerEntity player
         ) {
             PlayerMoodComponent mood = PlayerMoodComponent.KEY.get(player);
-            return new TaskOperationResult(status, taskId, mood.getActiveMoodTaskCount(), GameConstants.MAX_CONCURRENT_MOOD_TASKS);
+            return new TaskOperationResult(status, taskId, mood.getActiveMoodTaskCount(), getConfiguredMaxTaskCount(player));
         }
 
         public boolean success() {
@@ -579,6 +587,10 @@ public final class MoodTaskApi {
          * Wathe 在任务栏为空并且第一个任务冷却结束后自动刷出的任务。
          */
         INTERNAL_PRIMARY_COOLDOWN,
+        /**
+         * 随机事件模式下，首个自动任务之后由 35~55 秒独立计时器触发的任务。
+         */
+        INTERNAL_RANDOM_EVENT,
         /**
          * Wathe 根据低心情并行槽位，或任务完成后的当前阈值，自动补上的额外任务。
          */

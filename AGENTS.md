@@ -311,7 +311,9 @@ Harpymodloader.setRoleMaximum(MY_ROLE, 1);
 - 新增心情任务优先用 `MoodTaskApi.registerTask(...)` 注册 `MoodTaskDefinition`，不要继续往 `PlayerMoodComponent.Task` 追加 enum；旧 enum 只作为 Wathe 内置任务和旧扩展兼容层保留。
 - 内置任务默认进入随机池；扩展任务默认只允许指定发放，只有明确希望进入普通随机任务池时才在定义里显式启用随机。
 - 指定发任务用 `MoodTaskApi.assignTask(player, taskId)`；随机发放和补槽继续用 `assignRandomTasks(...)` / `fillRandomTaskSlots(...)`。
-- 阻止任务发放用 `MoodTaskApi.registerAssignmentRule(...)`，可按 `AssignmentSource` 区分 Wathe 自动冷却刷任务、低心情补槽、外部随机发放和指定发放；不要用 tick 内删除任务来模拟“禁止发放”，否则客户端会看到任务闪现。
+- 任务槽位由当前世界的 `GameWorldComponent` 动态设置，默认 3、最低 1，也允许高于 3。固定心情阈值模式仍只按原有 1 / 2 / 3 个心情档位自动补到最多 3 个；超过 3 的槽位不会改变固定阈值机制，只供随机事件模式和扩展主动发放使用。
+- 随机事件模式的开局首个自动任务仍使用 `GameConstants.TIME_TO_FIRST_TASK`；首个任务成功发放后，后续事件使用 `GameConstants.RANDOM_MOOD_TASK_MIN_COOLDOWN` / `RANDOM_MOOD_TASK_MAX_COOLDOWN`（默认 35~55 秒），任务完成不会重置计时。该来源在 `MoodTaskApi.AssignmentSource` 中是 `INTERNAL_RANDOM_EVENT`。
+- 阻止任务发放用 `MoodTaskApi.registerAssignmentRule(...)`，可按 `AssignmentSource` 区分 `INTERNAL_PRIMARY_COOLDOWN`、`INTERNAL_RANDOM_EVENT`、低心情补槽、外部随机发放和指定发放；不要用 tick 内删除任务来模拟“禁止发放”，否则客户端会看到任务闪现。
 - 单纯删除任务用 `MoodTaskApi.removeTask(...)`；按完成流程完成任务用 `MoodTaskApi.completeTask(...)`，后者会加心情、写回放、触发任务完成 API。
 - 阻止特殊状态完成任务，例如附身/控制/失控，用 `MoodTaskApi.registerCompletionRule(...)`，不要再 mixin `PlayerMoodComponent#completeTask(...)`。
 - 新任务点透视类型用 `MoodTaskPointApi.registerTaskPoint(...)`，地图扫描追加用 `MoodTaskPointApi.registerScanHandler(...)`，任务定义里绑定对应任务点 id。
