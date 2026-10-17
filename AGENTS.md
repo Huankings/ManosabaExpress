@@ -71,6 +71,8 @@
 - 任务完成：`TaskCompletionApi`
 - 胜利：`VictoryApi`
 - 枪击 / 左轮反火 / 武器目标：`GunShotApi`、`GunShotContext`、`GunTargetContext`、`RevolverPenaltyContext`、`WeaponTargetingApi`
+- 匕首冷却：`KnifeCooldownApi`、`KnifeCooldownContext`
+- 普通掉落物拾取：`ItemPickupApi`、`ItemPickupContext`、`ItemPickupResult`
 - 击杀 / 死亡阶段：`DeathApi`、`DeathContext`、`BodySpawnContext`
 - 停电机制：`BlackoutApi`、`BlackoutDuration`、`BlackoutEffectContext`、`BlackoutEffectResult`
 - 本能：`InstinctApi`
@@ -165,7 +167,8 @@ Harpy 调试指令重点：
 - `ModItems.java`：物品注册。
 - `NoellesRolesShops.java`、`shop/NoellesRolesShopBootstrap.java`：商店和多货币兼容。
 - `roleassign/NoellesRolesRoleAssignedBootstrap.java`：分配后发物品和初始化状态。
-- `combat/NoellesRolesCombatBootstrap.java`：枪击接管、左轮目标覆写、左轮反火和冷却 API 接入总入口。
+- `combat/NoellesRolesCombatBootstrap.java`：枪击接管、左轮目标覆写、左轮反火、枪械冷却和匕首冷却 API 接入总入口。
+- `pickup/NoellesItemPickupHandlers.java`：掉落物拾取 API 聚合入口，只调用各职业 / 词条的 `*ItemPickupHandler.init()`。
 - `death/NoellesRolesDeathBootstrap.java`：死亡保护、反噬和 DeathApi 分阶段击杀机制总入口。
 - `record/NoellesRolesReplayFormatters.java`：回放格式化。
 - `client/NoellesrolesClient.java`：客户端初始化。
@@ -521,6 +524,16 @@ Wathe 的地图雾和扩展职业临时雾效统一走：
 - 结算页颜色和翻译 key。
 
 枪击接管、左轮误伤惩罚、枪械客户端目标覆写和开火后冷却修正优先接 `dev.doctor4t.wathe.api.combat.GunShotApi`。客户端武器射线优先接 `WeaponTargetingApi`，按“视觉目标 TARGET / 真实攻击 ATTACK”选择对应入口。扩展侧要按职业或词条拆 handler，再由聚合 bootstrap 注册；不要再 mixin `GunShootPayload`、`RevolverItem` 或 `DerringerItem` 的通用流程。
+
+## 匕首冷却与掉落物拾取 API
+
+- Wathe 默认匕首刺杀后的冷却修正走 `KnifeCooldownApi.registerCooldownModifier(...)`，扩展不要再 mixin `KnifeStabPayload.Receiver`。
+- `KnifeCooldownContext` 提供攻击者、目标、服务端使用物品快照、对局组件、基础冷却和默认是否会写入冷却。modifier 在 `GameFunctions.killPlayer(...)` 返回后调用，因此可以消费 DeathApi 确认死亡阶段写入的一次性标记。
+- 匕首 modifier 是流水线：priority 越大越先执行，后续规则读取已修正的 `currentCooldown`，最终自动限制为非负数。只缩短冷却时使用 `Math.min(currentCooldown, targetTicks)`，不要覆盖其它规则更短的结果。
+- 普通 `ItemEntity` 拾取走 `ItemPickupApi.registerRule(...)`，服务端是最终权威。`PASS` 继续询问并在最后回退 Wathe 默认规则，`DENY` 取消拾取，`ALLOW` 覆盖 Wathe 的职业/枪械限制。
+- `ALLOW` 不直接交付物品，而是继续调用原版 `ItemEntity#onPlayerCollision`；拾取延迟、owner、背包空间、统计、进度准则和 Wathe 拾取回放都不得在扩展里重写。
+- 强制缴械、重伤、招募等 `DENY` 规则必须使用高于普通拾取特权 `ALLOW` 的 priority。扩展按 `roles/<role>/*ItemPickupHandler` 或 `modifiers/<modifier>/*ItemPickupHandler` 拆分，聚合类只调用 `init()`。
+- 该拾取 API 不接管箭、三叉戟和扩展自定义投射物的 `tryPickup`；这些实体仍由自身的拾取实现负责。
 
 死亡保护优先接 `AllowPlayerDeath` 或各扩展已有死亡引导器；击杀奖励、重复死亡吞噬、致死确认前转化、确认死亡后清理、心情重置前处理和尸体生成回调优先接 `dev.doctor4t.wathe.api.death.DeathApi`，不要把大量死亡特判堆到主类或 mixin `GameFunctions.killPlayer(...)`。
 

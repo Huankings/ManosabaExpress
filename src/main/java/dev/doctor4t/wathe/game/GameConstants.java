@@ -146,6 +146,11 @@ public interface GameConstants {
     int REVOLVER_COOLDOWN_FALLBACK = REVOLVER_COOLDOWN_CIVILIAN;
 
     static void init() {
+        /*
+         * 这里的 35 秒是 Wathe 默认匕首冷却的基础值。
+         * 真正刺杀后写入 ItemCooldownManager 前，KnifeStabPayload 会把它交给
+         * KnifeCooldownApi 的优先级流水线修正；扩展不应直接 mixin payload 覆写该值。
+         */
         ITEM_COOLDOWNS.put(WatheItems.KNIFE, getInTicks(0, 35));
         ITEM_COOLDOWNS.put(WatheItems.REVOLVER, REVOLVER_COOLDOWN_FALLBACK);
         ITEM_COOLDOWNS.put(WatheItems.DERRINGER, getInTicks(0, 1));

@@ -695,6 +695,8 @@ GameRecordManager.recordGlobalEvent(
 | `MoodTaskPointApi` | 注册任务点类型和扫描 handler | 扩展任务点透视、新任务点颜色和名称 |
 | `TaskCompletionApi` | 任务完成事件、任务收益和默认收入抑制规则 | 任务大师、完成任务减冷却、服务员帮人完成任务时跳过目标默认收入 |
 | `GunShotApi` | 枪击接管、客户端目标覆写、左轮误伤惩罚、冷却修正 | 自定义手枪、假枪、无声枪、按状态调整左轮冷却 |
+| `KnifeCooldownApi` | Wathe 默认匕首刺杀后的冷却流水线修正 | 职业免冷却、词条缩短冷却、按目标状态调整冷却 |
+| `ItemPickupApi` | 普通掉落物的服务端 `PASS / ALLOW / DENY` 拾取判定 | 禁止职业捡物、重伤缴械、覆盖 Wathe 默认枪械拾取限制 |
 | `WeaponTargetingApi` | 客户端武器射线目标工具，区分准心目标和真实攻击目标 | 尸体伪装隐藏准心但仍可被刀枪命中、扩展武器统一发包前选人 |
 | `DeathApi` | 击杀/死亡分阶段钩子、默认击杀收益规则、尸体生成回调 | 赏金奖励、时间狭缝、双重人格致死转化、验尸官尸体数据 |
 | `BlackoutApi` | 停电触发/恢复、恢复时间修改、停电药水分配 | 工程师恢复电力、杀手侧中立夜视、独立中立失明、地图或职业改停电时长 |
@@ -723,6 +725,12 @@ GameRecordManager.recordGlobalEvent(
 | `CanSeePoison` | 毒药可见性 | 验毒职业、特殊视觉 |
 | `RecordEvents` | 对局记录完成 | 生成额外回放、统计数据 |
 | `ReplayRegistry` | 回放文本格式器 | 自定义技能 / 物品 / 死亡原因文本 |
+
+### 匕首冷却与掉落物拾取 API
+
+Wathe 默认匕首在服务端完成距离、可攻击性与死亡流程后，使用 `KnifeCooldownApi.modifyCooldown(...)` 计算最终冷却。扩展通过 `KnifeCooldownApi.registerCooldownModifier(id, priority, modifier)` 注册；modifier 会按 priority 从高到低组成流水线，每个处理器都能读到前一步的 `currentCooldown`。结果自动限制为非负数；仅缩短冷却的规则建议返回 `Math.min(currentCooldown, targetTicks)`，避免把其它规则已经缩短的冷却重新拉长。`KnifeCooldownContext` 提供攻击者、目标、使用时的物品快照、对局组件、基础冷却和 Wathe 默认是否真正写冷却。扩展不应再 mixin `KnifeStabPayload.Receiver` 的尾部重写冷却。
+
+`ItemPickupApi.registerRule(id, priority, rule)` 用于服务端普通 `ItemEntity` 拾取判定。`PASS` 继续询问低优先级规则，全部 PASS 后回退到 Wathe 现有枪械拾取规则；`DENY` 取消本次拾取；`ALLOW` 仅覆盖 Wathe 的职业/枪械限制并继续调用原版方法。因此 ALLOW 不会跳过拾取延迟、owner、背包空间、统计、进度准则和 Wathe 拾取回放。强制缴械或全面禁拾规则必须使用高于普通 ALLOW 特权的 priority。该 API 不包括箭、三叉戟或扩展自定义投射物的 `tryPickup`。扩展不应再 mixin `ItemEntity#onPlayerCollision` 复制原版拾取代码。
 
 ### 低心情幻觉手持物 API
 
@@ -1037,6 +1045,8 @@ Datagen 入口是 `WatheDatagen`，相关类包括：
 19. 职业分配权重改成统一账本：按阵营和具体职业记录历史、连续次数和调试覆盖；权重默认开启，开关不会自动清空历史，查询和预览命令不依赖 command feedback。
 20. Harpy 扩展职业 / 词条分配规则改成公开 API：互斥、单向排斥、绑定生成、词条与职业绑定/排斥、公告前强制配对都走 `org.agmas.harpymodloader.api.assignment`，扩展不应再 mixin Harpy 分配方法。
 21. Harpy `/setRole` 是局内调试转职指令，默认 `reset`；它不会传送玩家、不会播放结算音效，会保留 Wathe 本局钥匙和信件，并在转职后重新发送开局欢迎公告。
+22. 默认匕首冷却已改为 `KnifeCooldownApi` 流水线，扩展可按攻击者、目标和对局状态组合修正，不再需要注入匕首网络包接收器。
+23. 普通掉落物拾取已改为 `ItemPickupApi` 优先级判定链，扩展可明确拒绝或覆盖 Wathe 默认枪械限制，原版拾取副作用和 Wathe 回放仍统一保留。
 
 ## 新扩展职业的推荐接入顺序
 
