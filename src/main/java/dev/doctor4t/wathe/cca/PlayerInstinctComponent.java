@@ -4,6 +4,7 @@ import dev.doctor4t.wathe.Wathe;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.nbt.NbtCompound;
 import net.minecraft.registry.RegistryWrapper;
+import net.minecraft.server.network.ServerPlayerEntity;
 import org.jetbrains.annotations.NotNull;
 import org.ladysnake.cca.api.v3.component.ComponentKey;
 import org.ladysnake.cca.api.v3.component.ComponentRegistry;
@@ -40,6 +41,12 @@ public class PlayerInstinctComponent implements AutoSyncedComponent {
         if (!this.player.getWorld().isClient) {
             KEY.sync(this.player);
         }
+    }
+
+    /** 本能键模式只影响本地按键处理，不需要向其它客户端广播。 */
+    @Override
+    public boolean shouldSyncWith(ServerPlayerEntity recipient) {
+        return recipient.equals(this.player);
     }
 
     public boolean isToggleModeEnabled() {

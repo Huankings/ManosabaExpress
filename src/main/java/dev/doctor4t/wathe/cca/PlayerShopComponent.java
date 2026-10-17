@@ -18,6 +18,7 @@ import net.minecraft.nbt.NbtCompound;
 import net.minecraft.nbt.NbtElement;
 import net.minecraft.registry.RegistryWrapper;
 import net.minecraft.server.world.ServerWorld;
+import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.util.Identifier;
 import org.jetbrains.annotations.NotNull;
 import org.ladysnake.cca.api.v3.component.ComponentKey;
@@ -45,6 +46,15 @@ public class PlayerShopComponent implements AutoSyncedComponent, ServerTickingCo
 
     public void sync() {
         KEY.sync(this.player);
+    }
+
+    /**
+     * 商店余额和货币只用于玩家自己的商店 HUD 与购买界面。
+     * 服务端仍可读取目标玩家余额，客户端组件包只发送给余额所属玩家。
+     */
+    @Override
+    public boolean shouldSyncWith(ServerPlayerEntity recipient) {
+        return recipient.equals(this.player);
     }
 
     public void reset() {

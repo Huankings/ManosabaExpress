@@ -4,6 +4,7 @@ import dev.doctor4t.wathe.Wathe;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.nbt.NbtCompound;
 import net.minecraft.registry.RegistryWrapper;
+import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.text.MutableText;
 import net.minecraft.text.Text;
 import net.minecraft.util.Formatting;
@@ -26,6 +27,12 @@ public class PlayerGrenadeComponent implements AutoSyncedComponent {
         if (!this.player.getWorld().isClient) {
             KEY.sync(this.player);
         }
+    }
+
+    /** 手雷投掷模式是玩家个人输入偏好，只需同步给模式所属玩家。 */
+    @Override
+    public boolean shouldSyncWith(ServerPlayerEntity recipient) {
+        return recipient.equals(this.player);
     }
 
     public @NotNull ThrowMode getThrowMode() {

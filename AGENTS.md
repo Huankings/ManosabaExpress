@@ -88,6 +88,7 @@
 - 心情 HUD：`MoodHudApi`
 - 时间 HUD：`TimeHudApi`
 - 疯魔模式：`PsychoModeApi`、`PsychoModeProfile`、`PsychoShieldContext`、`PsychoShieldResult`、客户端 `PsychoModeClientApi`
+- 疯魔加时 / 增加护盾 / 暂停恢复 / 冷却图标：先读 `README_PSYCHO_MODE_API.md`；使用 `addRemainingTicks`、`addArmourLayers`、`pause/resume`、`ensureMinimumCooldown`，不要直接写疯魔组件字段。
 - 手持物隐藏：`HeldItemInvisibilityApi`
 - 低心情幻觉手持物：`PsychosisItemApi`（指定/随机物品、手臂姿势与 priority 覆盖）
 - 背包按钮：`InventoryButtonApi`、`InventoryScreenType`、`InventoryButtonContext`、`InventoryPageState`、`InventoryPageSwitchWidget`
@@ -422,6 +423,9 @@ Wathe 的地图雾和扩展职业临时雾效统一走：
 
 - 基础定义：用 `PsychoModeProfile.copyOf(PsychoModeApi.createDefaultProfile(), id)` 继承 Wathe 默认疯魔，再覆盖 `durationTicks`、`armour`、`grantedItems`、`hitSound`、`shieldSound`、`backgroundSound(sound, play)`、`visualSettings`、`nameTranslationKey` 等字段。
 - 启动/结束：服务端用 `PsychoModeApi.start(player, profileId)` 启动；强制收束、回合清理、召集等场景用 `PsychoModeApi.stop(player, recordReplay)`，不要直接改 `psychoTicks/armour`。
+- 需要超过初始持续时间时用 `PsychoModeApi.addRemainingTicks(...)`；动态增加护盾用 `PsychoModeApi.addArmourLayers(...)`，两者都会校验当前 profile 并同步组件。临时让位但之后仍需恢复同一次疯魔时用 `pause/resume` 和 `PsychoModeState`，真正结束仍用 `stop`。
+- 有独立商店图标的 profile 应调用 `cooldownItem(item)`。跨职业压制用 `ensureMinimumCooldown` 托底冷却，不要在调用方维护 profile-to-item 硬编码表。
+- `pause` 会回收 profile 临时物品且不写结束回放；调用方必须把快照存进同步/时间线状态，并在恢复失败（例如快捷栏空间不足）时保留快照重试。
 - 查询状态：用 `PsychoModeApi.isActive(player)`、`isActive(player, profileId)`、`getActiveProfile(player)`、`getRemainingTicks(player)`、`getArmour(player)`，避免扩展依赖 CCA 内部字段。
 - 授予物品：profile 的 `grantedItems` 会被 Wathe 打 `PSYCHO_GRANTED_PROFILE` 标记，结束时只回收该 profile 授予的临时物品，避免误删玩家自己持有的同类物品。
 - 锁栏/防丢弃：默认锁 profile 授予物品；特殊武器可用 `lockedItemPredicate` / `meleeWeaponPredicate` 定义，不要再写 `ServerPlayNetworkHandler`、`PlayerInventory`、`MinecraftClient` 的锁槽 mixin。

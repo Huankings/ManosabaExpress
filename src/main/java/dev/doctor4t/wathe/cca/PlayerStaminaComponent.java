@@ -2,15 +2,18 @@ package dev.doctor4t.wathe.cca;
 
 import dev.doctor4t.wathe.Wathe;
 import dev.doctor4t.wathe.api.Role;
+import dev.doctor4t.wathe.game.GameConstants;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.nbt.NbtCompound;
 import net.minecraft.nbt.NbtElement;
 import net.minecraft.registry.RegistryWrapper;
+import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.util.math.MathHelper;
 import org.jetbrains.annotations.NotNull;
 import org.ladysnake.cca.api.v3.component.ComponentKey;
 import org.ladysnake.cca.api.v3.component.ComponentRegistry;
 import org.ladysnake.cca.api.v3.component.sync.AutoSyncedComponent;
+import org.ladysnake.cca.api.v3.component.tick.ServerTickingComponent;
 
 /**
  * 玩家体力组件。
@@ -19,7 +22,7 @@ import org.ladysnake.cca.api.v3.component.sync.AutoSyncedComponent;
  * 现在把“当前体力、额外体力上限修正、单局初始化标记”统一迁到 CCA 组件，公开 API 再基于这个组件读写。
  * 这样扩展职业可以直接清空、回满、增减体力或调整体力上限，而不需要碰玩家实体内部字段。</p>
  */
-public class PlayerStaminaComponent implements AutoSyncedComponent {
+public class PlayerStaminaComponent implements AutoSyncedComponent, ServerTickingComponent {
     public static final ComponentKey<PlayerStaminaComponent> KEY = ComponentRegistry.getOrCreate(Wathe.id("stamina"), PlayerStaminaComponent.class);
 
     private final PlayerEntity player;
@@ -47,6 +50,12 @@ public class PlayerStaminaComponent implements AutoSyncedComponent {
      */
     private boolean roundInitialized = false;
 
+    /**
+     * 连续体力变化不会每 tick 立即发包，而是先记录脏状态，交给 serverTick 每隔几 tick
+     * 给玩家本人做一次校准。归零、恢复和其它关键边界仍会立即同步。
+     */
+    private boolean syncDirty = false;
+
     public PlayerStaminaComponent(PlayerEntity player) {
         this.player = player;
     }
@@ -58,6 +67,15 @@ public class PlayerStaminaComponent implements AutoSyncedComponent {
     }
 
     /**
+     * 体力组件只服务于玩家自己的 HUD 和输入限制，不需要广播给周围观察者。
+     * 服务端 API 仍然可以读取任意目标的真实体力，收件人限制只影响客户端组件包。
+     */
+    @Override
+    public boolean shouldSyncWith(ServerPlayerEntity recipient) {
+        return recipient.equals(this.player);
+    }
+
+    /**
      * 清理本轮体力状态。
      *
      * <p>这里会同时清掉额外上限修正，避免某一局职业 / 词条临时加的体力上限残留到下一局。</p>
@@ -66,6 +84,7 @@ public class PlayerStaminaComponent implements AutoSyncedComponent {
         this.stamina = 0.0F;
         this.maxStaminaBonus = 0.0F;
         this.roundInitialized = false;
+        this.syncDirty = false;
         this.sync();
     }
 
@@ -80,6 +99,18 @@ public class PlayerStaminaComponent implements AutoSyncedComponent {
      * 因为无限体力本身不会被 Wathe 的消耗逻辑读取，保留正数可供扩展自行展示或调试。</p>
      */
     public void setStamina(float stamina) {
+        this.applyStamina(stamina, true);
+    }
+
+    /**
+     * 仅供 Wathe 自己的玩家移动 tick 使用。
+     * 每 tick 的消耗/恢复先进入脏标记，避免移动中的每个玩家持续刷 CCA 包。
+     */
+    public void setStaminaFromServerTick(float stamina) {
+        this.applyStamina(stamina, false);
+    }
+
+    private void applyStamina(float stamina, boolean syncImmediately) {
         float clamped = Math.max(0.0F, stamina);
         float maxStamina = this.getMaxStamina();
         if (maxStamina >= 0.0F) {
@@ -87,8 +118,16 @@ public class PlayerStaminaComponent implements AutoSyncedComponent {
         }
 
         if (Float.compare(this.stamina, clamped) != 0) {
+            float oldStamina = this.stamina;
             this.stamina = clamped;
-            this.sync();
+            boolean crossedZero = (oldStamina <= 0.0F) != (clamped <= 0.0F);
+            boolean reachedMaximum = maxStamina >= 0.0F && Float.compare(clamped, maxStamina) == 0;
+            if (syncImmediately || crossedZero || reachedMaximum) {
+                this.syncDirty = false;
+                this.sync();
+            } else {
+                this.syncDirty = true;
+            }
         }
     }
 
@@ -96,8 +135,16 @@ public class PlayerStaminaComponent implements AutoSyncedComponent {
         this.setStamina(this.stamina + Math.max(0.0F, amount));
     }
 
+    public void addStaminaFromServerTick(float amount) {
+        this.setStaminaFromServerTick(this.stamina + Math.max(0.0F, amount));
+    }
+
     public void drainStamina(float amount) {
         this.setStamina(this.stamina - Math.max(0.0F, amount));
+    }
+
+    public void drainStaminaFromServerTick(float amount) {
+        this.setStaminaFromServerTick(this.stamina - Math.max(0.0F, amount));
     }
 
     public void clearStamina() {
@@ -118,7 +165,11 @@ public class PlayerStaminaComponent implements AutoSyncedComponent {
     public void setMaxStaminaBonus(float maxStaminaBonus) {
         if (Float.compare(this.maxStaminaBonus, maxStaminaBonus) != 0) {
             this.maxStaminaBonus = maxStaminaBonus;
-            this.clampStaminaToMax();
+            float maxStamina = this.getMaxStamina();
+            if (maxStamina >= 0.0F && this.stamina > maxStamina) {
+                this.stamina = maxStamina;
+            }
+            this.syncDirty = false;
             this.sync();
         }
     }
@@ -167,6 +218,20 @@ public class PlayerStaminaComponent implements AutoSyncedComponent {
         float maxStamina = this.getMaxStamina();
         if (maxStamina >= 0.0F && this.stamina > maxStamina) {
             this.stamina = maxStamina;
+            this.syncDirty = false;
+            this.sync();
+        }
+    }
+
+    /**
+     * 把连续体力值按固定周期校准给本人。服务端内部仍然每 tick 计算真实值，
+     * 因此延迟只存在于客户端 HUD，不会影响移动、跳跃或任何服务端判定。
+     */
+    @Override
+    public void serverTick() {
+        if (this.syncDirty
+                && this.player.getWorld().getTime() % GameConstants.PLAYER_STATE_SYNC_INTERVAL_TICKS == 0) {
+            this.syncDirty = false;
             this.sync();
         }
     }

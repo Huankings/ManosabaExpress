@@ -518,6 +518,12 @@ public int getFixedKillerCount() { return this.fixedKillerCount; }
 
     private UUID looseEndWinner;
 
+    /**
+     * 世界组件不再每秒无条件广播完整 NBT。
+     * 职业表等少数仍可由旧扩展直接改动的运行态先标脏，在本 tick 末尾合并成一次同步。
+     */
+    private boolean networkDirty = false;
+
     private float backfireChance = 0f;
 
     private int killerDividend = 5;
@@ -529,6 +535,13 @@ public int getFixedKillerCount() { return this.fixedKillerCount; }
 
     public void sync() {
         GameWorldComponent.KEY.sync(this.world);
+        this.networkDirty = false;
+    }
+
+    private void markNetworkDirty() {
+        if (!this.world.isClient()) {
+            this.networkDirty = true;
+        }
     }
 
     public boolean isBound() {
@@ -568,6 +581,10 @@ public int getFixedKillerCount() { return this.fixedKillerCount; }
     public void addRole(UUID player, Role role) {
         Role oldRole = this.roles.put(player, role);
 
+        if (oldRole != role) {
+            this.markNetworkDirty();
+        }
+
         /*
          * 对局已经开始时，角色变化要实时记录下来。
          * 这样后续像 noellesroles 的换职、叛变、中立转杀手等流程，
@@ -579,7 +596,10 @@ public int getFixedKillerCount() { return this.fixedKillerCount; }
     }
 
     public void resetRole(Role role) {
-        roles.entrySet().removeIf(entry -> entry.getValue() == role);
+        boolean changed = roles.entrySet().removeIf(entry -> entry.getValue() == role);
+        if (changed) {
+            this.markNetworkDirty();
+        }
     }
 
     public void setRoles(List<UUID> players, Role role) {
@@ -669,6 +689,7 @@ public int getFixedKillerCount() { return this.fixedKillerCount; }
     public void clearRoleMap() {
         this.roles.clear();
         this.rooms.clear();
+        this.markNetworkDirty();
         setPsychosActive(0);
     }
 
@@ -1195,7 +1216,11 @@ this.fixedKillerCount = nbtCompound.contains("FixedKillerCount") ? nbtCompound.g
             gameMode.tickServerGameLoop(serverWorld, this);
         }
 
-        if (serverWorld.getTime() % 20 == 0) {
+        if (this.networkDirty) {
+            /*
+             * 这里只在职业表等真正发生变化的 tick 同步一次。
+             * fade 在客户端也会本地推进，普通对局期间不需要每秒重复发送整份世界 NBT。
+             */
             this.sync();
         }
     }

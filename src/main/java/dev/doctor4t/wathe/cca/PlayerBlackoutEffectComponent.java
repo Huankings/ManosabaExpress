@@ -8,6 +8,7 @@ import net.minecraft.entity.effect.StatusEffects;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.nbt.NbtCompound;
 import net.minecraft.registry.RegistryWrapper;
+import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.registry.entry.RegistryEntry;
 import org.jetbrains.annotations.NotNull;
 import org.ladysnake.cca.api.v3.component.ComponentKey;
@@ -41,8 +42,30 @@ public class PlayerBlackoutEffectComponent implements AutoSyncedComponent, Serve
 
     public void sync() {
         if (!this.player.getWorld().isClient) {
-            KEY.sync(this.player);
+            /*
+             * 暂时刻意不调用 KEY.sync(this.player)。
+             *
+             * 这个组件记录的是服务端“哪一份夜视/失明由 Wathe 停电系统持有”，
+             * 只用于恢复供电、回合重置和清理药水时避免误删扩展职业的同名效果。
+             * 当前客户端没有任何 HUD、渲染或玩法判断读取 ownedEffect/ownedDuration，
+             * 因此把它逐 tick 同步给客户端只会制造无意义的玩家组件包。
+             *
+             * 如果以后客户端需要显示“停电药水剩余归属时间”、根据归属状态绘制专属 HUD，
+             * 或客户端视觉必须区分 Wathe 发放的效果与其它来源效果，才重新启用这里的
+             * KEY.sync，并同时重新评估 shouldSyncWith 的收件人范围和同步频率。
+             */
+            // KEY.sync(this.player);
         }
+    }
+
+    /**
+     * 即使未来某个调用点误触发了 CCA 自动同步，也不要把仅服务端的归属状态发给客户端。
+     * 保留 AutoSyncedComponent 是为了兼容现有 CCA 注册、NBT 和扩展源码；真正的显式同步
+     * 仍由上面的注释掉的 KEY.sync 控制。
+     */
+    @Override
+    public boolean shouldSyncWith(ServerPlayerEntity recipient) {
+        return false;
     }
 
     @Override

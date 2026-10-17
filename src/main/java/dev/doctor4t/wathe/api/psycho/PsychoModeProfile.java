@@ -2,6 +2,7 @@ package dev.doctor4t.wathe.api.psycho;
 
 import dev.doctor4t.wathe.Wathe;
 import net.minecraft.entity.player.PlayerEntity;
+import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
 import net.minecraft.sound.SoundEvent;
 import net.minecraft.util.Identifier;
@@ -42,6 +43,7 @@ public final class PsychoModeProfile {
     private final PsychoVisualSettings visualSettings;
     private final @Nullable PsychoItemPredicate lockedItemPredicate;
     private final @Nullable PsychoItemPredicate meleeWeaponPredicate;
+    private final @Nullable Item cooldownItem;
 
     private PsychoModeProfile(Builder builder) {
         this.id = Objects.requireNonNull(builder.id, "id");
@@ -66,6 +68,7 @@ public final class PsychoModeProfile {
         this.visualSettings = Objects.requireNonNull(builder.visualSettings, "visualSettings");
         this.lockedItemPredicate = builder.lockedItemPredicate;
         this.meleeWeaponPredicate = builder.meleeWeaponPredicate;
+        this.cooldownItem = builder.cooldownItem;
     }
 
     public static Builder builder(@NotNull Identifier id) {
@@ -92,7 +95,8 @@ public final class PsychoModeProfile {
                 .backgroundSound(profile.backgroundSound, profile.playBackgroundSound)
                 .visualSettings(profile.visualSettings)
                 .lockedItemPredicate(profile.lockedItemPredicate)
-                .meleeWeaponPredicate(profile.meleeWeaponPredicate);
+                .meleeWeaponPredicate(profile.meleeWeaponPredicate)
+                .cooldownItem(profile.cooldownItem);
     }
 
     public Identifier id() {
@@ -171,6 +175,17 @@ public final class PsychoModeProfile {
         return this.visualSettings;
     }
 
+    /**
+     * 返回启动该疯魔所对应的商店图标 / 冷却物品。
+     *
+     * <p>它只描述“这个 profile 的冷却应该写到哪个物品”，不会自动在启动或结束时设置冷却。
+     * 扩展仍然可以按自己的购买逻辑决定普通冷却时长；全场压制、暂停恢复等跨职业机制则可以
+     * 通过该元数据精确延长当前 profile 的冷却，而不必硬编码其它扩展的物品字段。</p>
+     */
+    public @Nullable Item cooldownItem() {
+        return this.cooldownItem;
+    }
+
     public boolean isLockedItem(PlayerEntity player, ItemStack stack) {
         if (stack.isEmpty()) {
             return false;
@@ -224,6 +239,7 @@ public final class PsychoModeProfile {
         private PsychoVisualSettings visualSettings = PsychoVisualSettings.none();
         private @Nullable PsychoItemPredicate lockedItemPredicate;
         private @Nullable PsychoItemPredicate meleeWeaponPredicate;
+        private @Nullable Item cooldownItem;
 
         private Builder(Identifier id) {
             this.id = id;
@@ -335,6 +351,16 @@ public final class PsychoModeProfile {
 
         public Builder meleeWeaponPredicate(@Nullable PsychoItemPredicate meleeWeaponPredicate) {
             this.meleeWeaponPredicate = meleeWeaponPredicate;
+            return this;
+        }
+
+        /**
+         * 登记该 profile 对应的商店图标 / 冷却物品。
+         *
+         * <p>不使用物品冷却的自动触发型疯魔可以保持 {@code null}。</p>
+         */
+        public Builder cooldownItem(@Nullable Item cooldownItem) {
+            this.cooldownItem = cooldownItem;
             return this;
         }
 

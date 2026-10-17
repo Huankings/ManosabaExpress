@@ -4,6 +4,7 @@ import dev.doctor4t.wathe.Wathe;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.nbt.NbtCompound;
 import net.minecraft.registry.RegistryWrapper;
+import net.minecraft.server.network.ServerPlayerEntity;
 import org.jetbrains.annotations.NotNull;
 import org.ladysnake.cca.api.v3.component.ComponentKey;
 import org.ladysnake.cca.api.v3.component.ComponentRegistry;
@@ -21,6 +22,12 @@ public class PlayerNoteComponent implements AutoSyncedComponent {
 
     public void sync() {
         KEY.sync(this.player);
+    }
+
+    /** 便签界面只显示本地玩家自己的内容，不需要广播给附近观察者。 */
+    @Override
+    public boolean shouldSyncWith(ServerPlayerEntity recipient) {
+        return recipient.equals(this.player);
     }
 
     public void reset() {

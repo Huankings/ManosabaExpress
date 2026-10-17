@@ -7,6 +7,7 @@ import dev.doctor4t.wathe.record.GameRecordManager;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.nbt.NbtCompound;
 import net.minecraft.registry.RegistryWrapper;
+import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.sound.SoundCategory;
 import net.minecraft.sound.SoundEvents;
 import net.minecraft.util.Identifier;
@@ -41,6 +42,15 @@ public class PlayerPoisonComponent implements AutoSyncedComponent, ServerTicking
 
     public void sync() {
         KEY.sync(this.player);
+    }
+
+    /**
+     * 中毒倒计时和毒源详情只用于中毒玩家自己的屏幕效果；
+     * 其它职业在服务端读取目标组件，不需要收到目标的客户端 CCA 包。
+     */
+    @Override
+    public boolean shouldSyncWith(ServerPlayerEntity recipient) {
+        return recipient.equals(this.player);
     }
 
     public void reset() {

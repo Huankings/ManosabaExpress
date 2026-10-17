@@ -1096,6 +1096,13 @@ VictoryApi.registerRule(MyMod.id("victory/my_role"), VictoryApi.DEFAULT_PRIORITY
 
 这份 README 主要说明 Wathe 本体。具体扩展职业的玩法细节，应在各自扩展工程中继续补充单独文档。
 
+### 疯魔模式公开 API
+
+疯魔 profile、护盾、临时物品、加时、最低冷却和可恢复暂停的完整接入说明见
+`README_PSYCHO_MODE_API.md`。新增接口包括 `PsychoModeProfile.Builder#cooldownItem`、
+`PsychoModeApi.addRemainingTicks`、`addArmourLayers`、`ensureMinimumCooldown`、`pause/resume` 和 `PsychoModeState`。
+扩展不得为了加时或暂停而直接写 `PlayerPsychoComponent` 字段。
+
 ### 托盘公开 API（1.3.3）
 
 `TrayEffectHandler#replayDisplay` 为效果提供统一回放名称；Wathe 自动生成托盘放置、取物和消费句式，并以白色 `[效果名]` 显示。`TrayTakeRegistry.registerRule` 可按职业/物品覆盖背包加主手的同类物品上限，默认上限为 1。`TrayParticleRegistry.registerProvider` 可注册托盘粒子 provider，原生毒药粒子已迁移到该调度器，扩展无需再 mixin 托盘方块实体。

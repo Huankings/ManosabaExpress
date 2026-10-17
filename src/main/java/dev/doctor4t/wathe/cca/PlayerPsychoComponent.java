@@ -3,6 +3,7 @@ package dev.doctor4t.wathe.cca;
 import dev.doctor4t.wathe.Wathe;
 import dev.doctor4t.wathe.api.psycho.PsychoModeApi;
 import dev.doctor4t.wathe.api.psycho.PsychoModeProfile;
+import dev.doctor4t.wathe.api.psycho.PsychoModeState;
 import dev.doctor4t.wathe.game.GameFunctions;
 import dev.doctor4t.wathe.util.ShopEntry;
 import net.minecraft.entity.player.PlayerEntity;
@@ -61,14 +62,23 @@ public class PlayerPsychoComponent implements AutoSyncedComponent, ServerTicking
          * 必须在剩余 tick 归零前调用 stopPsycho：旧顺序先 -- 到 0，
          * 使 stopPsycho 的 wasActive 判定失败，疯魔自然结束不会写入结束回放。
          */
+        boolean endedThisTick = false;
         if (this.psychoTicks <= 1) {
 //            this.player.sendMessage(Text.translatable("game.psycho_mode.over").withColor(Colors.RED), true);
             this.stopPsycho();
+            endedThisTick = true;
         } else {
             --this.psychoTicks;
         }
 
-        this.sync();
+        /*
+         * 客户端组件自己的 clientTick 会逐 tick 递减倒计时。
+         * 服务端只需要每秒校准一次；启动和结束由 startPsycho/stopPsycho 立即同步，
+         * 不再让每个疯魔玩家每 tick 向所有追踪客户端广播完整组件 NBT。
+         */
+        if (!endedThisTick && this.psychoTicks % dev.doctor4t.wathe.game.GameConstants.PSYCHO_SYNC_INTERVAL_TICKS == 0) {
+            this.sync();
+        }
     }
 
     public boolean startPsycho() {
@@ -205,6 +215,58 @@ public class PlayerPsychoComponent implements AutoSyncedComponent, ServerTicking
         this.psychoTicks = ticks;
         this.maxPsychoTicks = Math.max(this.maxPsychoTicks, ticks);
         this.sync();
+    }
+
+    /**
+     * 由 PsychoModeApi 调用的加时入口。
+     *
+     * <p>最大时间同时增长，确保疯魔 HUD 的进度条不会在超过初始持续时间后被错误钳满。</p>
+     */
+    public void addPsychoTicks(int addedTicks) {
+        if (!this.isPsychoActive() || addedTicks <= 0) {
+            return;
+        }
+        this.psychoTicks += addedTicks;
+        this.maxPsychoTicks = Math.max(this.maxPsychoTicks, this.psychoTicks);
+        this.sync();
+    }
+
+    /** 保存当前运行态并按“非真正结束”语义暂停。 */
+    public PsychoModeState pausePsycho() {
+        if (!this.isPsychoActive()) {
+            return null;
+        }
+        PsychoModeState state = new PsychoModeState(
+                this.getProfileId(),
+                this.psychoTicks,
+                this.maxPsychoTicks,
+                this.armour,
+                this.initialArmour
+        );
+        this.stopPsycho(false);
+        return state;
+    }
+
+    /**
+     * 恢复被暂停的疯魔运行态。
+     *
+     * <p>先走正常 startPsycho，保证临时物品来源标记、锁栏和 psychosActive 计数仍由唯一入口维护；
+     * 启动成功后再覆盖回暂停前的时间和护盾，避免恢复被误算成一轮全新的疯魔。</p>
+     */
+    public boolean resumePsycho(@NotNull PsychoModeState state) {
+        if (this.isPsychoActive()) {
+            return false;
+        }
+        PsychoModeProfile profile = PsychoModeApi.getProfile(state.profileId());
+        if (profile == null || !this.startPsycho(profile)) {
+            return false;
+        }
+        this.psychoTicks = Math.max(1, state.remainingTicks());
+        this.maxPsychoTicks = Math.max(this.psychoTicks, state.maxTicks());
+        this.armour = Math.max(0, state.armour());
+        this.initialArmour = Math.max(0, state.initialArmour());
+        this.sync();
+        return true;
     }
 
     public boolean isPsychoActive() {

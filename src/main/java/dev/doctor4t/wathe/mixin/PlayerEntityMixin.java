@@ -155,19 +155,19 @@ public abstract class PlayerEntityMixin extends LivingEntity {
             PlayerStaminaApi.MoodPenaltyProfile moodPenaltyProfile = PlayerStaminaApi.resolveMoodPenaltyProfile(self);
             boolean tryingHorizontalSelfMove = ((WatheMovementInputAccess) this).wathe$isTryingHorizontalSelfMove();
             if (this.isSprinting()) {
-                stamina.drainStamina(PlayerStaminaApi.getSprintDrainPerTick(self));
+                stamina.drainStaminaFromServerTick(PlayerStaminaApi.getSprintDrainPerTick(self));
             } else if (moodPenaltyProfile == PlayerStaminaApi.MoodPenaltyProfile.DEPRESSIVE && tryingHorizontalSelfMove) {
                 /*
                  * 低落惩罚开启后，走路也会消耗体力。
                  * 判定使用玩家自己的输入字段，而不是 velocity，确保击退/推挤/传送这类外力位移不会被当成“走路消耗”。
                  */
-                stamina.drainStamina(PlayerStaminaApi.getWalkDrainPerTick(self));
+                stamina.drainStaminaFromServerTick(PlayerStaminaApi.getWalkDrainPerTick(self));
             } else {
                 /*
                  * 高心情和中等惩罚阶段：非疾跑就恢复体力，走路和静止都可以恢复。
                  * 低落惩罚阶段：只有没有水平自主移动输入时才会走到这里，符合“停下休息再恢复”的规则。
                  */
-                stamina.addStamina(PlayerStaminaApi.getRecoveryPerTick(self));
+                stamina.addStaminaFromServerTick(PlayerStaminaApi.getRecoveryPerTick(self));
             }
 
             if (!PlayerStaminaApi.canSprint(self)) {

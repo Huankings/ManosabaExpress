@@ -7,6 +7,8 @@ import dev.doctor4t.wathe.index.WatheDataComponentTypes;
 import dev.doctor4t.wathe.index.WatheItems;
 import dev.doctor4t.wathe.index.WatheSounds;
 import net.minecraft.entity.player.PlayerEntity;
+import net.minecraft.entity.player.ItemCooldownManager;
+import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
 import net.minecraft.nbt.NbtCompound;
 import net.minecraft.registry.Registries;
@@ -62,6 +64,7 @@ public final class PsychoModeApi {
                 .shieldNameTranslationKey(DEFAULT_SHIELD_NAME_TRANSLATION_KEY)
                 .durationTicks(GameConstants.PSYCHO_TIMER)
                 .armour(GameConstants.PSYCHO_MODE_ARMOUR)
+                .cooldownItem(WatheItems.PSYCHO_MODE)
                 .grantItem(new ItemStack(WatheItems.BAT))
                 .lockHotbar(true)
                 .lockGrantedItems(true)
@@ -129,6 +132,90 @@ public final class PsychoModeApi {
          * recordReplay 参数保留给回合清理/启动失败回滚使用，避免产生误导性的结束回放。
          */
         PlayerPsychoComponent.KEY.get(player).stopPsycho(recordReplay);
+    }
+
+    /**
+     * 给当前疯魔增加剩余时间，并同步更新 HUD 使用的最大时间。
+     *
+     * <p>profileId 用来防止延迟事件误给已经切换成另一种疯魔的玩家加时。
+     * 返回 {@code false} 表示玩家当前没有处于指定 profile。</p>
+     */
+    public static boolean addRemainingTicks(@NotNull PlayerEntity player, @NotNull Identifier profileId, int addedTicks) {
+        if (addedTicks <= 0) {
+            return false;
+        }
+        PlayerPsychoComponent component = PlayerPsychoComponent.KEY.get(player);
+        if (!component.isPsychoActive() || !profileId.equals(component.getProfileId())) {
+            return false;
+        }
+        component.addPsychoTicks(addedTicks);
+        return true;
+    }
+
+    /**
+     * 给当前指定疯魔 profile 增加护盾层数。
+     *
+     * <p>profileId 用来防止延迟事件把护盾加到玩家后来切换的另一种疯魔上；
+     * 只接受正数增量，并在极端情况下饱和到整数上限，避免层数溢出成负数。</p>
+     *
+     * @return 玩家当前确实处于指定 profile 且成功增加护盾时返回 {@code true}
+     */
+    public static boolean addArmourLayers(@NotNull PlayerEntity player, @NotNull Identifier profileId, int addedLayers) {
+        if (addedLayers <= 0) {
+            return false;
+        }
+        PlayerPsychoComponent component = PlayerPsychoComponent.KEY.get(player);
+        if (!component.isPsychoActive() || !profileId.equals(component.getProfileId())) {
+            return false;
+        }
+        int currentLayers = Math.max(0, component.getArmour());
+        int nextLayers = currentLayers > Integer.MAX_VALUE - addedLayers
+                ? Integer.MAX_VALUE
+                : currentLayers + addedLayers;
+        component.setArmour(nextLayers);
+        return true;
+    }
+
+    /**
+     * 暂停当前疯魔并返回可恢复快照。
+     *
+     * <p>暂停不记录结束回放；profile 临时物品仍按来源标记精确回收，避免暂停期间继续使用实际能力。</p>
+     */
+    public static @Nullable PsychoModeState pause(@NotNull PlayerEntity player) {
+        return PlayerPsychoComponent.KEY.get(player).pausePsycho();
+    }
+
+    /**
+     * 恢复此前由 {@link #pause(PlayerEntity)} 暂停的同一次疯魔。
+     *
+     * <p>如果快捷栏已没有足够空间，恢复会失败且不会创建半启动状态；调用方可以保留快照并在后续 tick 重试。</p>
+     */
+    public static boolean resume(@NotNull PlayerEntity player, @NotNull PsychoModeState state) {
+        return PlayerPsychoComponent.KEY.get(player).resumePsycho(state);
+    }
+
+    /**
+     * 将 profile 对应物品的当前冷却托底到指定 tick。
+     *
+     * <p>已有冷却更长时保持原值；低于下限时才延长。profile 没有登记 cooldownItem 时返回 false。</p>
+     */
+    public static boolean ensureMinimumCooldown(@NotNull PlayerEntity player, @NotNull Identifier profileId, int minimumTicks) {
+        PsychoModeProfile profile = getProfile(profileId);
+        return profile != null && ensureMinimumCooldown(player, profile, minimumTicks);
+    }
+
+    public static boolean ensureMinimumCooldown(@NotNull PlayerEntity player, @NotNull PsychoModeProfile profile, int minimumTicks) {
+        Item item = profile.cooldownItem();
+        if (item == null || minimumTicks <= 0) {
+            return false;
+        }
+        ItemCooldownManager manager = player.getItemCooldownManager();
+        ItemCooldownManager.Entry entry = manager.entries.get(item);
+        int remainingTicks = entry == null ? 0 : Math.max(0, entry.endTick - manager.tick);
+        if (remainingTicks < minimumTicks) {
+            manager.set(item, minimumTicks);
+        }
+        return true;
     }
 
     public static boolean isActive(@Nullable PlayerEntity player) {

@@ -159,6 +159,12 @@ public class PlayerMoodComponent implements AutoSyncedComponent, ServerTickingCo
      */
     private boolean dirty = false;
 
+    /** 只表示心情浮点值在 serverTick 中发生了连续变化。 */
+    private boolean moodValueDirty = false;
+
+    /** 任务新增、删除、完成或卡死清理需要立即刷新任务栏。 */
+    private boolean taskStateDirty = false;
+
     /**
      * 低心情时客户端看到的“幻视手持物品”。
      */
@@ -190,10 +196,33 @@ public class PlayerMoodComponent implements AutoSyncedComponent, ServerTickingCo
         }
     }
 
-    private void markDirty() {
+    /**
+     * 心情组件只包含玩家自己的 HUD、任务栏和幻觉缓存。
+     * 幻觉数据本身也是“观察者自己的缓存”，不需要把某个玩家的完整心情 NBT 广播给附近所有人。
+     */
+    @Override
+    public boolean shouldSyncWith(ServerPlayerEntity recipient) {
+        return recipient.equals(this.player);
+    }
+
+    private void markMoodValueDirty() {
         if (!this.player.getWorld().isClient()) {
             this.dirty = true;
+            this.moodValueDirty = true;
         }
+    }
+
+    private void markTaskStateDirty() {
+        if (!this.player.getWorld().isClient()) {
+            this.dirty = true;
+            this.taskStateDirty = true;
+        }
+    }
+
+    private void clearSyncDirtyFlags() {
+        this.dirty = false;
+        this.moodValueDirty = false;
+        this.taskStateDirty = false;
     }
 
     /**
@@ -216,7 +245,7 @@ public class PlayerMoodComponent implements AutoSyncedComponent, ServerTickingCo
         this.psychosisOffHandItems.clear();
         this.psychosisArmPoses.clear();
         this.psychosisOffHandArmPoses.clear();
-        this.dirty = false;
+        this.clearSyncDirtyFlags();
         this.sync();
     }
 
@@ -247,7 +276,7 @@ public class PlayerMoodComponent implements AutoSyncedComponent, ServerTickingCo
         }
 
         if (oldMood != this.mood) {
-            this.markDirty();
+            this.markMoodValueDirty();
             return true;
         }
         return false;
@@ -261,7 +290,7 @@ public class PlayerMoodComponent implements AutoSyncedComponent, ServerTickingCo
         boolean changed = this.setMoodSilently(mood);
         if (changed || this.dirty) {
             this.sync();
-            this.dirty = false;
+            this.clearSyncDirtyFlags();
         }
     }
 
@@ -540,7 +569,7 @@ public class PlayerMoodComponent implements AutoSyncedComponent, ServerTickingCo
             return;
         }
         this.sync();
-        this.dirty = false;
+        this.clearSyncDirtyFlags();
     }
 
     /**
@@ -576,7 +605,7 @@ public class PlayerMoodComponent implements AutoSyncedComponent, ServerTickingCo
         }
         this.stuckTaskCompletionCounts.put(taskId, 0);
         if (markDirty) {
-            this.markDirty();
+            this.markTaskStateDirty();
         }
     }
 
@@ -591,7 +620,7 @@ public class PlayerMoodComponent implements AutoSyncedComponent, ServerTickingCo
                 this.tasks.remove(legacyTask);
             }
             this.stuckTaskCompletionCounts.remove(taskId);
-            this.markDirty();
+            this.markTaskStateDirty();
         }
         return removed;
     }
@@ -655,7 +684,7 @@ public class PlayerMoodComponent implements AutoSyncedComponent, ServerTickingCo
 
         if (!assignedTasks.isEmpty()) {
             this.sync();
-            this.dirty = false;
+            this.clearSyncDirtyFlags();
         }
         return List.copyOf(assignedTasks);
     }
@@ -687,7 +716,7 @@ public class PlayerMoodComponent implements AutoSyncedComponent, ServerTickingCo
 
         this.putActiveTask(taskId, definition.create(this.player));
         this.sync();
-        this.dirty = false;
+        this.clearSyncDirtyFlags();
         return true;
     }
 
@@ -700,7 +729,7 @@ public class PlayerMoodComponent implements AutoSyncedComponent, ServerTickingCo
         boolean removed = this.removeActiveTask(taskId) != null;
         if (removed) {
             this.sync();
-            this.dirty = false;
+            this.clearSyncDirtyFlags();
         }
         return removed;
     }
@@ -712,7 +741,7 @@ public class PlayerMoodComponent implements AutoSyncedComponent, ServerTickingCo
         boolean completed = this.completeTask(taskId, rewardMood);
         if (completed && this.dirty) {
             this.sync();
-            this.dirty = false;
+            this.clearSyncDirtyFlags();
         }
         return completed;
     }
@@ -808,7 +837,7 @@ public class PlayerMoodComponent implements AutoSyncedComponent, ServerTickingCo
             this.stuckTaskCompletionCounts.merge(taskId, 1, Integer::sum);
         }
         if (!this.activeTasks.isEmpty()) {
-            this.markDirty();
+            this.markTaskStateDirty();
         }
     }
 
@@ -832,7 +861,7 @@ public class PlayerMoodComponent implements AutoSyncedComponent, ServerTickingCo
                 this.removeActiveTask(taskId);
             }
             this.resetRemainingStuckCounters();
-            this.markDirty();
+            this.markTaskStateDirty();
             return;
         }
 
@@ -847,7 +876,7 @@ public class PlayerMoodComponent implements AutoSyncedComponent, ServerTickingCo
             Identifier taskId = oneStuckCandidates.get(0);
             this.removeActiveTask(taskId);
             this.resetRemainingStuckCounters();
-            this.markDirty();
+            this.markTaskStateDirty();
         }
     }
 
@@ -1063,9 +1092,16 @@ public class PlayerMoodComponent implements AutoSyncedComponent, ServerTickingCo
             return;
         }
 
-        if (this.dirty) {
+        if (this.dirty
+                && (this.taskStateDirty
+                || !this.moodValueDirty
+                || this.player.getWorld().getTime() % GameConstants.PLAYER_STATE_SYNC_INTERVAL_TICKS == 0)) {
+            /*
+             * 任务结构变化必须立即送到本人，避免任务栏出现延迟；
+             * 单纯的连续心情下降则按固定周期校准，服务端真实数值仍然每 tick 精确推进。
+             */
             this.sync();
-            this.dirty = false;
+            this.clearSyncDirtyFlags();
         }
     }
 
@@ -1389,7 +1425,7 @@ public class PlayerMoodComponent implements AutoSyncedComponent, ServerTickingCo
          * 现在该字段已经废弃，因为多任务数量不再是“本局永久解锁”，
          * 而是每个 tick 都按当前心情阈值实时判定，所以这里直接忽略旧字段即可。
          */
-        this.dirty = false;
+        this.clearSyncDirtyFlags();
 
         this.activeTasks.clear();
         this.tasks.clear();
