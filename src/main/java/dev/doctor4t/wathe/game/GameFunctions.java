@@ -310,6 +310,12 @@ public class GameFunctions {
         GameWorldComponent gameComponent = GameWorldComponent.KEY.get(serverWorld);
         List<ServerPlayerEntity> readyPlayerList = getReadyPlayerList(serverWorld);
 
+        /*
+         * 世界级扩展状态必须在任何新局初始化和职业分配之前清理。
+         * 该公开事件替代扩展直接注入 initializeGame HEAD；此处不要后移到 ON_FINISH_INITIALIZE，
+         * 否则上一局配对、倒计时等状态会参与本局的职业/词条分配与存活判定。
+         */
+        GameEvents.ON_BEGIN_INITIALIZE.invoker().onBeginInitialize(serverWorld, gameComponent);
         GameEvents.ON_GAME_START.invoker().onGameStart(gameComponent.getGameMode());
         /*
          * 回放记录在这里提前创建，但会一直等到全部初始化监听器跑完后，

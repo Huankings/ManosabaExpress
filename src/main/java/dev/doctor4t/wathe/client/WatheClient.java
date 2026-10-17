@@ -29,6 +29,7 @@ import dev.doctor4t.wathe.client.gui.BlackoutOverlayRenderer;
 import dev.doctor4t.wathe.client.gui.StoreRenderer;
 import dev.doctor4t.wathe.client.gui.TimeRenderer;
 import dev.doctor4t.wathe.client.gui.screen.MapVotingScreen;
+import dev.doctor4t.wathe.client.input.WatheClientInputRules;
 import dev.doctor4t.wathe.client.task.TaskPointClientState;
 import dev.doctor4t.wathe.client.task.TaskPointOverlayRenderer;
 import dev.doctor4t.wathe.client.model.WatheModelLayers;
@@ -123,6 +124,7 @@ public class WatheClient implements ClientModInitializer {
     public void onInitializeClient() {
         // 加载 config
         WatheConfig.init(Wathe.MOD_ID, WatheConfig.class);
+        WatheClientInputRules.register();
         ensureDefaultInstinctHandlersRegistered();
         PsychoModeClientApi.registerDefaultClientHandlers();
         // 管理员调试变形作为最低优先级兜底接入，不覆盖扩展模组的正常职业变形。

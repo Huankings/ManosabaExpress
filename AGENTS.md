@@ -85,6 +85,7 @@
 - 通用屏幕 HUD：`HudOverlayApi`、`HudOverlayContext`、`HudOverlayLayer`、`HudOverlayLayout`
 - 物品描述与冷却读秒：`ItemTooltipApi`
 - 客户端最终雾效 / Iris 兼容：`FogOverrideApi`
+- 客户端键盘、鼠标、KeyBinding、输入 tick 和最终攻击/使用动作：`ClientInputApi`；完整说明见 `README_CLIENT_INPUT_API.md`
 - 准心图标 / 准心下方小进度条：`CrosshairHudApi`
 - 准心名字 / 实体名牌 / 准心额外 HUD：`RoleNameHudApi`
 - 心情 HUD：`MoodHudApi`
@@ -707,3 +708,12 @@ StarryExpress 当前只构建指南书和装饰内容；其源码路径虽然位
 ```
 
 如果用户没写“先只给方案”，默认应在读完源码后直接实现、编译并汇报结果。
+
+## 客户端输入和 Reset 公开化
+
+- 扩展不得再 mixin `KeyBinding`、`Keyboard`、`Mouse`、`MinecraftClient#doAttack`、`doItemUse`、`doItemPick` 或 `handleBlockBreaking`；统一使用 `dev.doctor4t.wathe.api.client.input.ClientInputApi`。
+- 输入规则按 priority 从高到低执行；`PASS` 继续、`ALLOW` 保留原版并停止低优先级、`BLOCK` 取消。KeyBinding 可用 `KeyResult.override(...)`，自定义最终动作可用 `ActionResult.handled(...)`。
+- 清短按缓存使用 `ClientInputApi.clearPressQueue(...)`；同时释放持续状态使用 `releaseKey(...)`；需要特殊相机读取真实绑定时使用 `isPhysicallyPressed(...)`，扩展不得自行 accessor `timesPressed` / `boundKey`。
+- 最终动作规则只是客户端体验层，服务端攻击、物品和 packet handler 必须继续做权威校验。
+- 世界组件必须在新局分配前清理时使用 `GameEvents.ON_BEGIN_INITIALIZE`；Harpy 玩家组件重置使用 `ResetPlayerEvent`。不要再新增 `GameFunctions#resetPlayer/initializeGame/finalizeGame` reset mixin。
+- 扩展按“一个客户端输入 bootstrap + 多个职业/词条 `*InputRules`”和“一个 reset bootstrap + 多个职业 `*ResetHandler`”拆分，聚合类只负责调用注册方法。

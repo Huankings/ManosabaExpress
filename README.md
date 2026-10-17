@@ -1122,3 +1122,14 @@ VictoryApi.registerRule(MyMod.id("victory/my_role"), VictoryApi.DEFAULT_PRIORITY
 `BedEffectRegistry` 继续负责服务端床效果的放置、睡眠触发、所有者和回放；`BedParticleRegistry.registerProvider` 负责客户端床粒子。provider 通过 `BedParticleContext` 读取床效果 ID、坐标、客户端世界和观察者，按 priority 从高到低执行，返回 `true` 表示本次已经处理，返回 `false` 才继续低优先级 provider。
 
 Wathe 原生蝎子床粒子已经迁移到默认 provider，并保留原有的杀手 / `CanSeePoison` 可见性规则和刷新概率。扩展床粒子应按职业拆分 handler 后注册，不应再注入 `TrimmedBedBlockEntity.clientTick`；该 API 只影响客户端视觉，不改变真实床效果和回放。
+
+### 客户端输入与最终动作公开 API（1.3.3）
+
+`ClientInputApi` 统一提供 KeyBinding、键盘、鼠标按钮、滚轮、输入 tick 维护，以及攻击、使用、
+选取方块和持续挖掘最终动作规则。扩展使用有优先级的 `PASS / ALLOW / BLOCK` 链接入；需要自行
+完成自定义攻击时可返回 `ActionResult.handled(...)`。按键残留清理和真实物理键读取也由该 API
+提供，扩展不应再 mixin `KeyBinding` 私有字段或 `MinecraftClient` 动作方法。完整说明见
+`README_CLIENT_INPUT_API.md`。
+
+世界级数据若必须早于新局职业分配清理，使用 `GameEvents.ON_BEGIN_INITIALIZE`；玩家级 Harpy
+扩展状态继续使用 `ResetPlayerEvent`，避免重复公开同义 reset 接口。
