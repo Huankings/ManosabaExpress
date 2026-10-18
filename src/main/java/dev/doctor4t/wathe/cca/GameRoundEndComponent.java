@@ -6,6 +6,7 @@ import dev.doctor4t.wathe.api.Faction;
 import dev.doctor4t.wathe.api.Role;
 import dev.doctor4t.wathe.Wathe;
 import dev.doctor4t.wathe.api.WatheGameModes;
+import dev.doctor4t.wathe.api.round.RoundEndFactionApi;
 import dev.doctor4t.wathe.api.win.CustomVictory;
 import dev.doctor4t.wathe.client.gui.RoleAnnouncementTexts;
 import dev.doctor4t.wathe.game.GameFunctions;
@@ -131,7 +132,24 @@ public class GameRoundEndComponent implements AutoSyncedComponent {
             if (roleData == null) {
                 continue;
             }
-            RoleAnnouncementTexts.RoleAnnouncementText role = getAnnouncementByFaction(roleData == null ? null : roleData.getFaction());
+            /*
+             * 真实职业和实时阵营必须保持不变；这里只在“结算快照落盘”这一刻询问公开 API，
+             * 允许扩展把指定玩家迁到另一个普通阵营栏目。迁移后的 RoundEndData.role 同时用于：
+             * 1. RoundTextRenderer 的平民 / 义警 / 杀手 / 中立栏目布局；
+             * 2. didWin(...) 的普通阵营个人胜负判断；
+             * 3. 胜负音效与回放 PLAYER_RESULT 的 is_winner 字段。
+             *
+             * 玩家头像下方的职业名仍由 roleDisplays 保存真实 roleData，因此迁移不会伪装职业名称或颜色。
+             */
+            Faction roundEndFaction = RoundEndFactionApi.resolveFaction(
+                    dataWorld,
+                    game,
+                    player,
+                    roleData,
+                    winStatus,
+                    customVictory
+            );
+            RoleAnnouncementTexts.RoleAnnouncementText role = getAnnouncementByFaction(roundEndFaction);
             this.players.add(new RoundEndData(player.getGameProfile(), role, !GameFunctions.isPlayerAliveAndSurvival(player)));
             this.roleDisplays.put(player.getUuid(), RoundEndRoleDisplay.fromRole(roleData, role));
         }

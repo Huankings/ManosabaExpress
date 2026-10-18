@@ -1,6 +1,7 @@
 package dev.doctor4t.wathe.api.client.mood;
 
 import dev.doctor4t.wathe.api.Role;
+import dev.doctor4t.wathe.api.mood.PlayerMoodTypeApi;
 import dev.doctor4t.wathe.cca.GameWorldComponent;
 import dev.doctor4t.wathe.cca.PlayerMoodComponent;
 import net.fabricmc.api.EnvType;
@@ -34,6 +35,16 @@ public record MoodHudContext(
         float shakeX,
         float shakeY
 ) {
+    /**
+     * 当前玩家经过动态 resolver 后的有效心情类型。
+     *
+     * <p>扩展 HUD 不应再直接读取 {@code role().getMoodType()}：职业原始类型可能已经被词条或临时状态转换，
+     * 而 Wathe 的服务端任务、心情下降和精神崩溃均以这个有效类型为准。</p>
+     */
+    public Role.MoodType effectiveMoodType() {
+        return PlayerMoodTypeApi.resolveMoodType(this.player, this.role, this.moodComponent);
+    }
+
     /**
      * 是否存在服务端当前仍然同步在组件里的活跃心情任务。
      *

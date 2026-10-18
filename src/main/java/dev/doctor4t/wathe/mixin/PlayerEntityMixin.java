@@ -155,13 +155,25 @@ public abstract class PlayerEntityMixin extends LivingEntity {
             PlayerStaminaApi.MoodPenaltyProfile moodPenaltyProfile = PlayerStaminaApi.resolveMoodPenaltyProfile(self);
             boolean tryingHorizontalSelfMove = ((WatheMovementInputAccess) this).wathe$isTryingHorizontalSelfMove();
             if (this.isSprinting()) {
-                stamina.drainStaminaFromServerTick(PlayerStaminaApi.getSprintDrainPerTick(self));
+                /*
+                 * 正常疾跑消耗统一经过公开 API。扩展职业可以在疯魔、技能或词条状态下返回 SKIP，
+                 * 让有限体力保持当前值；不再需要通过“每 tick 回满”间接抵消 Wathe 的扣除。
+                 */
+                PlayerStaminaApi.consumeStaminaFromServerTick(
+                        self,
+                        PlayerStaminaApi.getSprintDrainPerTick(self),
+                        PlayerStaminaApi.StaminaConsumptionCause.SPRINT
+                );
             } else if (moodPenaltyProfile == PlayerStaminaApi.MoodPenaltyProfile.DEPRESSIVE && tryingHorizontalSelfMove) {
                 /*
                  * 低落惩罚开启后，走路也会消耗体力。
                  * 判定使用玩家自己的输入字段，而不是 velocity，确保击退/推挤/传送这类外力位移不会被当成“走路消耗”。
                  */
-                stamina.drainStaminaFromServerTick(PlayerStaminaApi.getWalkDrainPerTick(self));
+                PlayerStaminaApi.consumeStaminaFromServerTick(
+                        self,
+                        PlayerStaminaApi.getWalkDrainPerTick(self),
+                        PlayerStaminaApi.StaminaConsumptionCause.WALK
+                );
             } else {
                 /*
                  * 高心情和中等惩罚阶段：非疾跑就恢复体力，走路和静止都可以恢复。

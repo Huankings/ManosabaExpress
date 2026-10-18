@@ -78,6 +78,9 @@
 - 本能：`InstinctApi`
 - 玩家存活：`PlayerLifeStateApi`
 - 玩家体力：`PlayerStaminaApi`、`PlayerStaminaComponent`
+- 有限体力免消耗：`PlayerStaminaApi.registerConsumptionRule`、`consumeStamina`（强制扣除仍用 `drainStamina`）
+- 动态玩家心情类型：`dev.doctor4t.wathe.api.mood.PlayerMoodTypeApi`
+- 结算阵营迁移：`dev.doctor4t.wathe.api.round.RoundEndFactionApi`（同时影响普通阵营个人胜负）
 - 玩家移动速度：`PlayerMovementApi`
 - 玩家 / 尸体可见、可选中、可交互、可攻击：`TargetVisibilityApi`
 - 玩家物理碰撞：`PlayerCollisionApi`、`PlayerCollisionContext`、`PlayerCollisionMode`
@@ -413,6 +416,7 @@ Wathe 的地图雾和扩展职业临时雾效统一走：
 
 - `PlayerStaminaComponent` 保存当前体力、额外体力上限修正和本局初始化标记，CCA id 是 `wathe:stamina`。
 - `PlayerStaminaApi` 负责清空、回满、增减体力、增加 / 减少体力上限、重置上限修正、判断是否耗尽、是否能疾跑、是否能自主水平移动和是否能跳跃。
+- 有限体力不消耗用 `registerConsumptionRule(id, priority, rule)`，返回 `PASS` / `CONSUME` / `SKIP`；不要再用巨大上限和每 tick 回满抵消扣除。普通能力成本走 `consumeStamina(player, amount, cause)`，支持 `SPRINT`、`WALK`、`CUSTOM`；`drainStamina/clearStamina/setStamina` 是不受免消耗影响的强制改值入口。免消耗不改变低心情禁跑、上限或归零限制。
 - `PlayerMovementApi.registerSpeedModifier(id, priority, handler)` 负责速度修正规则；handler 返回 `ADD`、`MULTIPLY`、`OVERRIDE` 或 `PASS`，Wathe 会按 priority 从高到低累计。
 - `GameConstants` 集中存基础走路速度、基础疾跑速度、三档疾跑消耗、三档恢复、低落走路消耗、`MID_MOOD_THRESHOLD`、`DEPRESSIVE_MOOD_THRESHOLD` 和两个默认关闭的心情体力惩罚开关。
 - 中等惩罚开启时，低于 `MID_MOOD_THRESHOLD` 使用中等规则：疾跑消耗增加、恢复降低，走路和静止都可以恢复。
@@ -420,6 +424,19 @@ Wathe 的地图雾和扩展职业临时雾效统一走：
 - 如果只开启中等惩罚而没有开启低落惩罚，低落心情也沿用中等规则。
 - 调试指令：`/wathe:setMood <0-1> [players]`、`/wathe:moodStaminaPenalty`、`/wathe:moodStaminaPenalty mid <true|false>`、`/wathe:moodStaminaPenalty depressive <true|false>`。
 - 扩展侧按职业或词条拆到 `roles/<role>/<RoleName>MovementHandler` 或 `modifiers/<modifier>/*MovementHandler`，聚合 bootstrap 只调用各 handler 的 `init()`。
+- 体力消耗规则也可按 `*StaminaHandler` 拆分，复用移动 bootstrap；NoellesRoles 的厨师由 `CookStaminaHandler` 注册，启动疯魔时仅回满一次，规则跟随已同步的疯魔 profile，无需额外 tick/上限备份状态。
+
+## 动态心情类型与结算阵营 API
+
+- `Role#getMoodType()` 是职业基础属性；玩家运行时类型必须读 `PlayerMoodTypeApi.resolveMoodType(player)`，不要直接修改共享 Role。
+- `registerResolver(id, priority, resolver)` 返回 `MoodTypeResult.pass()` 或 `override(REAL|FAKE|NONE)`。高 priority 优先，同优先级后注册优先，同 id 替换。无职业玩家固定 NONE；有职业的 NONE 可以被转换。
+- resolver 在客户端与服务端都会执行，条件必须来自两端已同步的职业/词条/组件，不得依赖仅服务端 Map。resolver 不得改状态、发任务、发包或递归调用 `getMood/isLowerThanMid/resolveMoodType`。
+- REAL/FAKE 转换统一影响下降、奖励、固定阈值补槽、崩溃、发任务资格、HUD 文案和预测；FAKE 底层心情归一为 1，再转 REAL 从满值开始。转换不完成或清除已有任务，NONE 暂停任务处理；HUD 扩展用 `MoodHudContext.effectiveMoodType()`，专属美术仍由 MoodHudApi 决定。
+- NoellesRoles 聚合入口是 `NoellesRolesMoodTypeBootstrap`，具体规则放 `roles/<role>/*MoodTypeHandler` 或 `modifiers/<modifier>/*MoodTypeHandler`；当前入口有意为空，不注册善良/内鬼示例词条。
+- `RoundEndFactionApi.registerRule(id, priority, handler)` 返回 `RoundEndFactionResult.pass()` 或 `moveTo(Faction)`。只在服务端写结算快照时执行，保留真实职业名/色、头像和死亡状态，复用现有全局结算同步。不要重新 mixin RoundTextRenderer 或改 RoundEndData 三参构造。
+- 普通阵营迁移同时改变 `didWin`、个人胜负音效和回放 is_winner；CustomVictory 独立赢家和普通共胜额外赢家仍优先。迁移不等于实时阵营/杀手能力/结束条件转换，不能联动修改职业权重或 Harpy 分配池。
+- NoellesRoles 聚合入口是 `NoellesRolesRoundEndBootstrap`，具体规则放 `roles/<role>/*RoundEndHandler` 或 `modifiers/<modifier>/*RoundEndHandler`。不要要求玩家仍存活才迁移，避免死亡队友失去结算归属；条件应在词条清理前的快照生成时读取。
+- 生命周期随扩展已有组件/词条 reset；不为 resolver 建独立静态玩家缓存。涉及新运行态状态时评估时停回溯和两端同步，详细示例见 README 对应章节。
 
 ## 疯魔模式 API
 

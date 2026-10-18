@@ -62,6 +62,11 @@ public final class Role {
         return canUseKiller;
     }
 
+    /**
+     * 职业注册时的基础心情类型，所有同职业玩家共享。
+     * 判断某个玩家此刻的实际类型请使用 PlayerMoodTypeApi.resolveMoodType(player)，
+     * 以便词条或临时状态单独转换该玩家，而不会改变其它同职业玩家。
+     */
     public MoodType getMoodType() {
         return moodType;
     }

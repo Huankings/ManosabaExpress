@@ -2,6 +2,7 @@ package dev.doctor4t.wathe.api.task;
 
 import dev.doctor4t.wathe.Wathe;
 import dev.doctor4t.wathe.api.Role;
+import dev.doctor4t.wathe.api.mood.PlayerMoodTypeApi;
 import dev.doctor4t.wathe.cca.GameWorldComponent;
 import dev.doctor4t.wathe.cca.PlayerMoodComponent;
 import dev.doctor4t.wathe.game.GameConstants;
@@ -374,7 +375,7 @@ public final class MoodTaskApi {
         }
 
         Role role = gameWorld.getRole(player);
-        if (role == null || role.getMoodType() == Role.MoodType.NONE) {
+        if (role == null || PlayerMoodTypeApi.resolveMoodType(player, role, moodComponent) == Role.MoodType.NONE) {
             return AssignmentStatus.MOOD_TASKS_UNSUPPORTED;
         }
 

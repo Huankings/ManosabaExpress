@@ -4,6 +4,7 @@ import dev.doctor4t.wathe.Wathe;
 import dev.doctor4t.wathe.api.PlayerLifeStateApi;
 import dev.doctor4t.wathe.api.Role;
 import dev.doctor4t.wathe.api.client.mood.PsychosisItemApi;
+import dev.doctor4t.wathe.api.mood.PlayerMoodTypeApi;
 import dev.doctor4t.wathe.api.task.MoodTaskApi;
 import dev.doctor4t.wathe.api.task.MoodTaskDefinition;
 import dev.doctor4t.wathe.api.task.TaskCompletionApi;
@@ -254,11 +255,29 @@ public class PlayerMoodComponent implements AutoSyncedComponent, ServerTickingCo
     }
 
     private boolean hasRealMood(@Nullable Role role) {
-        return role != null && role.getMoodType() == Role.MoodType.REAL;
+        return this.getEffectiveMoodType(role) == Role.MoodType.REAL;
     }
 
     private boolean hasFakeMood(@Nullable Role role) {
-        return role != null && role.getMoodType() == Role.MoodType.FAKE;
+        return this.getEffectiveMoodType(role) == Role.MoodType.FAKE;
+    }
+
+    /**
+     * 两端统一读取有效类型，并在观察到非真实心情时归一底层值。
+     *
+     * <p>不能只在服务端 tick 内回满：同一 tick 的任务发放、体力惩罚或 HUD 也可能先读取 getMood()。
+     * 所有组件类型判断都经过这里，确保已观察到的 FAKE 不保留隐藏的旧低值；NONE 也沿用原有满值语义。
+     * 仅服务端标脏，由既有组件同步节奏校准客户端，不在 getter 中直接发包。</p>
+     */
+    private @NotNull Role.MoodType getEffectiveMoodType(@Nullable Role role) {
+        Role.MoodType effectiveType = PlayerMoodTypeApi.resolveMoodType(this.player, role, this);
+        if (effectiveType != Role.MoodType.REAL && this.mood != 1.0F) {
+            this.mood = 1.0F;
+            if (!this.player.getWorld().isClient()) {
+                this.markMoodValueDirty();
+            }
+        }
+        return effectiveType;
     }
 
     /**
@@ -926,7 +945,8 @@ public class PlayerMoodComponent implements AutoSyncedComponent, ServerTickingCo
 
         // 客户端做一次本地预测，让心情 HUD 的下降更平滑。
         // 掉速保持原版：只要身上有任务，就按单任务速度扣一次。
-        if (hasRealMood(role) && !this.activeTasks.isEmpty() && !this.hasMoodDrainProtection()) {
+        boolean hasRealMood = this.hasRealMood(role);
+        if (hasRealMood && !this.activeTasks.isEmpty() && !this.hasMoodDrainProtection()) {
             this.mood = MathHelper.clamp(this.mood - this.getCurrentMoodDrainPerTick(), 0f, 1f);
         }
 
@@ -1041,8 +1061,10 @@ public class PlayerMoodComponent implements AutoSyncedComponent, ServerTickingCo
         this.tickExternalMoodDrainProtection(true);
 
         Role role = gameWorldComponent.getRole(this.player);
-        boolean hasRealMood = hasRealMood(role);
-        boolean hasFakeMood = hasFakeMood(role);
+        // 一次 tick 固定解析一次类型，任务调度、奖励和崩溃判断使用同一份只读结果。
+        Role.MoodType effectiveMoodType = this.getEffectiveMoodType(role);
+        boolean hasRealMood = effectiveMoodType == Role.MoodType.REAL;
+        boolean hasFakeMood = effectiveMoodType == Role.MoodType.FAKE;
         if (!hasRealMood && !hasFakeMood) {
             return;
         }

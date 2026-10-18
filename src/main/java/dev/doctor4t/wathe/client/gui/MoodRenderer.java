@@ -5,6 +5,7 @@ import dev.doctor4t.wathe.api.client.mood.MoodHudApi;
 import dev.doctor4t.wathe.api.client.mood.MoodHudContext;
 import dev.doctor4t.wathe.api.client.mood.MoodHudStyle;
 import dev.doctor4t.wathe.api.client.mood.PsychoMoodHudStyle;
+import dev.doctor4t.wathe.api.mood.PlayerMoodTypeApi;
 import dev.doctor4t.wathe.api.Role;
 import dev.doctor4t.wathe.api.task.MoodTaskApi;
 import dev.doctor4t.wathe.cca.GameWorldComponent;
@@ -81,9 +82,10 @@ public class MoodRenderer {
         PlayerMoodComponent component = PlayerMoodComponent.KEY.get(player);
         PlayerPsychoComponent psycho = PlayerPsychoComponent.KEY.get(player);
         Role role = gameWorldComponent.getRole(player);
-        boolean isFakeMood = role != null && role.getMoodType() == Role.MoodType.FAKE;
-        boolean isRealMood = role != null && role.getMoodType() == Role.MoodType.REAL;
-        float warningProgress = getMoodWarningProgress(component, gameWorldComponent, role);
+        Role.MoodType effectiveMoodType = PlayerMoodTypeApi.resolveMoodType(player, role, component);
+        boolean isFakeMood = effectiveMoodType == Role.MoodType.FAKE;
+        boolean isRealMood = effectiveMoodType == Role.MoodType.REAL;
+        float warningProgress = getMoodWarningProgress(component, gameWorldComponent, effectiveMoodType);
         float[] warningShake = getWarningShake(player, warningProgress);
         currentWarningProgress = warningProgress;
         currentShakeX = warningShake[0];
@@ -238,8 +240,12 @@ public class MoodRenderer {
      *
      * @return 0~1 的警告强度，越接近 1 说明越接近精神崩溃。
      */
-    private static float getMoodWarningProgress(@NotNull PlayerMoodComponent component, @NotNull GameWorldComponent gameWorldComponent, @Nullable Role role) {
-        if (role == null || role.getMoodType() != Role.MoodType.REAL || !gameWorldComponent.isMoodEffectDeathEnabled()) {
+    private static float getMoodWarningProgress(
+            @NotNull PlayerMoodComponent component,
+            @NotNull GameWorldComponent gameWorldComponent,
+            @NotNull Role.MoodType effectiveMoodType
+    ) {
+        if (effectiveMoodType != Role.MoodType.REAL || !gameWorldComponent.isMoodEffectDeathEnabled()) {
             return 0f;
         }
 

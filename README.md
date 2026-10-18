@@ -46,6 +46,8 @@ Wathe 是一个基于 **Minecraft 1.21.1 + Fabric** 的列车狼人杀 / 社交�
 | `src/main/java/dev/doctor4t/wathe/Wathe.java` | Mod 总初始化：注册物品、方块、命令、网络包、数据包重载、回放格式器、任务点系统等 |
 | `src/main/java/dev/doctor4t/wathe/api` | 给本体和扩展 Mod 使用的公开 API：职业、阵营、游戏模式、商店、经济、胜利、任务完成、本能、HUD 等 |
 | `src/main/java/dev/doctor4t/wathe/api/stamina` | 玩家体力公开 API：清空、回满、增减体力、调整体力上限、解析心情惩罚档位 |
+| `src/main/java/dev/doctor4t/wathe/api/mood` | 按玩家动态转换有效心情类型，统一服务端任务机制与客户端表现 |
+| `src/main/java/dev/doctor4t/wathe/api/round` | 服务端结算阵营迁移，普通阵营个人胜负与栏目一致 |
 | `src/main/java/dev/doctor4t/wathe/api/movement` | 玩家移动速度公开 API：叠加、倍率、覆盖和优先级修正 |
 | `src/main/java/dev/doctor4t/wathe/api/client/inventory` | 背包按钮公开 API：扩展按钮注册、三类背包 screen type、动态分组、分页和头像辅助 |
 | `src/main/java/dev/doctor4t/wathe/api/client/mood` | 低心情幻觉手持物公开 API：指定/随机物品、手臂姿势与优先级覆盖 |
@@ -363,6 +365,35 @@ Wathe 的地图通常是“模板区复制到游戏区”。配置项来自：
 | `FAKE` | 假心情，通常给杀手 / 中立伪装用，HUD 表现可像有心情但不按真实平民任务规则死亡 |
 | `NONE` | 无心情，不参与心情任务 |
 
+### 动态转换玩家心情类型
+
+`Role#getMoodType()` 只表示职业注册时的基础类型。实际玩法统一读取
+`PlayerMoodTypeApi.resolveMoodType(player)`，支持同一职业的不同玩家具有不同的有效类型。
+用 `PlayerMoodTypeApi.registerResolver(id, priority, resolver)` 注册，结果类为
+`PlayerMoodTypeApi.MoodTypeResult`：`pass()` 继续，`override(Role.MoodType.REAL|FAKE|NONE)` 接管。
+priority 越大越先执行，同优先级后注册者先执行，相同 id 替换旧规则；无人接管时回退职业基础类型。
+无职业玩家固定为 NONE，不执行 resolver；已有 NONE 职业可以被显式转换。
+
+```java
+// 在扩展的通用初始化里注册；MySyncedState 代表扩展自己的、两端都已同步的状态。
+PlayerMoodTypeApi.registerResolver(MyMod.id("mood/my_effect"), 0, context -> {
+    if (MySyncedState.isEnabled(context.player())) {
+        return PlayerMoodTypeApi.MoodTypeResult.override(Role.MoodType.REAL);
+    }
+    return PlayerMoodTypeApi.MoodTypeResult.pass();
+});
+```
+
+服务端掉心情、任务奖励、固定阈值补槽、精神崩溃和任务发放资格，以及客户端预测、任务文案与警告
+都读取有效类型。FAKE 会把底层心情也归一为 1，之后恢复 REAL 从满值开始；NONE 沿用满值语义。
+转换保留已有任务、进度与计时，不会冒充任务完成或发放金币；FAKE 不会再按真实心情阈值补槽，NONE 暂停任务处理。
+新增任务发放仍受全局槽位和 assignment rule 限制。
+
+resolver 必须是无副作用的纯选择器，两端条件应来自已同步的词条/组件状态。不能在 resolver 内再次调用本 API、
+`getMood()` 或 `isLowerThanMid()`，否则会递归解析类型。HUD 可通过 `MoodHudContext.effectiveMoodType()` 判断类型；
+职业专属图标和样式仍由 `MoodHudApi` 控制，转换类型不会擅自替换扩展注册的美术样式。
+动态条件在消失、死亡重置、词条移除或回合清理后不成立时返回 PASS，即恢复职业默认类型，无额外玩家静态缓存。
+
 ### 任务生成规则
 
 本项目对原任务系统做了重要调整：
@@ -415,6 +446,54 @@ Wathe 的地图通常是“模板区复制到游戏区”。配置项来自：
 - 如果只开启中等惩罚，低落心情也会沿用中等惩罚；两个惩罚开关默认都关闭，必须通过调试指令显式开启。
 - 体力归零只会阻止玩家自主水平移动和跳跃，击退、传送、水流、载具等外力位移仍然保留。
 - 调试心情用 `/wathe:setMood <0-1> [players]`，调试体力惩罚开关用 `/wathe:moodStaminaPenalty`。
+
+### 有限体力免消耗
+
+`PlayerStaminaApi.registerConsumptionRule(id, priority, rule)` 在本次扣除之前询问扩展，规则可返回
+`StaminaConsumptionResult.PASS`、`CONSUME` 或 `SKIP`。高 priority 优先、同优先级后注册优先、同 id 替换。
+context 包含玩家、职业、世界、体力组件、心情惩罚档位、消耗原因、请求量、当前体力和上限。
+
+```java
+PlayerStaminaApi.registerConsumptionRule(MyMod.id("stamina/my_effect"), 0, context -> {
+    return MySyncedState.isEnabled(context.player())
+            ? PlayerStaminaApi.StaminaConsumptionResult.SKIP
+            : PlayerStaminaApi.StaminaConsumptionResult.PASS;
+});
+// 扩展能力的普通成本：允许规则免除，返回 true 表示已进入扣除流程，不表示余额足够。
+PlayerStaminaApi.consumeStamina(player, 20f, PlayerStaminaApi.StaminaConsumptionCause.CUSTOM);
+```
+
+Wathe 疾跑使用 SPRINT，低落心情走路使用 WALK；移动 tick 通过 `consumeStaminaFromServerTick` 保留低频同步。
+非有限正数和非正数请求被拒绝；剩余体力不足时仍钳制到 0。能力若要求付足成本，应另外检查余额。
+`drainStamina`、`clearStamina`、`setStamina` 保留强制改值语义，不受免消耗规则影响。
+免消耗不提高上限、不自动回满，也不豁免归零后的移动/跳跃限制或低心情禁跑；恢复体力继续按原规则执行。
+NoellesRoles 厨师疯魔由 `CookStaminaHandler` 接入：成功启动时回满一次，持续期间跳过正常消耗，结束即回退。
+
+### 结算阵营迁移
+
+`dev.doctor4t.wathe.api.round.RoundEndFactionApi` 在服务端生成结算快照时解析每个玩家的栏目：
+
+```java
+RoundEndFactionApi.registerRule(MyMod.id("round/my_effect"), 0, context -> {
+    if (MyState.shouldSettleAsCivilian(context.player())) {
+        return RoundEndFactionApi.RoundEndFactionResult.moveTo(Faction.CIVILIAN);
+    }
+    return RoundEndFactionApi.RoundEndFactionResult.pass();
+});
+```
+
+支持平民、义警、杀手、中立四个普通栏目。context 提供服务端世界、对局组件、玩家、真实职业、原始阵营、
+WinStatus 和 CustomVictory。高 priority 优先、同优先级后注册优先、同 id 替换；PASS 回退后续规则/真实阵营。
+不要把“仍然存活”当作词条迁移的必要条件，死者也应按照结算时仍然有效的规则进入对应栏目。
+
+迁移后的栏目同时参与 `GameRoundEndComponent.didWin(uuid)`：杀手胜利时杀手栏目获胜，乘客胜利/超时时
+非杀手栏目获胜。个人胜负音效、回放 PLAYER_RESULT 的 `is_winner` 和所有 didWin 调用方使用同一结果。
+已有自定义独立胜利 UUID 与普通共胜额外赢家仍优先仲裁；Loose Ends 保留原有专属布局与判定。
+真实职业名称、职业颜色、头像和死亡红叉保持原值，结果通过原有世界/全局 scoreboard 组件跨维度保存，
+不在客户端重读已清除的词条状态。无需修改 RoundEndData 三参构造或新增网络包。
+
+该接口不改变局内阵营、商店、杀手能力、同伙提示、体力上限、职业权重或游戏结束条件；
+完整的“阵营转换”应由扩展按需求分别接入相关玩法 API。服务端注册器无需依赖 Minecraft 客户端类。
 
 ### 任务点透视
 

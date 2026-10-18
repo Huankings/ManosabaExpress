@@ -1,12 +1,20 @@
 package dev.doctor4t.wathe.api.stamina;
 
+import dev.doctor4t.wathe.api.Role;
 import dev.doctor4t.wathe.cca.GameWorldComponent;
 import dev.doctor4t.wathe.cca.PlayerMoodComponent;
 import dev.doctor4t.wathe.cca.PlayerStaminaComponent;
 import dev.doctor4t.wathe.game.GameConstants;
 import dev.doctor4t.wathe.game.GameFunctions;
 import net.minecraft.entity.player.PlayerEntity;
+import net.minecraft.util.Identifier;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
+
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Objects;
 
 /**
  * 玩家体力公开 API。
@@ -15,7 +23,42 @@ import org.jetbrains.annotations.NotNull;
  * 不要再读取玩家 NBT 里的旧 {@code sprintingTicks}，也不要 mixin Wathe 的玩家移动逻辑。</p>
  */
 public final class PlayerStaminaApi {
+    public static final int DEFAULT_PRIORITY = 0;
+
+    private static final Comparator<ConsumptionRuleEntry> CONSUMPTION_RULE_COMPARATOR =
+            Comparator.comparingInt(ConsumptionRuleEntry::priority)
+                    .reversed()
+                    .thenComparing(Comparator.comparingLong(ConsumptionRuleEntry::order).reversed());
+    private static final List<ConsumptionRuleEntry> CONSUMPTION_RULES = new ArrayList<>();
+    private static long nextConsumptionRuleOrder = 0L;
+
     private PlayerStaminaApi() {
+    }
+
+    /**
+     * 注册一条“本次正常体力消耗是否应当执行”的规则。
+     *
+     * <p>这个入口和 {@link #drainStamina(PlayerEntity, float)} 的职责刻意分开：</p>
+     * <p>1. 疾跑、低心情走路和扩展主动声明的能力成本，应调用受规则控制的
+     * {@link #consumeStamina(PlayerEntity, float, StaminaConsumptionCause)}；</p>
+     * <p>2. 管理员调试、惩罚技能或明确要求无视免消耗状态的逻辑，仍然可以调用
+     * {@code drainStamina(...)} 强制扣除。</p>
+     *
+     * <p>priority 越大越先执行；同 priority 下后注册的规则先执行。同一个 id 重复注册会替换旧规则，
+     * 方便扩展模组在配置重载或兼容层初始化时安全重复调用。</p>
+     */
+    public static void registerConsumptionRule(
+            @NotNull Identifier id,
+            int priority,
+            @NotNull StaminaConsumptionRule rule
+    ) {
+        Objects.requireNonNull(id, "id");
+        Objects.requireNonNull(rule, "rule");
+        synchronized (CONSUMPTION_RULES) {
+            CONSUMPTION_RULES.removeIf(entry -> entry.id().equals(id));
+            CONSUMPTION_RULES.add(new ConsumptionRuleEntry(id, priority, nextConsumptionRuleOrder++, rule));
+            CONSUMPTION_RULES.sort(CONSUMPTION_RULE_COMPARATOR);
+        }
     }
 
     public static @NotNull PlayerStaminaComponent getComponent(@NotNull PlayerEntity player) {
@@ -36,6 +79,43 @@ public final class PlayerStaminaApi {
 
     public static void drainStamina(@NotNull PlayerEntity player, float amount) {
         getComponent(player).drainStamina(amount);
+    }
+
+    /**
+     * 尝试执行一次允许被扩展规则拦截的体力消耗。
+     *
+     * <p>返回 {@code true} 表示本次请求已经进入组件扣除流程；返回 {@code false} 表示数值无效，
+     * 或某条高优先级规则返回了 {@link StaminaConsumptionResult#SKIP}。即使玩家当前体力不足，
+     * 组件也会继续负责把结果安全钳制到 0。</p>
+     */
+    public static boolean consumeStamina(
+            @NotNull PlayerEntity player,
+            float amount,
+            @NotNull StaminaConsumptionCause cause
+    ) {
+        if (!shouldConsumeStamina(player, amount, cause)) {
+            return false;
+        }
+        getComponent(player).drainStamina(amount);
+        return true;
+    }
+
+    /**
+     * Wathe 移动 tick 使用的低频同步版本。
+     *
+     * <p>规则解析与公开 {@link #consumeStamina(PlayerEntity, float, StaminaConsumptionCause)} 完全相同，
+     * 区别仅在于连续移动时先标记组件为脏，再由组件按固定周期同步，避免每 tick 给客户端发送体力包。</p>
+     */
+    public static boolean consumeStaminaFromServerTick(
+            @NotNull PlayerEntity player,
+            float amount,
+            @NotNull StaminaConsumptionCause cause
+    ) {
+        if (!shouldConsumeStamina(player, amount, cause)) {
+            return false;
+        }
+        getComponent(player).drainStaminaFromServerTick(amount);
+        return true;
     }
 
     public static void clearStamina(@NotNull PlayerEntity player) {
@@ -182,9 +262,95 @@ public final class PlayerStaminaApi {
         return canSelfMove(player);
     }
 
+    private static boolean shouldConsumeStamina(
+            @NotNull PlayerEntity player,
+            float amount,
+            @NotNull StaminaConsumptionCause cause
+    ) {
+        Objects.requireNonNull(cause, "cause");
+        if (!Float.isFinite(amount) || amount <= 0.0F) {
+            return false;
+        }
+
+        GameWorldComponent gameWorld = GameWorldComponent.KEY.get(player.getWorld());
+        PlayerStaminaComponent stamina = getComponent(player);
+        StaminaConsumptionContext context = new StaminaConsumptionContext(
+                player,
+                gameWorld,
+                gameWorld.getRole(player),
+                stamina,
+                resolveMoodPenaltyProfile(player),
+                cause,
+                amount,
+                stamina.getStamina(),
+                stamina.getMaxStamina()
+        );
+
+        for (ConsumptionRuleEntry entry : consumptionRuleSnapshot()) {
+            StaminaConsumptionResult result = entry.rule().resolve(context);
+            if (result == StaminaConsumptionResult.CONSUME) {
+                return true;
+            }
+            if (result == StaminaConsumptionResult.SKIP) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static @NotNull List<ConsumptionRuleEntry> consumptionRuleSnapshot() {
+        synchronized (CONSUMPTION_RULES) {
+            return List.copyOf(CONSUMPTION_RULES);
+        }
+    }
+
+    @FunctionalInterface
+    public interface StaminaConsumptionRule {
+        /**
+         * @return PASS 继续询问后续规则；CONSUME 强制执行本次正常消耗；SKIP 跳过本次正常消耗。
+         */
+        @Nullable StaminaConsumptionResult resolve(@NotNull StaminaConsumptionContext context);
+    }
+
+    public record StaminaConsumptionContext(
+            @NotNull PlayerEntity player,
+            @NotNull GameWorldComponent gameWorld,
+            @Nullable Role role,
+            @NotNull PlayerStaminaComponent stamina,
+            @NotNull MoodPenaltyProfile moodPenaltyProfile,
+            @NotNull StaminaConsumptionCause cause,
+            float requestedAmount,
+            float currentStamina,
+            float maxStamina
+    ) {
+    }
+
+    public enum StaminaConsumptionCause {
+        /** Wathe 自主疾跑的持续消耗。 */
+        SPRINT,
+        /** 低落心情惩罚开启后，自主走路产生的持续消耗。 */
+        WALK,
+        /** 扩展模组主动声明、且允许免消耗规则接管的能力成本。 */
+        CUSTOM
+    }
+
+    public enum StaminaConsumptionResult {
+        PASS,
+        CONSUME,
+        SKIP
+    }
+
     public enum MoodPenaltyProfile {
         HIGH,
         MID,
         DEPRESSIVE
+    }
+
+    private record ConsumptionRuleEntry(
+            @NotNull Identifier id,
+            int priority,
+            long order,
+            @NotNull StaminaConsumptionRule rule
+    ) {
     }
 }
