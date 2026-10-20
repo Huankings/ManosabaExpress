@@ -8,6 +8,7 @@ import dev.doctor4t.wathe.api.shop.ShopApi;
 import dev.doctor4t.wathe.api.shop.ShopPayment;
 import dev.doctor4t.wathe.api.shop.ShopPurchaseContext;
 import dev.doctor4t.wathe.api.shop.ShopPurchaseResult;
+import dev.doctor4t.wathe.api.sync.PlayerComponentSyncApi;
 import dev.doctor4t.wathe.game.GameConstants;
 import dev.doctor4t.wathe.index.WatheItems;
 import dev.doctor4t.wathe.record.ShopPurchaseTracker;
@@ -51,10 +52,11 @@ public class PlayerShopComponent implements AutoSyncedComponent, ServerTickingCo
     /**
      * 商店余额和货币只用于玩家自己的商店 HUD 与购买界面。
      * 服务端仍可读取目标玩家余额，客户端组件包只发送给余额所属玩家。
+     * 额外观察者必须由扩展通过 PlayerComponentSyncApi 显式授权，不会默认广播金币数据。
      */
     @Override
     public boolean shouldSyncWith(ServerPlayerEntity recipient) {
-        return recipient.equals(this.player);
+        return PlayerComponentSyncApi.shouldSyncWith(KEY.getId(), this.player, recipient);
     }
 
     public void reset() {

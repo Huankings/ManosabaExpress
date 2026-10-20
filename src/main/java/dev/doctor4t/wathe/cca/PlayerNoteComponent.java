@@ -1,6 +1,7 @@
 package dev.doctor4t.wathe.cca;
 
 import dev.doctor4t.wathe.Wathe;
+import dev.doctor4t.wathe.api.sync.PlayerComponentSyncApi;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.nbt.NbtCompound;
 import net.minecraft.registry.RegistryWrapper;
@@ -24,10 +25,10 @@ public class PlayerNoteComponent implements AutoSyncedComponent {
         KEY.sync(this.player);
     }
 
-    /** 便签界面只显示本地玩家自己的内容，不需要广播给附近观察者。 */
+    /** 默认只同步本人的便签内容；如有真实观察需求，由扩展在 PlayerComponentSyncApi 显式授权。 */
     @Override
     public boolean shouldSyncWith(ServerPlayerEntity recipient) {
-        return recipient.equals(this.player);
+        return PlayerComponentSyncApi.shouldSyncWith(KEY.getId(), this.player, recipient);
     }
 
     public void reset() {

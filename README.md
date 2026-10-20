@@ -45,6 +45,9 @@ Wathe 是一个基于 **Minecraft 1.21.1 + Fabric** 的列车狼人杀 / 社交�
 | --- | --- |
 | `src/main/java/dev/doctor4t/wathe/Wathe.java` | Mod 总初始化：注册物品、方块、命令、网络包、数据包重载、回放格式器、任务点系统等 |
 | `src/main/java/dev/doctor4t/wathe/api` | 给本体和扩展 Mod 使用的公开 API：职业、阵营、游戏模式、商店、经济、胜利、任务完成、本能、HUD 等 |
+| `src/main/java/dev/doctor4t/wathe/api/sync` | 玩家私有 CCA 的选择性观察者同步：按组件和职业窄范围开放，不恢复全员广播 |
+| `src/main/java/dev/doctor4t/wathe/game/instinct/InstinctMoodSyncHandler.java` | 原生本能的目标心情同步规则：杀手能力玩家与旁观/创造视角按目标真实心情显示颜色 |
+| `README_PLAYER_COMPONENT_SYNC_API.md` | 目标毒药透视、观察者规则、转职补发和撤销权限清理的完整说明 |
 | `src/main/java/dev/doctor4t/wathe/api/stamina` | 玩家体力公开 API：清空、回满、增减体力、调整体力上限、解析心情惩罚档位 |
 | `src/main/java/dev/doctor4t/wathe/api/mood` | 按玩家动态转换有效心情类型，统一服务端任务机制与客户端表现 |
 | `src/main/java/dev/doctor4t/wathe/api/round` | 服务端结算阵营迁移，普通阵营个人胜负与栏目一致 |

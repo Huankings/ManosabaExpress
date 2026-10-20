@@ -594,6 +594,8 @@ GameRecordManager.recordRoleCorrection(world, playerUuid, oldRole, newRole);
 - 跨维度 / 全服唯一状态：scoreboard component
 - 只给本人显示的状态用 `shouldSyncWith` 限制同步范围
 - 所有人可见的标记 / 外观 / HUD 状态可同步给所有人，再由客户端 handler 判断观看者身份
+- 默认私有、但少数职业客户端需要观察目标状态的玩家组件，使用 `PlayerComponentSyncApi.registerObserverRule(...)` 按组件和观察者注册窄规则；局中转职后用 `syncTrackedToRecipient(...)` 补发当前追踪目标，禁止为此恢复全员同步。
+- 原生本能会在客户端读取无辜目标 `PlayerMoodComponent.getMood()`；必须保留 `game/instinct/InstinctMoodSyncHandler` 的内置观察规则，按 `canUseKillerFeatures` 兼容扩展杀手并覆盖旁观/创造视角，不能把心情一概收窄为仅本人，否则本能恒绿。颜色阈值与 5 tick 校准保持既有语义。
 
 网络包规则：
 

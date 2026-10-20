@@ -662,6 +662,8 @@ public class WatheClient implements ClientModInitializer {
                     return InstinctApi.HighlightResult.color(MathHelper.hsvToRgb(0F, 1.0F, 0.6F));
                 }
                 if (component.isInnocent(player)) {
+                    // 此处读取的是目标客户端组件；服务端 InstinctMoodSyncHandler 必须为合法观察者授权同步。
+                    // 保留原有严格小于阈值的颜色判定，不用默认满值或观察者自己的心情代替目标真实心情。
                     float mood = PlayerMoodComponent.KEY.get(player).getMood();
                     if (mood < GameConstants.DEPRESSIVE_MOOD_THRESHOLD) {
                         return InstinctApi.HighlightResult.color(0x171DC6);

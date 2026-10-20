@@ -2,6 +2,7 @@ package dev.doctor4t.wathe.cca;
 
 import dev.doctor4t.wathe.Wathe;
 import dev.doctor4t.wathe.api.Role;
+import dev.doctor4t.wathe.api.sync.PlayerComponentSyncApi;
 import dev.doctor4t.wathe.game.GameConstants;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.nbt.NbtCompound;
@@ -69,10 +70,11 @@ public class PlayerStaminaComponent implements AutoSyncedComponent, ServerTickin
     /**
      * 体力组件只服务于玩家自己的 HUD 和输入限制，不需要广播给周围观察者。
      * 服务端 API 仍然可以读取任意目标的真实体力，收件人限制只影响客户端组件包。
+     * 后续需要观察目标体力的职业使用 PlayerComponentSyncApi 注册窄规则，默认频率保持不变。
      */
     @Override
     public boolean shouldSyncWith(ServerPlayerEntity recipient) {
-        return recipient.equals(this.player);
+        return PlayerComponentSyncApi.shouldSyncWith(KEY.getId(), this.player, recipient);
     }
 
     /**

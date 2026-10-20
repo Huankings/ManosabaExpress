@@ -1,6 +1,7 @@
 package dev.doctor4t.wathe.cca;
 
 import dev.doctor4t.wathe.Wathe;
+import dev.doctor4t.wathe.api.sync.PlayerComponentSyncApi;
 import dev.doctor4t.wathe.game.GameConstants;
 import dev.doctor4t.wathe.game.GameFunctions;
 import dev.doctor4t.wathe.record.GameRecordManager;
@@ -45,12 +46,12 @@ public class PlayerPoisonComponent implements AutoSyncedComponent, ServerTicking
     }
 
     /**
-     * 中毒倒计时和毒源详情只用于中毒玩家自己的屏幕效果；
-     * 其它职业在服务端读取目标组件，不需要收到目标的客户端 CCA 包。
+     * 默认只同步给中毒玩家本人；扩展职业如果需要在客户端观察目标的中毒状态，
+     * 必须通过 PlayerComponentSyncApi 注册窄范围观察者规则。
      */
     @Override
     public boolean shouldSyncWith(ServerPlayerEntity recipient) {
-        return recipient.equals(this.player);
+        return PlayerComponentSyncApi.shouldSyncWith(KEY.getId(), this.player, recipient);
     }
 
     public void reset() {

@@ -8,6 +8,7 @@ import dev.doctor4t.wathe.api.mood.PlayerMoodTypeApi;
 import dev.doctor4t.wathe.api.task.MoodTaskApi;
 import dev.doctor4t.wathe.api.task.MoodTaskDefinition;
 import dev.doctor4t.wathe.api.task.TaskCompletionApi;
+import dev.doctor4t.wathe.api.sync.PlayerComponentSyncApi;
 import dev.doctor4t.wathe.block.entity.SeatEntity;
 import dev.doctor4t.wathe.game.GameConstants;
 import dev.doctor4t.wathe.game.GameFunctions;
@@ -198,12 +199,14 @@ public class PlayerMoodComponent implements AutoSyncedComponent, ServerTickingCo
     }
 
     /**
-     * 心情组件只包含玩家自己的 HUD、任务栏和幻觉缓存。
-     * 幻觉数据本身也是“观察者自己的缓存”，不需要把某个玩家的完整心情 NBT 广播给附近所有人。
+     * 心情组件默认服务于本人的 HUD、任务栏和幻觉缓存，但原生本能也会读取无辜目标的心情值。
+     * 因此由 InstinctMoodSyncHandler 经 PlayerComponentSyncApi 授权杀手能力玩家及旁观/创造视角，
+     * 避免目标客户端组件一直停在默认满值、导致本能一直绿色；其他存活玩家仍只接收本人数据。
+     * 扩展如需新增目标心情观察者，继续通过相同 API 注册窄规则，不能改回附近所有人广播。
      */
     @Override
     public boolean shouldSyncWith(ServerPlayerEntity recipient) {
-        return recipient.equals(this.player);
+        return PlayerComponentSyncApi.shouldSyncWith(KEY.getId(), this.player, recipient);
     }
 
     private void markMoodValueDirty() {

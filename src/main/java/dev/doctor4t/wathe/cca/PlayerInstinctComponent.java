@@ -1,6 +1,7 @@
 package dev.doctor4t.wathe.cca;
 
 import dev.doctor4t.wathe.Wathe;
+import dev.doctor4t.wathe.api.sync.PlayerComponentSyncApi;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.nbt.NbtCompound;
 import net.minecraft.registry.RegistryWrapper;
@@ -43,10 +44,10 @@ public class PlayerInstinctComponent implements AutoSyncedComponent {
         }
     }
 
-    /** 本能键模式只影响本地按键处理，不需要向其它客户端广播。 */
+    /** 本能键模式默认仅本人同步；特殊客户端观察需求可由 PlayerComponentSyncApi 显式授权。 */
     @Override
     public boolean shouldSyncWith(ServerPlayerEntity recipient) {
-        return recipient.equals(this.player);
+        return PlayerComponentSyncApi.shouldSyncWith(KEY.getId(), this.player, recipient);
     }
 
     public boolean isToggleModeEnabled() {

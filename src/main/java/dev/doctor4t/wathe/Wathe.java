@@ -13,6 +13,7 @@ import dev.doctor4t.wathe.config.datapack.MapEnhancementsConfigurationReloader;
 import dev.doctor4t.wathe.api.psycho.PsychoModeApi;
 import dev.doctor4t.wathe.game.GameConstants;
 import dev.doctor4t.wathe.game.GameFunctions;
+import dev.doctor4t.wathe.game.instinct.InstinctMoodSyncHandler;
 import dev.doctor4t.wathe.index.*;
 import dev.doctor4t.wathe.record.GameRecordHooks;
 import dev.doctor4t.wathe.record.GameRecordManager;
@@ -21,6 +22,7 @@ import dev.doctor4t.wathe.record.replay.DefaultReplayFormatters;
 import dev.doctor4t.wathe.record.replay.ReplayGenerator;
 import dev.doctor4t.wathe.record.replay.ReplayRegistry;
 import dev.doctor4t.wathe.task.TaskPointSyncManager;
+import dev.doctor4t.wathe.api.sync.PlayerComponentSyncApi;
 import dev.doctor4t.wathe.util.*;
 import dev.doctor4t.wathe.communication.DebugIdentityCommunication;
 import dev.upcraft.datasync.api.DataSyncAPI;
@@ -216,6 +218,9 @@ public class Wathe implements ModInitializer {
 
         // 初始化任务点扫描 / 同步系统。
         TaskPointSyncManager.initialize();
+        /* 启动低频授权刷新与连接清理，再登记原生本能确实需要的目标心情观察规则。 */
+        PlayerComponentSyncApi.initialize();
+        InstinctMoodSyncHandler.init();
 
         Scheduler.init();
     }

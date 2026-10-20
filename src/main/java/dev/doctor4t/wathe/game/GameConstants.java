@@ -41,6 +41,9 @@ public interface GameConstants {
      */
     int PSYCHO_SYNC_INTERVAL_TICKS = 20;
 
+    /** 私有组件额外观察权限的兜底检查周期；状态未变化时不会因此发送任何组件包。 */
+    int COMPONENT_OBSERVER_REFRESH_INTERVAL_TICKS = 20;
+
     /**
      * 普通玩法开局后计时器的默认时长，单位：tick。
      *
