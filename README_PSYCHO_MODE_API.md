@@ -31,9 +31,15 @@ Wathe 默认疯魔已经绑定 `WatheItems.PSYCHO_MODE`。扩展自定义疯魔�
 - `PsychoModeApi.addRemainingTicks(player, profileId, ticks)`：给当前指定 profile 加时，同时扩大 HUD 最大时间，允许超过初始持续时间。
 - `PsychoModeApi.addArmourLayers(player, profileId, layers)`：给当前指定 profile 增加护盾层数并同步客户端。
 - `PsychoModeApi.ensureMinimumCooldown(player, profileId, ticks)`：把 profile 对应物品的剩余冷却托底到指定时间。
+- `PsychoModeApi.registeredProfiles()`：返回当前所有已注册 profile 的只读快照，供跨扩展机制读取 `cooldownItem` 等公开元数据。
+- `PsychoModeApi.clearRegisteredProfileCooldowns(player)`：清除所有已注册 profile 的非空 `cooldownItem` 冷却；多个 profile 共用同一图标时只清一次。
 
 加时和增加护盾入口都要求玩家当前仍处于给定 profile，避免延迟事件把时间或护盾加到另一种疯魔上；
 增加护盾只接受正数层数，并会在整数上限处饱和。
+
+需要实现黑客、全场事件等“清理所有疯魔图标冷却”的机制时，应调用
+`clearRegisteredProfileCooldowns`，不要硬编码 Wathe 原生图标或其它扩展的物品字段。这样后续扩展只要在
+profile 中登记 `cooldownItem`，就会自动进入统一清理范围。
 
 ## 暂停和恢复同一次疯魔
 

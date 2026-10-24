@@ -103,6 +103,39 @@ public final class PsychoModeApi {
         return PROFILES.get(id);
     }
 
+    /**
+     * 返回当前已注册疯魔 profile 的只读快照。
+     *
+     * <p>扩展可从 profile 的 {@link PsychoModeProfile#cooldownItem()} 读取对应疯魔图标，
+     * 从而在清理技能冷却时兼容 Wathe 原生和其它扩展注册的专属图标，而不维护易过期的物品清单。</p>
+     */
+    public static synchronized @NotNull List<PsychoModeProfile> registeredProfiles() {
+        ensureInitialized();
+        return List.copyOf(PROFILES.values());
+    }
+
+    /**
+     * 清除玩家所有已注册疯魔 profile 对应图标的物品冷却。
+     *
+     * <p>没有登记 {@code cooldownItem} 的 profile 会被跳过；多个 profile 共用同一物品时只清理一次。</p>
+     *
+     * @return 实际检查到的不同冷却物品数量
+     */
+    public static int clearRegisteredProfileCooldowns(@NotNull PlayerEntity player) {
+        java.util.Set<Item> cooldownItems = new java.util.LinkedHashSet<>();
+        for (PsychoModeProfile profile : registeredProfiles()) {
+            Item cooldownItem = profile.cooldownItem();
+            if (cooldownItem != null) {
+                cooldownItems.add(cooldownItem);
+            }
+        }
+
+        for (Item item : cooldownItems) {
+            player.getItemCooldownManager().remove(item);
+        }
+        return cooldownItems.size();
+    }
+
     public static synchronized @NotNull PsychoModeProfile getProfileOrDefault(@Nullable Identifier id) {
         ensureInitialized();
         PsychoModeProfile profile = id == null ? null : PROFILES.get(id);

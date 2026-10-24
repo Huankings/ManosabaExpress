@@ -6,15 +6,15 @@
 
 旧 txt 中出现过的 `C:\Users\Huancat\Desktop\...`、旧版 `Wathe - 副本1 - 副本`、旧 `KinsWathe1.6.3` 等路径只作为历史语境；除非用户明确要求参考旧版，否则以后以本文件下面的路径为准。
 
-| 项目 | 路径 | 用途 |
-| --- | --- | --- |
-| Wathe 当前主工程 | `D:\哈比快车最新源码\wathe\Wathe - 副本1` | MC 1.21.1 Fabric 类狼人杀玩法本体，优先在这里做公共 API 和核心机制。 |
-| Wathe 需求 txt | `D:\哈比快车最新源码\wathe\txt要求` | 用户历史需求、最近提示词和复盘材料。 |
-| 通用提示词目录 | `D:\哈比快车最新源码\wathe\txt要求\开发通用模板提示词` | 放后续可复用的简化提示词。 |
-| HarpyModLoader | `D:\哈比快车最新源码\harpymodloader\HarpyModLoader1` | 加载扩展职业、替换职业池、强制职业、权重和词条分配。 |
-| NoellesRoles | `D:\哈比快车最新源码\noellesroles\NoellesRoles - 副本 - 副本 - 副本5.7.1` | 大型扩展职业源码，Yarn 命名，很多 Wathe API 接入示例。 |
-| kinssaba | `D:\哈比快车最新源码\kinswathe\kinssaba` | KinsWathe 自改扩展职业源码，Yarn 命名，包含商店、经济、词条、本能和 RoleName HUD 示例。 |
-| StarryExpress | `D:\哈比快车最新源码\starryexpress\StarryExpress1.3.2` | 仅提供指南书 / 图鉴和装饰内容；角色与词条玩法已迁移到 NoellesRoles。源码采用 Mojang 官方映射，构建必须在工程根目录执行。 |
+| 项目 | 路径 | 用途                                                                                   |
+| --- | --- |--------------------------------------------------------------------------------------|
+| Wathe 当前主工程 | `D:\哈比快车最新源码\wathe\Wathe - 副本1` | MC 1.21.1 Fabric 类狼人杀玩法本体，优先在这里做公共 API 和核心机制。                                        |
+| Wathe 需求 txt | `D:\哈比快车最新源码\wathe\txt要求` | 用户历史需求、最近提示词和复盘材料。                                                                   |
+| 通用提示词目录 | `D:\哈比快车最新源码\wathe\txt要求\开发通用模板提示词` | 放后续可复用的简化提示词。                                                                        |
+| HarpyModLoader | `D:\哈比快车最新源码\harpymodloader\HarpyModLoader1` | 加载扩展职业、替换职业池、强制职业、权重和词条分配。                                                           |
+| NoellesRoles | `D:\哈比快车最新源码\noellesroles\NoellesRoles - 副本 - 副本 - 副本5.7.1` | 大型扩展职业源码，Yarn 命名，很多 Wathe API 接入示例。                                                  |
+| kinssaba | `D:\哈比快车最新源码\kinswathe\kinssaba` | KinsWathe 自改扩展职业源码，Yarn 命名，包含商店、经济、词条、本能和 RoleName HUD 示例。                           |
+| StarryExpress | `D:\哈比快车最新源码\starryexpress\StarryExpress1.3.2` | 仅提供指南书 / 图鉴和装饰内容；角色与词条玩法已迁移到 NoellesRoles。源码采用 Mojang 官方映射，构建必须在工程根目录执行。gradle使用路径"D:\gradle-9.4.1" |
 
 ## 接任务时的固定流程
 
@@ -448,6 +448,7 @@ Wathe 的地图雾和扩展职业临时雾效统一走：
 - 有独立商店图标的 profile 应调用 `cooldownItem(item)`。跨职业压制用 `ensureMinimumCooldown` 托底冷却，不要在调用方维护 profile-to-item 硬编码表。
 - `pause` 会回收 profile 临时物品且不写结束回放；调用方必须把快照存进同步/时间线状态，并在恢复失败（例如快捷栏空间不足）时保留快照重试。
 - 查询状态：用 `PsychoModeApi.isActive(player)`、`isActive(player, profileId)`、`getActiveProfile(player)`、`getRemainingTicks(player)`、`getArmour(player)`，避免扩展依赖 CCA 内部字段。
+- 枚举与清理专属图标冷却：用 `PsychoModeApi.registeredProfiles()` 读取只读 profile 快照；需要清除全部疯魔购买图标冷却时直接调用 `clearRegisteredProfileCooldowns(player)`。不要在黑客、召集或全场事件里硬编码 Wathe 与各扩展的疯魔物品清单。
 - 授予物品：profile 的 `grantedItems` 会被 Wathe 打 `PSYCHO_GRANTED_PROFILE` 标记，结束时只回收该 profile 授予的临时物品，避免误删玩家自己持有的同类物品。
 - 锁栏/防丢弃：默认锁 profile 授予物品；特殊武器可用 `lockedItemPredicate` / `meleeWeaponPredicate` 定义，不要再写 `ServerPlayNetworkHandler`、`PlayerInventory`、`MinecraftClient` 的锁槽 mixin。
 - 护盾交互：穿盾/强制挡盾用 `PsychoModeApi.registerShieldRule(id, priority, handler)`，handler 读取 `PsychoShieldContext` 并返回 `BYPASS`、`BLOCK` 或 `PASS`。

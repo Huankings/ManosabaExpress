@@ -56,6 +56,7 @@ Wathe 是一个基于 **Minecraft 1.21.1 + Fabric** 的列车狼人杀 / 社交�
 | `src/main/java/dev/doctor4t/wathe/api/client/mood` | 低心情幻觉手持物公开 API：指定/随机物品、手臂姿势与优先级覆盖 |
 | `src/main/java/dev/doctor4t/wathe/api/client/hud` | 通用屏幕 HUD 叠加 API：右下角职业状态、全屏遮罩、狙击镜等自由绘制入口 |
 | `src/main/java/dev/doctor4t/wathe/api/client/tooltip` | 物品多行描述、准确冷却读秒和动态附加文本 API |
+| `src/main/java/dev/doctor4t/wathe/api/psycho` | 疯魔 profile、专属冷却图标元数据，以及统一枚举/清理已注册疯魔图标冷却的公开 API |
 | `src/main/java/dev/doctor4t/wathe/cca` | Cardinal Components 状态组件：世界状态、玩家状态、计分板全局状态 |
 | `src/main/java/dev/doctor4t/wathe/cca/PlayerStaminaComponent.java` | 玩家体力、额外上限修正、本局初始化标记 |
 | `src/main/java/dev/doctor4t/wathe/game` | 对局生命周期、游戏模式、地图效果、地图重置任务 |
@@ -71,6 +72,7 @@ Wathe 是一个基于 **Minecraft 1.21.1 + Fabric** 的列车狼人杀 / 社交�
 | `map_datapack_template` | 地图投票数据包模板 |
 | `README_SHOP_CURRENCY_API.md` | 商店多货币系统专项教程 |
 | `README_ITEM_TOOLTIP_API.md` | 物品描述与动态冷却 tooltip 接入教程 |
+| `README_PSYCHO_MODE_API.md` | 疯魔 profile、暂停恢复、专属图标冷却与跨扩展统一清理教程 |
 
 ## 启动初始化流程
 
