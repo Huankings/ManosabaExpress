@@ -444,8 +444,9 @@ resolver 必须是无副作用的纯选择器，两端条件应来自已同步�
 
 - `PlayerStaminaComponent` 保存当前体力、额外上限修正、本局初始化标记，并通过 `wathe:stamina` 同步。
 - `PlayerStaminaApi` 提供 `setStamina(...)`、`addStamina(...)`、`drainStamina(...)`、`clearStamina()`、`fillStamina()`、`increaseMaxStamina(...)`、`decreaseMaxStamina(...)`、`resetMaxStaminaBonus()`、`getMaxStamina()`、`isExhausted()`、`canSprint(...)`、`canSelfMove(...)`、`canJump(...)` 和 `resolveMoodPenaltyProfile(...)`。
-- `PlayerMovementApi` 提供 `registerSpeedModifier(...)` 和 `resolveMovementSpeed(...)`；如果扩展职业要叠加加速、减速或覆盖速度，不要再自己 mixin `PlayerEntity#getMovementSpeed()`。
+- `PlayerMovementApi` 提供 `registerSpeedModifier(...)`、`resolveMovementSpeed(...)`、`isMovementControlActive(...)` 和 `resolveExtraSprintJumpSpeed(...)`；如果扩展职业要叠加加速、减速或覆盖速度，不要再自己 mixin `PlayerEntity#getMovementSpeed()` / `LivingEntity#jump()`。
 - 当前基础走路速度是 `0.07`，基础疾跑速度是 `0.1`。高心情或未启用惩罚时，疾跑每 tick 消耗 `1.0`，非疾跑每 tick 恢复 `0.8`。
+- 原版疾跑起跳会绕过 `getMovementSpeed()` 额外追加固定 `0.2` 水平冲量；Wathe 现在把它替换为世界级同步配置，默认 `0.0`。使用 `/wathe:extrajumpspeed <非负小数>` 可为所有局内存活玩家统一设置，例如 `0.05`；不带参数可查询。原版这段冲量不读取速度/缓慢药水，因此指令值也不会再乘药水倍率。
 - 中等心情惩罚开启后，`mood < MID_MOOD_THRESHOLD (0.55)` 时疾跑每 tick 消耗 `1.2`，恢复速度变为 `0.6`，走路和静止都可以恢复。
 - 低落心情惩罚开启后，`mood <= DEPRESSIVE_MOOD_THRESHOLD (0.2)` 时直接禁止疾跑；若还在移动，走路每 tick 消耗 `1.5`，静止每 tick 恢复 `0.4`。
 - 如果只开启中等惩罚，低落心情也会沿用中等惩罚；两个惩罚开关默认都关闭，必须通过调试指令显式开启。
@@ -993,6 +994,7 @@ Wathe 默认规则仍受 `/wathe:playerCollision` 和 `/wathe:startnoCollision` 
 | `/wathe:moodTaskSettings maxSlots <数量>` | 设置最大任务槽位，最低为 1，默认 3 |
 | `/wathe:moodTaskSettings stuckCleanup <true|false>` | 开关卡死任务自动清理，关闭期间保留已有累计值 |
 | `/wathe:allowjump <true|false|check>` | 开关局内存活玩家跳跃 |
+| `/wathe:extrajumpspeed [非负小数]` | 查询或设置所有局内存活玩家共用的疾跑起跳额外水平速度，默认 `0.0` |
 | `/wathe:playerCollision <true|false|check>` | 开关局内存活玩家碰撞 |
 | `/wathe:startnoCollision <seconds|check>` | 设置开局无碰撞保护时间 |
 | `/wathe:startPlayerCount [players]` | 查询或设置当前游戏模式准备区达到多少玩家后允许开局 |

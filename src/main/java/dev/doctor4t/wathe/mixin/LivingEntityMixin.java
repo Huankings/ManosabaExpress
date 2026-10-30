@@ -1,5 +1,7 @@
 package dev.doctor4t.wathe.mixin;
 
+import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
+import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
 import dev.doctor4t.wathe.Wathe;
 import dev.doctor4t.wathe.api.collision.PlayerCollisionApi;
 import dev.doctor4t.wathe.api.movement.PlayerMovementApi;
@@ -132,6 +134,49 @@ public abstract class LivingEntityMixin extends EntityMixin implements WatheMove
             this.jumping = false;
             ci.cancel();
         }
+    }
+
+    @WrapOperation(
+            method = "jump",
+            at = @At(
+                    value = "INVOKE",
+                    target = "Lnet/minecraft/entity/LivingEntity;addVelocityInternal(Lnet/minecraft/util/math/Vec3d;)V"
+            )
+    )
+    private void wathe$applyConfiguredSprintJumpBoost(
+            LivingEntity instance,
+            Vec3d vanillaBoost,
+            Operation<Void> original
+    ) {
+        if (!((Object) this instanceof PlayerEntity player)) {
+            original.call(instance, vanillaBoost);
+            return;
+        }
+
+        /*
+         * 原版 LivingEntity#jump 在“疾跑起跳”时会沿朝向直接追加固定 0.2 水平冲量。
+         * 这次 addVelocityInternal 调用不经过 PlayerEntity#getMovementSpeed，因此旧逻辑即使把 Wathe
+         * 疾跑速度固定为 0.1，连续跑跳仍能绕过 PlayerMovementApi 获得明显额外速度。
+         *
+         * 这里只包裹这一次原版疾跑起跳冲量，不在 travel/tick 尾部裁剪玩家完整 velocity：
+         * 后者会误删击退、爆炸、水流、推挤、职业冲刺和传送残留速度，破坏“只限制自主移动”的边界。
+         */
+        double vanillaHorizontalLength = vanillaBoost.horizontalLength();
+        float resolvedBoost = PlayerMovementApi.resolveExtraSprintJumpSpeed(
+                player,
+                (float) vanillaHorizontalLength
+        );
+        if (resolvedBoost <= 0.0F || vanillaHorizontalLength <= 1.0E-7D) {
+            // 配置为 0 时完全跳过水平冲量；竖直跳跃速度已经在原版方法前半段设置，不受这里影响。
+            return;
+        }
+
+        /*
+         * vanillaBoost 已经包含按玩家 yaw 计算好的方向。这里只把向量长度从原版 0.2 缩放为指令值，
+         * 不重新计算朝向，既能兼容其它窄 mixin 对该向量方向的修改，也不会改变跳跃高度。
+         * 客户端和服务端读取的是同一个已同步世界配置，因此不会出现预测速度不同导致的回弹。
+         */
+        original.call(instance, vanillaBoost.multiply(resolvedBoost / vanillaHorizontalLength));
     }
 
     @Override

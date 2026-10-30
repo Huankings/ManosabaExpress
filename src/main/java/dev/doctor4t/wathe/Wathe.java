@@ -109,6 +109,7 @@ public class Wathe implements ModInitializer {
             MoodTaskSettingsCommand.register(dispatcher);
             TaskPointCommand.register(dispatcher);
             AllowJumpCommand.register(dispatcher);
+            ExtraJumpSpeedCommand.register(dispatcher);
             PlayerCollisionCommand.register(dispatcher);
             StartNoCollisionCommand.register(dispatcher);
             StartPlayerCountCommand.register(dispatcher);

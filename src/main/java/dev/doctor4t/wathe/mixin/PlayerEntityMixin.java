@@ -76,8 +76,7 @@ public abstract class PlayerEntityMixin extends LivingEntity {
     @ModifyReturnValue(method = "getMovementSpeed", at = @At("RETURN"))
     public float wathe$overrideMovementSpeed(float original) {
         PlayerEntity self = (PlayerEntity) (Object) this;
-        GameWorldComponent gameComponent = GameWorldComponent.KEY.get(this.getWorld());
-        if (gameComponent != null && gameComponent.isRunning() && GameFunctions.isPlayerAliveAndSurvival(self)) {
+        if (PlayerMovementApi.isMovementControlActive(self)) {
             MovementConfig movement = MapEnhancementsWorldComponent.KEY.get(this.getWorld()).getMovementConfig();
 
             /*

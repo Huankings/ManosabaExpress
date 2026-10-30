@@ -280,6 +280,15 @@ public interface GameConstants {
     float BASE_WALK_MOVEMENT_SPEED = 0.07f;
     float BASE_SPRINT_MOVEMENT_SPEED = 0.1f;
     /**
+     * Wathe 对局中存活玩家疾跑起跳时，额外叠加到水平方向的默认速度。
+     *
+     * <p>原版 {@code LivingEntity#jump()} 使用固定 {@code 0.2}，而且这段冲量不会读取
+     * {@code getMovementSpeed()}，因此会绕过 Wathe 的基础速度和 {@code PlayerMovementApi}。
+     * 默认设为 {@code 0.0}，让跑跳不能再凭原版固定冲量获得额外速度；管理员仍可通过
+     * {@code /wathe:extrajumpspeed <value>} 为所有局内存活玩家恢复一部分可控加成。</p>
+     */
+    float DEFAULT_EXTRA_SPRINT_JUMP_SPEED = 0.0f;
+    /**
      * 高心情或未启用心情体力惩罚时，疾跑每 tick 消耗的体力。
      */
     float STAMINA_SPRINT_DRAIN_HIGH_MOOD = 1.0f;

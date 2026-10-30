@@ -129,6 +129,14 @@ public int getFixedKillerCount() { return this.fixedKillerCount; }
      */
     private boolean allowAlivePlayersJump = true;
     /**
+     * 所有局内存活玩家共用的疾跑起跳额外水平速度。
+     *
+     * <p>这是世界级玩法配置，不属于某个玩家、职业或词条的临时状态。服务端通过指令修改后会
+     * 同步到客户端，让双方在 {@code LivingEntity#jump()} 的移动预测中使用完全相同的数值，
+     * 避免只在服务端改速度导致玩家落地前持续回弹。</p>
+     */
+    private float extraSprintJumpSpeed = GameConstants.DEFAULT_EXTRA_SPRINT_JUMP_SPEED;
+    /**
      * 控制“正在进行中的 Wathe 对局”里，存活玩家之间是否启用实体碰撞体积。
      *
      * <p>默认值为 true，
@@ -335,6 +343,26 @@ public int getFixedKillerCount() { return this.fixedKillerCount; }
      */
     public void setAlivePlayerJumpAllowed(boolean allowAlivePlayersJump) {
         this.allowAlivePlayersJump = allowAlivePlayersJump;
+        this.sync();
+    }
+
+    /**
+     * 返回当前世界对所有局内存活玩家统一使用的疾跑起跳额外水平速度。
+     */
+    public float getExtraSprintJumpSpeed() {
+        return extraSprintJumpSpeed;
+    }
+
+    /**
+     * 修改全局疾跑起跳额外水平速度，并立即同步到所有客户端。
+     *
+     * <p>负数、NaN 和无穷值都没有有效玩法语义，因此统一回退到默认值。指令本身也限制了最小值为 0，
+     * 这里的校验用于保护未来 API 调用、旧存档或其它代码直接调用 setter 的情况。</p>
+     */
+    public void setExtraSprintJumpSpeed(float extraSprintJumpSpeed) {
+        this.extraSprintJumpSpeed = Float.isFinite(extraSprintJumpSpeed) && extraSprintJumpSpeed >= 0.0F
+                ? extraSprintJumpSpeed
+                : GameConstants.DEFAULT_EXTRA_SPRINT_JUMP_SPEED;
         this.sync();
     }
 
@@ -949,6 +977,16 @@ this.fixedKillerCount = nbtCompound.contains("FixedKillerCount") ? nbtCompound.g
                 ? nbtCompound.getBoolean("DepressiveMoodStaminaPenaltyEnabled")
                 : GameConstants.DEFAULT_DEPRESSIVE_MOOD_STAMINA_PENALTY_ENABLED;
         this.allowAlivePlayersJump = !nbtCompound.contains("AllowAlivePlayersJump") || nbtCompound.getBoolean("AllowAlivePlayersJump");
+        float savedExtraSprintJumpSpeed = nbtCompound.contains("ExtraSprintJumpSpeed")
+                ? nbtCompound.getFloat("ExtraSprintJumpSpeed")
+                : GameConstants.DEFAULT_EXTRA_SPRINT_JUMP_SPEED;
+        /*
+         * 世界存档和 CCA 网络同步共用这一条读取路径，所以这里也必须防御非法浮点数。
+         * 不能在 readFromNbt 中调用 setter，否则客户端接收同步包时会再次触发 sync，形成无意义的回传。
+         */
+        this.extraSprintJumpSpeed = Float.isFinite(savedExtraSprintJumpSpeed) && savedExtraSprintJumpSpeed >= 0.0F
+                ? savedExtraSprintJumpSpeed
+                : GameConstants.DEFAULT_EXTRA_SPRINT_JUMP_SPEED;
         this.alivePlayersCollisionEnabled = !nbtCompound.contains("AlivePlayersCollisionEnabled") || nbtCompound.getBoolean("AlivePlayersCollisionEnabled");
         this.alivePlayersCollisionStartDelaySeconds = nbtCompound.contains("AlivePlayersCollisionStartDelaySeconds") ? Math.max(0, nbtCompound.getInt("AlivePlayersCollisionStartDelaySeconds")) : 30;
 
@@ -1050,6 +1088,7 @@ this.fixedKillerCount = nbtCompound.contains("FixedKillerCount") ? nbtCompound.g
         nbtCompound.putBoolean("MidMoodStaminaPenaltyEnabled", midMoodStaminaPenaltyEnabled);
         nbtCompound.putBoolean("DepressiveMoodStaminaPenaltyEnabled", depressiveMoodStaminaPenaltyEnabled);
         nbtCompound.putBoolean("AllowAlivePlayersJump", allowAlivePlayersJump);
+        nbtCompound.putFloat("ExtraSprintJumpSpeed", extraSprintJumpSpeed);
         nbtCompound.putBoolean("AlivePlayersCollisionEnabled", alivePlayersCollisionEnabled);
         nbtCompound.putInt("AlivePlayersCollisionStartDelaySeconds", alivePlayersCollisionStartDelaySeconds);
         nbtCompound.putLong("AlivePlayersCollisionRoundStartTick", alivePlayersCollisionRoundStartTick);

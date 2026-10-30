@@ -4,6 +4,7 @@ import dev.doctor4t.wathe.api.Role;
 import dev.doctor4t.wathe.api.stamina.PlayerStaminaApi;
 import dev.doctor4t.wathe.cca.GameWorldComponent;
 import dev.doctor4t.wathe.cca.PlayerStaminaComponent;
+import dev.doctor4t.wathe.game.GameFunctions;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.util.Identifier;
 import org.jetbrains.annotations.NotNull;
@@ -82,6 +83,36 @@ public final class PlayerMovementApi {
         }
 
         return Math.max(0.0F, currentSpeed);
+    }
+
+    /**
+     * 判断 Wathe 是否正在接管该玩家的自主移动速度。
+     *
+     * <p>速度覆写、体力移动限制和疾跑起跳额外速度必须使用完全相同的生效范围：
+     * 只处理正在进行的 Wathe 对局中的存活生存/冒险玩家。大厅、停局、创造、旁观玩家继续使用原版行为。
+     * 把判断集中在公开 API 中，可以避免本体和扩展各自复制条件后逐渐产生客户端/服务端差异。</p>
+     */
+    public static boolean isMovementControlActive(@NotNull PlayerEntity player) {
+        GameWorldComponent gameWorld = GameWorldComponent.KEY.get(player.getWorld());
+        return gameWorld != null && gameWorld.isRunning() && GameFunctions.isPlayerAliveAndSurvival(player);
+    }
+
+    /**
+     * 解析疾跑起跳时应叠加的额外水平速度。
+     *
+     * @param player       正在跳跃的玩家
+     * @param vanillaBoost 原版准备追加的水平速度；Minecraft 1.21.1 默认是固定 {@code 0.2}
+     * @return 非 Wathe 控制范围保留原版值；局内存活玩家使用世界级
+     * {@link GameWorldComponent#getExtraSprintJumpSpeed()} 配置
+     *
+     * <p>原版固定冲量本身不读取移动速度属性，因此速度/缓慢药水不会乘到这段 {@code 0.2} 上。
+     * 本 API 保留相同语义：指令数值就是最终额外水平速度，不再人为叠加药水倍率。</p>
+     */
+    public static float resolveExtraSprintJumpSpeed(@NotNull PlayerEntity player, float vanillaBoost) {
+        if (!isMovementControlActive(player)) {
+            return Math.max(0.0F, vanillaBoost);
+        }
+        return Math.max(0.0F, GameWorldComponent.KEY.get(player.getWorld()).getExtraSprintJumpSpeed());
     }
 
     public static boolean canSelfMove(@NotNull PlayerEntity player) {

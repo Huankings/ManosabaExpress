@@ -46,6 +46,7 @@
 - `src/main/java/dev/doctor4t/wathe/api/movement/PlayerMovementApi.java`：玩家移动速度公开 API。
 - `src/main/java/dev/doctor4t/wathe/command/SetMoodCommand.java`：调试用设置玩家心情值。
 - `src/main/java/dev/doctor4t/wathe/command/MoodStaminaPenaltyCommand.java`：中等 / 低落心情体力惩罚开关。
+- `src/main/java/dev/doctor4t/wathe/command/ExtraJumpSpeedCommand.java`：全局疾跑起跳额外水平速度调试，默认 `0.0`。
 - `src/main/java/dev/doctor4t/wathe/mixin/PlayerEntityMixin.java`：Wathe 玩家速度和体力 tick 主入口。
 - `src/main/java/dev/doctor4t/wathe/mixin/LivingEntityMixin.java`：体力归零时拦截自主移动输入和跳跃。
 - `src/main/java/dev/doctor4t/wathe/client/gui/StoreRenderer.java`：右上角货币和商店价格渲染。
@@ -417,8 +418,9 @@ Wathe 的地图雾和扩展职业临时雾效统一走：
 - `PlayerStaminaComponent` 保存当前体力、额外体力上限修正和本局初始化标记，CCA id 是 `wathe:stamina`。
 - `PlayerStaminaApi` 负责清空、回满、增减体力、增加 / 减少体力上限、重置上限修正、判断是否耗尽、是否能疾跑、是否能自主水平移动和是否能跳跃。
 - 有限体力不消耗用 `registerConsumptionRule(id, priority, rule)`，返回 `PASS` / `CONSUME` / `SKIP`；不要再用巨大上限和每 tick 回满抵消扣除。普通能力成本走 `consumeStamina(player, amount, cause)`，支持 `SPRINT`、`WALK`、`CUSTOM`；`drainStamina/clearStamina/setStamina` 是不受免消耗影响的强制改值入口。免消耗不改变低心情禁跑、上限或归零限制。
-- `PlayerMovementApi.registerSpeedModifier(id, priority, handler)` 负责速度修正规则；handler 返回 `ADD`、`MULTIPLY`、`OVERRIDE` 或 `PASS`，Wathe 会按 priority 从高到低累计。
-- `GameConstants` 集中存基础走路速度、基础疾跑速度、三档疾跑消耗、三档恢复、低落走路消耗、`MID_MOOD_THRESHOLD`、`DEPRESSIVE_MOOD_THRESHOLD` 和两个默认关闭的心情体力惩罚开关。
+- `PlayerMovementApi.registerSpeedModifier(id, priority, handler)` 负责速度修正规则；handler 返回 `ADD`、`MULTIPLY`、`OVERRIDE` 或 `PASS`，Wathe 会按 priority 从高到低累计。`isMovementControlActive(...)` 统一判断 Wathe 是否接管玩家移动，`resolveExtraSprintJumpSpeed(...)` 负责把原版固定 `0.2` 疾跑起跳冲量替换成世界级配置。
+- `GameConstants` 集中存基础走路速度、基础疾跑速度、默认疾跑起跳额外速度、三档疾跑消耗、三档恢复、低落走路消耗、`MID_MOOD_THRESHOLD`、`DEPRESSIVE_MOOD_THRESHOLD` 和两个默认关闭的心情体力惩罚开关。
+- `/wathe:extrajumpspeed [非负小数]` 查询或设置所有局内存活玩家共用的疾跑起跳额外水平速度，默认 `0.0`；原版该冲量不读取速度/缓慢药水，指令值也不乘药水倍率。
 - 中等惩罚开启时，低于 `MID_MOOD_THRESHOLD` 使用中等规则：疾跑消耗增加、恢复降低，走路和静止都可以恢复。
 - 低落惩罚开启时，到达并低于 `DEPRESSIVE_MOOD_THRESHOLD` 会禁跑；走路消耗体力，静止恢复。体力归零时不能自主水平移动和跳跃，但击退、传送、水流、载具等外力位移仍保留。
 - 如果只开启中等惩罚而没有开启低落惩罚，低落心情也沿用中等规则。
@@ -634,7 +636,7 @@ GameRecordManager.recordRoleCorrection(world, playerUuid, oldRole, newRole);
 ### 玩家体力 / 移动机制改动
 
 1. 先读 `PlayerStaminaComponent`、`PlayerStaminaApi`、`PlayerMovementApi`、`GameConstants`、`GameWorldComponent`、`PlayerEntityMixin` 和 `LivingEntityMixin`。
-2. 明确要改的是体力存储、体力消耗 / 恢复、体力上限、速度叠加、心情惩罚档位，还是体力归零后的自主移动 / 跳跃限制。
+2. 明确要改的是体力存储、体力消耗 / 恢复、体力上限、速度叠加、疾跑起跳额外速度、心情惩罚档位，还是体力归零后的自主移动 / 跳跃限制。
 3. 所有体力、速度、心情阈值和惩罚数值放 `GameConstants`；需要跨世界保存 / 同步的开关放 `GameWorldComponent`。
 4. 扩展侧只调用 `PlayerStaminaApi` 或注册 `PlayerMovementApi.registerSpeedModifier(...)`，不要再新增 `PlayerEntity#getMovementSpeed`、`LivingEntity#travel`、`LivingEntity#jump` 这类重复 mixin。
 5. 改了 Wathe API 后，先编译 Wathe，复制新 jar，再编译 NoellesRoles / kinssaba 等受影响扩展。
