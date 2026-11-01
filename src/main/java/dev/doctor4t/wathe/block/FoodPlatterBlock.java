@@ -205,52 +205,70 @@ public class FoodPlatterBlock extends BlockWithEntity {
         List<ItemStack> result = new java.util.ArrayList<>();
         for (Map.Entry<String, List<ItemStack>> group : groups.entrySet()) {
             TrayTakeDecision decision = decisions.get(group.getKey());
-            // 同一托盘可能存有多个相同 ItemStack；分组计算必须按物品类型去重。
-            Map<String, ItemStack> uniqueCandidates = new java.util.LinkedHashMap<>();
+            // 取物限制仍按物品注册 ID 计算，避免同一种物品仅因组件不同就绕过职业上限。
+            // 例如不同药水内容仍然只算一种物品类型，服务员持有的不同命名玩家头也合计计数。
+            Map<String, ItemStack> uniqueItemTypes = new java.util.LinkedHashMap<>();
+
+            // 随机候选则按“物品 + 完整组件”去重：同 ID 的不同药水、头颅资料或自定义名称
+            // 都要保留为独立候选；完全相同的组件状态只出现一次，确保每种变体等概率且不重复加权。
+            Map<String, List<ItemStack>> variantsByItemType = new java.util.LinkedHashMap<>();
             for (ItemStack candidate : group.getValue()) {
-                uniqueCandidates.putIfAbsent(Registries.ITEM.getId(candidate.getItem()).toString(), candidate);
+                String itemId = Registries.ITEM.getId(candidate.getItem()).toString();
+                uniqueItemTypes.putIfAbsent(itemId, candidate);
+
+                List<ItemStack> variants = variantsByItemType.computeIfAbsent(itemId, ignored -> new java.util.ArrayList<>());
+                boolean alreadyPresent = variants.stream()
+                        .anyMatch(existing -> ItemStack.areItemsAndComponentsEqual(existing, candidate));
+                if (!alreadyPresent) {
+                    variants.add(candidate);
+                }
             }
-            List<ItemStack> candidates = new java.util.ArrayList<>(uniqueCandidates.values());
+            List<ItemStack> itemTypes = new java.util.ArrayList<>(uniqueItemTypes.values());
             if (decision.mode() == TrayTakeDecision.Mode.TOTAL_COUNT) {
                 int held = 0;
-                for (ItemStack candidate : candidates) {
+                for (ItemStack candidate : itemTypes) {
                     held += countInventoryItems(inventoryOwner, candidate);
                 }
                 if (held >= decision.limit()) {
                     continue;
                 }
-                // TOTAL_COUNT 规则仍只从当前数量未达到上限的候选类型中取。
-                for (ItemStack candidate : candidates) {
+                // 同一物品 ID 下的组件变体共享一个持有数量上限；没达到上限时，所有不同变体
+                // 都进入随机池，最终玩家拿到的是随机选中的完整 ItemStack。
+                for (Map.Entry<String, ItemStack> itemType : uniqueItemTypes.entrySet()) {
+                    ItemStack candidate = itemType.getValue();
                     if (countInventoryItems(inventoryOwner, candidate) < decision.limit()) {
-                        result.add(candidate);
+                        result.addAll(variantsByItemType.get(itemType.getKey()));
                     }
                 }
             } else {
                 // 当托盘提供的不同物品类型本来就少于职业上限时，不能再用“类型去重”限制玩家。
                 // 例如只有一个熟猪排的托盘，厨师仍应能重复取到 3 份；此时改按该分组当前总数量计算。
-                if (candidates.size() < decision.limit()) {
+                if (itemTypes.size() < decision.limit()) {
                     int heldCount = 0;
-                    for (ItemStack candidate : candidates) {
+                    for (ItemStack candidate : itemTypes) {
                         heldCount += countInventoryItems(inventoryOwner, candidate);
                     }
                     if (heldCount < decision.limit()) {
-                        result.addAll(candidates);
+                        for (List<ItemStack> variants : variantsByItemType.values()) {
+                            result.addAll(variants);
+                        }
                     }
                     continue;
                 }
 
                 Set<String> heldTypes = new java.util.HashSet<>();
-                for (ItemStack candidate : candidates) {
+                for (Map.Entry<String, ItemStack> itemType : uniqueItemTypes.entrySet()) {
+                    ItemStack candidate = itemType.getValue();
                     if (countInventoryItems(inventoryOwner, candidate) > 0) {
-                        heldTypes.add(Registries.ITEM.getId(candidate.getItem()).toString());
+                        heldTypes.add(itemType.getKey());
                     }
                 }
                 if (heldTypes.size() >= decision.limit()) {
                     continue;
                 }
-                for (ItemStack candidate : candidates) {
-                    if (!heldTypes.contains(Registries.ITEM.getId(candidate.getItem()).toString())) {
-                        result.add(candidate);
+                for (Map.Entry<String, List<ItemStack>> itemType : variantsByItemType.entrySet()) {
+                    if (!heldTypes.contains(itemType.getKey())) {
+                        result.addAll(itemType.getValue());
                     }
                 }
             }
