@@ -1,21 +1,14 @@
 package dev.doctor4t.wathe.entity;
 
-import dev.doctor4t.wathe.game.GameConstants;
-import dev.doctor4t.wathe.game.GameFunctions;
+import dev.doctor4t.wathe.api.combat.GrenadeApi;
+import dev.doctor4t.wathe.api.combat.GrenadeExplosionContext;
+import dev.doctor4t.wathe.api.combat.GrenadeExplosionResult;
 import dev.doctor4t.wathe.index.WatheEntities;
 import dev.doctor4t.wathe.index.WatheItems;
-import dev.doctor4t.wathe.index.WatheParticles;
-import dev.doctor4t.wathe.index.WatheSounds;
 import net.minecraft.entity.EntityType;
-import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.entity.projectile.thrown.ThrownItemEntity;
 import net.minecraft.item.Item;
-import net.minecraft.nbt.NbtCompound;
-import net.minecraft.particle.ItemStackParticleEffect;
-import net.minecraft.particle.ParticleTypes;
-import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.server.world.ServerWorld;
-import net.minecraft.sound.SoundCategory;
 import net.minecraft.util.hit.HitResult;
 import net.minecraft.world.World;
 
@@ -31,33 +24,25 @@ public class GrenadeEntity extends ThrownItemEntity {
 
     @Override
     protected void onCollision(HitResult hitResult) {
+        /*
+         * 父类碰撞只在 Wathe 入口执行一次。扩展 handler 不应再手动调用 super.onCollision，
+         * 否则实体状态、命中事件或后续兼容逻辑可能被重复推进。
+         */
         super.onCollision(hitResult);
-        if (this.getWorld() instanceof ServerWorld world) {
-            // Consider sending this in one payload to reduce packets sent - SkyNotTheLimit
-            world.playSound(null, this.getBlockPos(), WatheSounds.ITEM_GRENADE_EXPLODE, SoundCategory.PLAYERS, 5f, 1f + this.getRandom().nextFloat() * .1f - .05f);
-            world.spawnParticles(WatheParticles.BIG_EXPLOSION, this.getX(), this.getY() + .1f, this.getZ(), 1, 0, 0, 0, 0);
-            world.spawnParticles(ParticleTypes.SMOKE, this.getX(), this.getY() + .1f, this.getZ(), 100, 0, 0, 0, .2f);
-            world.spawnParticles(new ItemStackParticleEffect(ParticleTypes.ITEM, this.getDefaultItem().getDefaultStack()), this.getX(), this.getY() + .1f, this.getZ(), 100, 0, 0, 0, 1f);
-
-            for (ServerPlayerEntity player : world.getPlayers(serverPlayerEntity ->
-                    this.getBoundingBox().expand(3f).contains(serverPlayerEntity.getPos()) &&
-                            GameFunctions.isPlayerAliveAndSurvival(serverPlayerEntity))) {
-                /*
-                 * 手雷爆炸时，攻击者主手通常已经不再持有“那枚被扔出的手雷”，
-                 * 因此这里主动把爆炸来源物品写进 extraDeathData，
-                 * 让 death / shield replay 都能稳定显示真实爆炸物名称。
-                 */
-                NbtCompound replayItemData = GameFunctions.createReplayItemData(world, WatheItems.GRENADE.getDefaultStack());
-                GameFunctions.killPlayer(
-                        player,
-                        true,
-                        this.getOwner() instanceof PlayerEntity playerEntity ? playerEntity : null,
-                        GameConstants.DeathReasons.GRENADE,
-                        replayItemData
-                );
-            }
-
-            this.discard();
+        if (!(this.getWorld() instanceof ServerWorld world)) {
+            return;
         }
+
+        GrenadeExplosionContext context = new GrenadeExplosionContext(world, this, hitResult);
+        GrenadeExplosionResult result = GrenadeApi.handleExplosion(context);
+        if (result == GrenadeExplosionResult.PASS) {
+            context.runDefaultExplosion();
+        }
+
+        /*
+         * PASS、HANDLED 与 CANCEL 最终都结束这枚投掷物。
+         * handler 只负责决定爆炸表现/结算，不自行 discard，避免多个扩展处理器争抢实体生命周期。
+         */
+        this.discard();
     }
 }

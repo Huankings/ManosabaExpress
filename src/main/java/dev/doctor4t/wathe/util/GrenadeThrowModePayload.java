@@ -1,9 +1,9 @@
 package dev.doctor4t.wathe.util;
 
 import dev.doctor4t.wathe.Wathe;
+import dev.doctor4t.wathe.api.combat.GrenadeApi;
 import dev.doctor4t.wathe.cca.PlayerGrenadeComponent;
 import dev.doctor4t.wathe.game.GameFunctions;
-import dev.doctor4t.wathe.index.WatheItems;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
 import net.minecraft.network.PacketByteBuf;
 import net.minecraft.network.codec.PacketCodec;
@@ -31,7 +31,7 @@ public record GrenadeThrowModePayload(boolean directThrow) implements CustomPayl
              * 2. 客户端就算乱发包，也不能在没拿手雷时偷偷改状态；
              * 3. 服务端始终保留最终权威状态，并同步回客户端做持久保存。
              */
-            if (!context.player().getMainHandStack().isOf(WatheItems.GRENADE)) {
+            if (!GrenadeApi.isThrowableItem(context.player().getMainHandStack())) {
                 return;
             }
 

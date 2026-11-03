@@ -8,6 +8,7 @@ import dev.doctor4t.wathe.Wathe;
 import dev.doctor4t.wathe.WatheConfig;
 import dev.doctor4t.wathe.api.Role;
 import dev.doctor4t.wathe.api.client.tooltip.ItemTooltipApi;
+import dev.doctor4t.wathe.api.combat.GrenadeApi;
 import dev.doctor4t.wathe.api.client.inventory.InventoryPageState;
 import dev.doctor4t.wathe.api.client.invisibility.HeldItemInvisibilityApi;
 import dev.doctor4t.wathe.api.client.psycho.PsychoModeClientApi;
@@ -304,7 +305,7 @@ public class WatheClient implements ClientModInitializer {
              * 2. 不会误打玩家、误打方块；
              * 3. 只在主手拿着手雷时生效，其它物品完全不受影响。
              */
-            if (!player.getMainHandStack().isOf(WatheItems.GRENADE)) {
+            if (!GrenadeApi.isThrowableItem(player.getMainHandStack())) {
                 return false;
             }
 
@@ -805,7 +806,7 @@ public class WatheClient implements ClientModInitializer {
      */
     private static void maybeShowGrenadeThrowModeHint(@NotNull ClientPlayerEntity player) {
         int currentSlot = player.getInventory().selectedSlot;
-        boolean isHoldingGrenade = player.getMainHandStack().isOf(WatheItems.GRENADE);
+        boolean isHoldingGrenade = GrenadeApi.isThrowableItem(player.getMainHandStack());
         boolean canUseGrenadeThrowMode = GameFunctions.isPlayerAliveAndSurvival(player);
         if (isHoldingGrenade && canUseGrenadeThrowMode && lastGrenadeSelectedSlot != currentSlot) {
             showGrenadeThrowModeMessage(player, "tip.grenade.current_throw_mode");

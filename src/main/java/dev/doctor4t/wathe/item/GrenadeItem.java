@@ -2,7 +2,9 @@ package dev.doctor4t.wathe.item;
 
 import dev.doctor4t.wathe.cca.PlayerGrenadeComponent;
 import dev.doctor4t.wathe.entity.GrenadeEntity;
+import dev.doctor4t.wathe.game.GameConstants;
 import dev.doctor4t.wathe.index.WatheEntities;
+import dev.doctor4t.wathe.index.WatheItems;
 import dev.doctor4t.wathe.index.WatheSounds;
 import dev.doctor4t.wathe.record.GameRecordManager;
 import net.minecraft.entity.LivingEntity;
@@ -78,12 +80,22 @@ public class GrenadeItem extends Item {
         this.throwGrenade(world, player, stack, throwSpeed);
     }
 
-    private void throwGrenade(@NotNull World world, @NotNull PlayerEntity player, @NotNull ItemStack stack, float throwSpeed) {
+    /**
+     * 统一生成并投出手雷实体。
+     *
+     * <p>扩展手雷一般不应复制本方法；只需覆写 {@link #createProjectileStack(ItemStack)}，
+     * 把自己的物品标识写入飞行实体，爆炸差异再通过 GrenadeApi 注册 handler。</p>
+     */
+    protected final void throwGrenade(@NotNull World world, @NotNull PlayerEntity player, @NotNull ItemStack stack, float throwSpeed) {
         world.playSound(null, player.getX(), player.getY(), player.getZ(), WatheSounds.ITEM_GRENADE_THROW, SoundCategory.NEUTRAL, 0.5F, 1F + (world.random.nextFloat() - .5f) / 10f);
 
         GrenadeEntity grenade = new GrenadeEntity(WatheEntities.GRENADE, world);
         grenade.setOwner(player);
         grenade.setPos(player.getX(), player.getEyeY() - 0.1, player.getZ());
+        ItemStack projectileStack = createProjectileStack(stack);
+        if (!projectileStack.isEmpty()) {
+            grenade.setItem(projectileStack.copyWithCount(1));
+        }
         grenade.setVelocity(player, player.getPitch(), player.getYaw(), 0.0F, throwSpeed, 1.0F);
         world.spawnEntity(grenade);
 
@@ -96,11 +108,23 @@ public class GrenadeItem extends Item {
         }
 
         if (!player.isCreative()) {
-//            player.getItemCooldownManager().set(this, GameConstants.ITEM_COOLDOWNS.get(this));
+            int cooldown = GameConstants.ITEM_COOLDOWNS.getOrDefault(this, 0);
+            if (cooldown > 0) {
+                player.getItemCooldownManager().set(this, cooldown);
+            }
         }
 
         player.incrementStat(Stats.USED.getOrCreateStat(this));
         stack.decrementUnlessCreative(1, player);
+    }
+
+    /**
+     * 返回飞行实体携带的渲染/识别物品。
+     * 默认手雷继续使用 Wathe 的 thrown_grenade 外观；扩展手雷可返回自己的物品栈，
+     * 让爆炸 handler 在服务端可靠地区分假手雷、无声手雷等变体。
+     */
+    protected @NotNull ItemStack createProjectileStack(@NotNull ItemStack sourceStack) {
+        return WatheItems.THROWN_GRENADE.getDefaultStack();
     }
 
     @Override

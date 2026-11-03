@@ -72,7 +72,9 @@
 - 任务完成：`TaskCompletionApi`
 - 胜利：`VictoryApi`
 - 枪击 / 左轮反火 / 武器目标：`GunShotApi`、`GunShotContext`、`GunTargetContext`、`RevolverPenaltyContext`、`WeaponTargetingApi`
+- 匕首目标 / 服务端命中：`KnifeAttackApi`、`KnifeTargetContext`、`KnifeTargetResult`、`KnifeStabContext`、`KnifeStabResult`
 - 匕首冷却：`KnifeCooldownApi`、`KnifeCooldownContext`
+- 手雷投掷模式 / 爆炸：`GrenadeApi`、`GrenadeExplosionContext`、`GrenadeExplosionResult`
 - 普通掉落物拾取：`ItemPickupApi`、`ItemPickupContext`、`ItemPickupResult`
 - 击杀 / 死亡阶段：`DeathApi`、`DeathContext`、`BodySpawnContext`
 - 停电机制：`BlackoutApi`、`BlackoutDuration`、`BlackoutEffectContext`、`BlackoutEffectResult`
@@ -172,7 +174,7 @@ Harpy 调试指令重点：
 - `ModItems.java`：物品注册。
 - `NoellesRolesShops.java`、`shop/NoellesRolesShopBootstrap.java`：商店和多货币兼容。
 - `roleassign/NoellesRolesRoleAssignedBootstrap.java`：分配后发物品和初始化状态。
-- `combat/NoellesRolesCombatBootstrap.java`：枪击接管、左轮目标覆写、左轮反火、枪械冷却和匕首冷却 API 接入总入口。
+- `combat/NoellesRolesCombatBootstrap.java`：枪击、匕首目标/命中/冷却和手雷爆炸 API 接入总入口。
 - `pickup/NoellesItemPickupHandlers.java`：掉落物拾取 API 聚合入口，只调用各职业 / 词条的 `*ItemPickupHandler.init()`。
 - `death/NoellesRolesDeathBootstrap.java`：死亡保护、反噬和 DeathApi 分阶段击杀机制总入口。
 - `record/NoellesRolesReplayFormatters.java`：回放格式化。
@@ -546,11 +548,15 @@ Wathe 的地图雾和扩展职业临时雾效统一走：
 
 枪击接管、左轮误伤惩罚、枪械客户端目标覆写和开火后冷却修正优先接 `dev.doctor4t.wathe.api.combat.GunShotApi`。客户端武器射线优先接 `WeaponTargetingApi`，按“视觉目标 TARGET / 真实攻击 ATTACK”选择对应入口。扩展侧要按职业或词条拆 handler，再由聚合 bootstrap 注册；不要再 mixin `GunShootPayload`、`RevolverItem` 或 `DerringerItem` 的通用流程。
 
-## 匕首冷却与掉落物拾取 API
+## 匕首攻击、手雷爆炸与掉落物拾取 API
 
+- 匕首客户端目标走 `KnifeAttackApi.registerTargetRule(...)`，按 `KnifeTargetContext.Purpose.VISIBLE / ATTACK` 区分准心与真实发包；不要再 mixin `KnifeItem#getKnifeTarget`。
+- 匕首服务端命中走 `KnifeAttackApi.registerStabHandler(...)`。Wathe 会先权威校验玩法存活、主手匕首、冷却、三格距离和 ATTACK 权限；扩展返回 `HANDLED` 或 `CANCEL` 后默认玩家刺杀不再执行。
 - Wathe 默认匕首刺杀后的冷却修正走 `KnifeCooldownApi.registerCooldownModifier(...)`，扩展不要再 mixin `KnifeStabPayload.Receiver`。
 - `KnifeCooldownContext` 提供攻击者、目标、服务端使用物品快照、对局组件、基础冷却和默认是否会写入冷却。modifier 在 `GameFunctions.killPlayer(...)` 返回后调用，因此可以消费 DeathApi 确认死亡阶段写入的一次性标记。
 - 匕首 modifier 是流水线：priority 越大越先执行，后续规则读取已修正的 `currentCooldown`，最终自动限制为非负数。只缩短冷却时使用 `Math.min(currentCooldown, targetTicks)`，不要覆盖其它规则更短的结果。
+- 扩展手雷用 `GrenadeApi.registerThrowableItem(...)` 加入直投/蓄力模式，用 `registerExplosionHandler(...)` 修改爆炸。`GrenadeExplosionContext` 已拆出默认声音、粒子和玩家伤害；不要再 mixin `GrenadeThrowModePayload.Receiver` 或 `GrenadeEntity#onCollision`。
+- 手雷 handler 不得再次调用 `super.onCollision(...)` 或自行 `discard()`；实体生命周期由 Wathe 统一结束。假手雷等无伤害变体必须显式过滤职业召唤物/播放体附加处理，避免只取消玩家伤害。
 - 普通 `ItemEntity` 拾取走 `ItemPickupApi.registerRule(...)`，服务端是最终权威。`PASS` 继续询问并在最后回退 Wathe 默认规则，`DENY` 取消拾取，`ALLOW` 覆盖 Wathe 的职业/枪械限制。
 - `ALLOW` 不直接交付物品，而是继续调用原版 `ItemEntity#onPlayerCollision`；拾取延迟、owner、背包空间、统计、进度准则和 Wathe 拾取回放都不得在扩展里重写。
 - 强制缴械、重伤、招募等 `DENY` 规则必须使用高于普通拾取特权 `ALLOW` 的 priority。扩展按 `roles/<role>/*ItemPickupHandler` 或 `modifiers/<modifier>/*ItemPickupHandler` 拆分，聚合类只调用 `init()`。

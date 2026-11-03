@@ -2,6 +2,8 @@ package dev.doctor4t.wathe.item;
 
 import dev.doctor4t.ratatouille.util.TextUtils;
 import dev.doctor4t.wathe.Wathe;
+import dev.doctor4t.wathe.api.combat.KnifeAttackApi;
+import dev.doctor4t.wathe.api.combat.KnifeTargetContext;
 import dev.doctor4t.wathe.api.combat.WeaponTargetingApi;
 import dev.doctor4t.wathe.api.visibility.TargetVisibilityApi;
 import dev.doctor4t.wathe.index.WatheCosmetics;
@@ -90,11 +92,27 @@ public class KnifeItem extends Item implements ItemWithSkin {
     }
 
     public static @Nullable HitResult getKnifeTarget(PlayerEntity user) {
+        return getKnifeTarget(user, user.getMainHandStack());
+    }
+
+    public static @Nullable HitResult getKnifeTarget(PlayerEntity user, ItemStack stack) {
         /*
-         * 匕首准心和蓄力提示继续使用 TARGET 语义。
-         * 这个方法被扩展客户端 HUD / 旧窄 mixin 复用，所以不要改成真实攻击判定。
+         * 匕首准心和蓄力提示继续使用 TARGET 语义，然后交给公开目标规则补充播放体、
+         * 职业召唤物等扩展实体。这里的结果只影响视觉与发包目标，不代表服务端一定接受命中。
          */
-        return WeaponTargetingApi.getVisibleAlivePlayerTarget(user, 3F);
+        HitResult defaultTarget = WeaponTargetingApi.getVisibleAlivePlayerTarget(user, 3F);
+        HitResult resolvedTarget = KnifeAttackApi.resolveTarget(new KnifeTargetContext(
+                user,
+                stack,
+                3.0F,
+                KnifeTargetContext.Purpose.VISIBLE,
+                defaultTarget
+        ));
+        if (resolvedTarget instanceof EntityHitResult entityHitResult
+                && !TargetVisibilityApi.canTargetEntity(user, entityHitResult.getEntity())) {
+            return null;
+        }
+        return resolvedTarget;
     }
 
     public static @Nullable HitResult getKnifeAttackTarget(PlayerEntity user) {
@@ -102,20 +120,24 @@ public class KnifeItem extends Item implements ItemWithSkin {
     }
 
     public static @Nullable HitResult getKnifeAttackTarget(PlayerEntity user, ItemStack stack) {
-        HitResult visibleTarget = getKnifeTarget(user);
-        if (visibleTarget instanceof EntityHitResult entityHitResult) {
-            /*
-             * 匕首也先尊重旧扩展对 getKnifeTarget 的射线修正。
-             * 例如播放体这类非玩家实体可以继续挡住发包；玩家实体则必须再经过 ATTACK 语义确认。
-             */
-            return TargetVisibilityApi.canAttackEntity(user, entityHitResult.getEntity()) ? visibleTarget : null;
-        }
         /*
-         * visibleTarget 可能是 MISS / 方块命中。
-         * 匕首准心可以保持“没有锁到玩家”的表现，但真实松手刺击仍要继续寻找
-         * ATTACK 允许、TARGET 隐藏的玩家；实际是否被墙挡住由 WeaponTargetingApi 的攻击射线判断。
+         * 真实刺击必须从头使用 ATTACK 语义解析，不能先依赖准心结果。
+         * 这样只隐藏 TARGET 的尸体伪装不会获得伤害免疫，而扩展实体仍可通过 KnifeAttackApi
+         * 为 ATTACK 阶段提供自己的命中结果。最终再统一检查 TargetVisibilityApi。
          */
-        return WeaponTargetingApi.getAttackableAlivePlayerTarget(user, 3F);
+        HitResult defaultTarget = WeaponTargetingApi.getAttackableAlivePlayerTarget(user, 3F);
+        HitResult resolvedTarget = KnifeAttackApi.resolveTarget(new KnifeTargetContext(
+                user,
+                stack,
+                3.0F,
+                KnifeTargetContext.Purpose.ATTACK,
+                defaultTarget
+        ));
+        if (resolvedTarget instanceof EntityHitResult entityHitResult
+                && !TargetVisibilityApi.canAttackEntity(user, entityHitResult.getEntity())) {
+            return null;
+        }
+        return resolvedTarget;
     }
 
     @Override
