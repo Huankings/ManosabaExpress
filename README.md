@@ -658,6 +658,12 @@ HudOverlayApi.register(MyMod.id("hud/my_role/scope"), HudOverlayLayer.AFTER_HUD,
 
 职业/物品需要替换屏幕中心的 crosshair 图标时，优先接入 `dev.doctor4t.wathe.api.client.gui.CrosshairHudApi`，不要再 mixin `CrosshairRenderer`。这个 API 只负责 3x3 准心和准心下方 10x7 小图标；准心名字、尸体文字和同伙提示仍然走 `RoleNameHudApi`，狙击镜大遮罩仍然走 `HudOverlayApi`。
 
+### 准心职业与阵营固定行 API
+
+`RoleNameHudApi.registerRoleDetailsLine(...)` 与 `registerAffiliationLine(...)` 用于玩家名字上方的固定身份信息。Wathe 统一按“职业详情、阵营归属、玩家名字、杀手同伙”排版并复用名字的淡入透明度；扩展不应再 mixin `RoleNameRenderer`，也不应通过 `registerExtraHud(...)` 复制这些固定行坐标。
+
+阵营 provider 返回不带中括号的正文和 24 位 RGB，Wathe 使用本地化格式 `[%s]` 包装整行，因此括号和正文始终同色。扩展可以用更高 priority 覆盖特殊职业的称呼；全部 provider 返回 `null` 时，非存活观察者会按 `Role#getFaction()` 显示平民、义警、杀手或中立阵营，并直接读取 `Faction.displayColor()`。`GameFunctions.isPlayerAliveAndSurvival(...)` 玩家以及具有特殊存活授权的 spectator/creative 不会获得这类观察者信息。
+
 核心入口：
 
 - `CrosshairHudApi.registerProvider(id, priority, provider)`：短路接管默认准心。返回 `PASS` 继续交给低优先级 provider 或 Wathe 默认准心；返回 `HANDLED` 表示本帧已经处理完，可以是已绘制自定义准心，也可以是故意隐藏默认准心。
@@ -793,7 +799,7 @@ GameRecordManager.recordGlobalEvent(
 | `MoodHudApi` | 心情 HUD 样式 | 特殊职业心情条 |
 | `HudOverlayApi` | 通用屏幕 HUD 叠加 | 右下角职业状态、全屏遮罩、狙击镜、开局安全提示 |
 | `CrosshairHudApi` | 准心图标 / 准心下方小进度条 | 扩展武器锁定提示、蓄力条、隐藏默认准心 |
-| `RoleNameHudApi` | 准心名字 / 实体名牌 / 准心额外 HUD | 扩展职业名显示规则、非玩家播放体名牌、准心附近提示 |
+| `RoleNameHudApi` | 准心名字 / 职业详情行 / 阵营归属行 / 实体名牌 / 准心额外 HUD | 扩展职业名显示规则、观察者阵营字样、非玩家播放体名牌、准心附近提示 |
 | `PlayerAppearanceApi` | 玩家外观覆写 | 伪装、变形 |
 | `BodyAppearanceApi` | 尸体外观覆写 | 双重人格、伪尸体 |
 | `HeldItemInvisibilityApi` | 手持物隐藏 | 某些技能道具对其他活人不可见 |
@@ -915,6 +921,8 @@ final class MyRoleInventoryButtons implements InventoryButtonExtension {
 | StarryExpress | `D:\哈比快车最新源码\starryexpress\StarryExpress1.3.2` | 指南书 / 图鉴与装饰 Mod；角色和词条玩法已迁移到 NoellesRoles，StarryExpress 不再注册或实现角色、词条功能 |
 
 HarpyModLoader 的思路是“先让 Wathe 开一局 modded murder，再由加载层按阵营替换默认职业”。例如先给所有人设成 `WatheRoles.CIVILIAN`，再从扩展职业池里挑选杀手、中立、义警、平民职业覆盖。Wathe 本体提供稳定的职业映射、结算、回放和 API，扩展加载层负责“这局到底出现哪些职业”。
+
+Harpy 还在 `org.agmas.harpymodloader.api.neutral` 提供中立细分类注册表。杀手中立、普通中立、独立中立仍全部属于 Wathe `Faction.NEUTRAL`，细分类只用于扩展共享的准心阵营字样、杀手侧本能/同伙表现和职业内部规则查询，不改变 Wathe 的基础阵营分配、权重或结算。自定义分类默认只有名称与颜色，杀手侧能力必须显式开启。
 
 Harpy 当前也接入了 Wathe 的统一权重账本。原版杀手 / 义警先按阵营权重抽位，扩展职业替换阶段按真实阵营槽位规划，再使用“剩余槽位 / 剩余职业类型”配额。杀手和中立分别读取自身份额，同时共享稀缺阵营压力；具体职业再叠加职业缺口和短期连续冷却。这样可以降低“同一玩家连续拿杀手 / 中立”和“同一扩展职业连续落到同一玩家”的概率，同时避免职业列表顺序造成周期性。
 

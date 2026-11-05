@@ -118,8 +118,41 @@ public class RoleNameRenderer {
             context.getMatrices().push();
             context.getMatrices().translate(context.getScaledWindowWidth() / 2f, context.getScaledWindowHeight() / 2f + 6, 0);
             context.getMatrices().scale(0.6f, 0.6f, 1f);
+            /*
+             * 玩家准心信息现在由 Wathe 统一按固定层级排版：
+             * 1. 扩展职业详情；2. 阵营归属；3. 玩家名字；4. 杀手同伙。
+             * 过去 HarpyModLoader 会 mixin 到第一次 drawTextWithShadow 前手动画职业名，
+             * 不仅依赖调用 ordinal，还无法在中间安全插入阵营行。现在所有固定行都通过
+             * RoleNameHudApi 解析，扩展只负责提供文本与 RGB，不再接触矩阵和魔法坐标。
+             */
+            RoleNameHudApi.RoleNameLine roleDetailsLine = null;
+            RoleNameHudApi.RoleNameLine affiliationLine = null;
+            if (displayedTargetPlayer != null) {
+                var displayedTargetRole = component.getRole(displayedTargetPlayer);
+                roleDetailsLine = RoleNameHudApi.resolveRoleDetailsLine(player, displayedTargetPlayer, displayedTargetRole);
+                affiliationLine = RoleNameHudApi.resolveAffiliationLine(player, displayedTargetPlayer, displayedTargetRole);
+            }
+
+            int nameY = 16;
+            if (roleDetailsLine != null) {
+                drawCenteredText(renderer, context, roleDetailsLine.text(), 0, roleDetailsLine.color(), nametagAlpha);
+            }
+            if (affiliationLine != null) {
+                /*
+                 * 阵营行故意略小于职业名与玩家名，避免三行信息挤压准心；
+                 * 若同时存在职业详情，则放到其下一行，并把玩家名只下移必要的少量距离。
+                 */
+                int affiliationY = roleDetailsLine == null ? 0 : renderer.fontHeight + 2;
+                Text formattedAffiliation = RoleNameHudApi.formatAffiliationLine(affiliationLine);
+                drawCenteredScaledText(renderer, context, formattedAffiliation, affiliationY, 0.9f,
+                        affiliationLine.color(), nametagAlpha);
+                if (roleDetailsLine != null) {
+                    nameY = affiliationY + Math.round(renderer.fontHeight * 0.8f) + 3;
+                }
+            }
             int nameWidth = renderer.getWidth(nametag);
-            context.drawTextWithShadow(renderer, nametag, -nameWidth / 2, 16, MathHelper.packRgb(1f, 1f, 1f) | ((int) (nametagAlpha * 255) << 24));
+            context.drawTextWithShadow(renderer, nametag, -nameWidth / 2, nameY,
+                    MathHelper.packRgb(1f, 1f, 1f) | ((int) (nametagAlpha * 255) << 24));
             if (component.isRunning()) {
                 TrainRole playerRole = TrainRole.BYSTANDER;
                 /*
@@ -132,10 +165,11 @@ public class RoleNameRenderer {
                         && playerRole == TrainRole.KILLER
                         && targetRole == TrainRole.KILLER
                         && RoleNameHudApi.shouldShowCohortHint(player, displayedTargetPlayer, true)) {
-                    context.getMatrices().translate(0, 20 + renderer.fontHeight, 0);
                     MutableText roleText = Text.translatable("game.tip.cohort");
                     int roleWidth = renderer.getWidth(roleText);
-                    context.drawTextWithShadow(renderer, roleText, -roleWidth / 2, 0, MathHelper.packRgb(1f, 0f, 0f) | ((int) (nametagAlpha * 255) << 24));
+                    int cohortY = nameY + renderer.fontHeight + 4;
+                    context.drawTextWithShadow(renderer, roleText, -roleWidth / 2, cohortY,
+                            MathHelper.packRgb(1f, 0f, 0f) | ((int) (nametagAlpha * 255) << 24));
                 }
             }
             context.getMatrices().pop();
@@ -182,6 +216,31 @@ public class RoleNameRenderer {
 
     public static PlayerEntity getTargetPlayer() {
         return targetPlayer;
+    }
+
+    private static void drawCenteredText(TextRenderer renderer,
+                                         DrawContext context,
+                                         Text text,
+                                         int y,
+                                         int rgb,
+                                         float alpha) {
+        int width = renderer.getWidth(text);
+        context.drawTextWithShadow(renderer, text, -width / 2, y,
+                (rgb & 0x00FFFFFF) | ((int) (alpha * 255) << 24));
+    }
+
+    private static void drawCenteredScaledText(TextRenderer renderer,
+                                               DrawContext context,
+                                               Text text,
+                                               int y,
+                                               float scale,
+                                               int rgb,
+                                               float alpha) {
+        context.getMatrices().push();
+        context.getMatrices().translate(0, y, 0);
+        context.getMatrices().scale(scale, scale, 1f);
+        drawCenteredText(renderer, context, text, 0, rgb, alpha);
+        context.getMatrices().pop();
     }
 
     private enum TrainRole {

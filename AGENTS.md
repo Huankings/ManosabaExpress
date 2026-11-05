@@ -151,6 +151,8 @@
 
 Harpy 当前按 `role.getFaction()` 分平民、义警、杀手、中立池；扩展职业应显式注册阵营，避免继续只靠 `isInnocent()` 和 `canUseKiller()` 推断。
 
+Harpy 在 `org.agmas.harpymodloader.api.neutral` 提供中立细分类：杀手中立、普通中立、独立中立以及扩展自定义分类。职业先保持 `Faction.NEUTRAL`，再通过 `NeutralRoleCategoryApi.registerRole(...)` 登记细分类；自定义分类默认只提供准心字样与颜色，只有显式开启能力标记时才获得“杀手本能显示职业色”或单向“杀手同伙”。扩展不得重新维护只能由自己消费的中立职业集合。
+
 Harpy 分配限制、绑定生成、强制配对和词条 / 职业互斥优先接 `org.agmas.harpymodloader.api.assignment`：
 
 - 职业同局互斥 / 单向排斥：`RoleAssignmentApi.registerMutualExclusion(...)`、`registerOneWayExclusion(...)`。
@@ -355,6 +357,8 @@ Harpymodloader.setRoleMaximum(MY_ROLE, 1);
 - 客户端尸体皮肤覆盖：`PlayerAppearanceApi.registerBodySkin(...)`
 - 服务端生成尸体外观 UUID：`BodyAppearanceApi.register(...)`
 - 准心名字：`RoleNameHudApi.registerName(...)`
+- 准心职业详情固定行：`RoleNameHudApi.registerRoleDetailsLine(...)`
+- 准心阵营归属固定行：`RoleNameHudApi.registerAffiliationLine(...)`
 - 准心射线来源：`RoleNameHudApi.registerRaycastSource(...)`
 - 准心目标过滤：`RoleNameHudApi.registerPlayerTargetFilter(...)`
 - 同伙状态：`RoleNameHudApi.registerCohortState(...)`
@@ -365,6 +369,8 @@ Harpymodloader.setRoleMaximum(MY_ROLE, 1);
 - 玩家 / 尸体隐藏、不可准心选中、不可道具交互、不可攻击：`TargetVisibilityApi.registerPlayerRule(...)`、`TargetVisibilityApi.registerBodyRule(...)`
 
 `registerEntityName(...)` 只给魔术师播放体这类“非玩家实体也要在准心处显示名字”的窄场景使用；普通玩家名仍用 `registerName(...)`，避免绕开同伙提示、精神错乱混淆和玩家目标过滤。
+
+`registerRoleDetailsLine(...)` 与 `registerAffiliationLine(...)` 由 Wathe 统一排成“职业详情、阵营归属、玩家名字、杀手同伙”，不要再通过 `registerExtraHud(...)` 手算这几行的固定坐标。阵营 provider 返回不带中括号的正文与 RGB，Wathe 会用 `[%s]` 统一包装并让括号同色；默认四阵营颜色读取 `Faction.displayColor()`。默认阵营行只对 `GameFunctions.isPlayerSpectatingOrCreative(...)` 的非存活观察者显示，特殊存活 spectator/creative 不得泄漏阵营。
 
 `TargetVisibilityApi` 面向“某个观察者是否能看见 / 选中 / 交互 / 攻击某个玩家或玩家尸体”。它会接入 Wathe 的玩家和尸体渲染、`LivingEntity#canHit` 客户端选中、RoleNameHud 尸体射线、默认刀枪准心目标、尸袋、匕首 / 枪击服务端命中和本能描边。扩展隐藏尸体或隐藏玩家时优先注册 API 规则，不要再 mixin `PlayerBodyEntityRenderer`、`LivingEntity#canHit`、`RoleNameRenderer` 或 `CrosshairRenderer`；服务端职业能力和物品仍必须在自己的 handler 里调用 `canInteractWithBody(...)`、`canInteractWithPlayer(...)`、`canAttackPlayer(...)` / `canAttackEntity(...)` 重新校验。
 

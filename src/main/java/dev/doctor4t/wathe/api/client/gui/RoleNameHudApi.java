@@ -2,6 +2,8 @@ package dev.doctor4t.wathe.api.client.gui;
 
 import dev.doctor4t.wathe.entity.PlayerBodyEntity;
 import dev.doctor4t.wathe.game.GameFunctions;
+import dev.doctor4t.wathe.api.Faction;
+import dev.doctor4t.wathe.api.Role;
 import dev.doctor4t.wathe.api.visibility.TargetVisibilityApi;
 import net.fabricmc.api.EnvType;
 import net.fabricmc.api.Environment;
@@ -45,6 +47,8 @@ public final class RoleNameHudApi {
     private static final List<Entry<PlayerTargetFilter>> PLAYER_TARGET_FILTERS = new ArrayList<>();
     private static final List<Entry<NameHandler>> NAME_HANDLERS = new ArrayList<>();
     private static final List<Entry<EntityNameHandler>> ENTITY_NAME_HANDLERS = new ArrayList<>();
+    private static final List<Entry<TargetLineHandler>> ROLE_DETAILS_LINE_HANDLERS = new ArrayList<>();
+    private static final List<Entry<TargetLineHandler>> AFFILIATION_LINE_HANDLERS = new ArrayList<>();
     private static final List<Entry<CohortStateHandler>> COHORT_STATE_HANDLERS = new ArrayList<>();
     private static final List<Entry<CohortTargetStateHandler>> COHORT_TARGET_STATE_HANDLERS = new ArrayList<>();
     private static final List<Entry<CohortHintHandler>> COHORT_HINT_HANDLERS = new ArrayList<>();
@@ -79,6 +83,32 @@ public final class RoleNameHudApi {
      */
     public static void registerEntityName(@NotNull Identifier id, int priority, @NotNull EntityNameHandler handler) {
         register(ENTITY_NAME_HANDLERS, id, priority, handler);
+    }
+
+    /**
+     * 注册准心玩家名上方的“职业详情行”。
+     *
+     * <p>该行由 Wathe 统一参与布局，位于阵营归属行上方。HarpyModLoader 这类职业加载器
+     * 可以在这里显示“职业名 + 词条”，而不必再 mixin {@code RoleNameRenderer} 的局部变量
+     * 或某一次 {@code drawTextWithShadow} 调用。返回 {@code null} 表示继续询问低优先级规则。</p>
+     */
+    public static void registerRoleDetailsLine(@NotNull Identifier id,
+                                               int priority,
+                                               @NotNull TargetLineHandler handler) {
+        register(ROLE_DETAILS_LINE_HANDLERS, id, priority, handler);
+    }
+
+    /**
+     * 注册准心玩家名上方的“阵营归属行”。
+     *
+     * <p>provider 返回的是不带中括号的正文与整行颜色；Wathe 最终统一通过
+     * {@code hud.wathe.role_name.affiliation_format} 包装成 {@code [%s]}，从而保证中括号和正文
+     * 使用完全相同的颜色、淡入透明度和字号。高优先级扩展可覆盖默认四阵营文案。</p>
+     */
+    public static void registerAffiliationLine(@NotNull Identifier id,
+                                               int priority,
+                                               @NotNull TargetLineHandler handler) {
+        register(AFFILIATION_LINE_HANDLERS, id, priority, handler);
     }
 
     public static void registerCohortState(@NotNull Identifier id, int priority, @NotNull CohortStateHandler handler) {
@@ -175,6 +205,69 @@ public final class RoleNameHudApi {
         return null;
     }
 
+    /**
+     * 解析职业详情行。该方法公开是为了让其它客户端 HUD 在确有需要时复用最终覆盖结果，
+     * 但普通扩展只需要注册 provider，不应自行复制 RoleNameRenderer 的布局。
+     */
+    public static @Nullable RoleNameLine resolveRoleDetailsLine(@NotNull ClientPlayerEntity viewer,
+                                                                @NotNull PlayerEntity target,
+                                                                @Nullable Role targetRole) {
+        TargetLineContext context = new TargetLineContext(viewer, target, targetRole);
+        for (Entry<TargetLineHandler> entry : snapshot(ROLE_DETAILS_LINE_HANDLERS)) {
+            RoleNameLine result = entry.handler().resolve(context);
+            if (result != null) {
+                return result;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * 解析阵营归属行。
+     *
+     * <p>扩展 provider 全部 PASS 后，只有 Wathe 定义的“普通非存活观察者”才会获得默认行；
+     * 具有 {@code PlayerLifeStateApi} 特殊存活授权的 spectator/creative 会继续按存活玩家处理，
+     * 不会因为原版游戏模式而看到职业阵营信息。</p>
+     */
+    public static @Nullable RoleNameLine resolveAffiliationLine(@NotNull ClientPlayerEntity viewer,
+                                                                @NotNull PlayerEntity target,
+                                                                @Nullable Role targetRole) {
+        TargetLineContext context = new TargetLineContext(viewer, target, targetRole);
+        for (Entry<TargetLineHandler> entry : snapshot(AFFILIATION_LINE_HANDLERS)) {
+            RoleNameLine result = entry.handler().resolve(context);
+            if (result != null) {
+                return result;
+            }
+        }
+        if (!GameFunctions.isPlayerSpectatingOrCreative(viewer) || targetRole == null) {
+            return null;
+        }
+        return defaultAffiliationLine(targetRole.getFaction());
+    }
+
+    /**
+     * 把 Wathe 基础四阵营转换为公开的准心阵营行。
+     * 扩展可以复用此方法取得稳定的翻译 key 和 {@link Faction#displayColor()}，
+     * 不需要在自己的客户端代码里再次复制颜色常量。
+     */
+    public static @NotNull RoleNameLine defaultAffiliationLine(@NotNull Faction faction) {
+        String translationKey = switch (faction) {
+            case CIVILIAN -> "hud.wathe.role_name.affiliation.civilian";
+            case VIGILANTE -> "hud.wathe.role_name.affiliation.vigilante";
+            case KILLER -> "hud.wathe.role_name.affiliation.killer";
+            case NEUTRAL -> "hud.wathe.role_name.affiliation.neutral";
+        };
+        return new RoleNameLine(Text.translatable(translationKey), faction.displayColor());
+    }
+
+    /**
+     * 统一给阵营正文加上中括号。这里保留 Text 参数而不是提前拼成字符串，
+     * 让扩展提供的翻译文本仍能正确跟随客户端语言切换。
+     */
+    public static @NotNull Text formatAffiliationLine(@NotNull RoleNameLine line) {
+        return Text.translatable("hud.wathe.role_name.affiliation_format", line.text());
+    }
+
     public static boolean countsAsCohort(@NotNull ClientPlayerEntity viewer,
                                          @NotNull PlayerEntity subject,
                                          boolean vanillaValue) {
@@ -260,6 +353,25 @@ public final class RoleNameHudApi {
                           float noteAlpha) {
     }
 
+    /**
+     * 职业详情行和阵营归属行共用的只读解析上下文。
+     */
+    public record TargetLineContext(@NotNull ClientPlayerEntity viewer,
+                                    @NotNull PlayerEntity target,
+                                    @Nullable Role targetRole) {
+    }
+
+    /**
+     * 一条由 RoleNameRenderer 统一排版的文字。
+     * color 只保存 24 位 RGB；每帧淡入淡出所需的 alpha 由 Wathe 在最终绘制时补入。
+     */
+    public record RoleNameLine(@NotNull Text text, int color) {
+        public RoleNameLine {
+            Objects.requireNonNull(text, "text");
+            color &= 0x00FFFFFF;
+        }
+    }
+
     @FunctionalInterface
     public interface HudVisibilityHandler {
         @NotNull VisibilityResult shouldRender(@NotNull ClientPlayerEntity player);
@@ -283,6 +395,11 @@ public final class RoleNameHudApi {
     @FunctionalInterface
     public interface EntityNameHandler {
         @Nullable Text getName(@NotNull ClientPlayerEntity viewer, @NotNull Entity target);
+    }
+
+    @FunctionalInterface
+    public interface TargetLineHandler {
+        @Nullable RoleNameLine resolve(@NotNull TargetLineContext context);
     }
 
     @FunctionalInterface
