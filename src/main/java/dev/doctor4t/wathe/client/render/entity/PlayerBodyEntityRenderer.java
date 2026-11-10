@@ -48,11 +48,17 @@ public class PlayerBodyEntityRenderer<T extends LivingEntity, M extends EntityMo
         boolean lowerThanDepressed = isLocalMoodLowerThanDepressed();
 
         matrixStack.push();
-        float clamp = MathHelper.clamp((float) (playerBodyEntity.age - GameConstants.TIME_TO_DECOMPOSITION) / GameConstants.DECOMPOSING_TIME, 0, GameConstants.TIME_TO_DECOMPOSITION + GameConstants.DECOMPOSING_TIME);
+        int deathElapsedTicks = playerBodyEntity.getDeathElapsedTicks();
+        /*
+         * 尸体分解和验尸 HUD 共用 Wathe 的可回溯死亡时间。
+         * 时停者恢复历史尸体 NBT 后，外观腐化进度和“死于多少秒前”会同时倒退，
+         * 不会再出现尸体已经只剩骨架、HUD 却显示刚死亡（或反过来）的时间线分裂。
+         */
+        float clamp = MathHelper.clamp((float) (deathElapsedTicks - GameConstants.TIME_TO_DECOMPOSITION) / GameConstants.DECOMPOSING_TIME, 0, GameConstants.TIME_TO_DECOMPOSITION + GameConstants.DECOMPOSING_TIME);
         float ease = Easing.CUBIC_IN.ease(clamp, 0, -1, 1);
         if (ease > -1) {
             matrixStack.translate(0, ease, 0);
-            float alpha = lowerThanDepressed ? MathHelper.lerp(MathHelper.clamp(Easing.SINE_IN.ease(Math.min(1f, (float) playerBodyEntity.age / 100f), 0, 1, 1), 0, 1), 1f, 0f) : 1f;
+            float alpha = lowerThanDepressed ? MathHelper.lerp(MathHelper.clamp(Easing.SINE_IN.ease(Math.min(1f, (float) deathElapsedTicks / 100f), 0, 1, 1), 0, 1), 1f, 0f) : 1f;
             this.renderBody(playerBodyEntity, f, g, matrixStack, vertexConsumerProvider, light, alpha);
         }
         matrixStack.pop();

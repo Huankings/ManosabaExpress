@@ -71,6 +71,7 @@ Wathe 是一个基于 **Minecraft 1.21.1 + Fabric** 的列车狼人杀 / 社交�
 | `src/main/resources/assets/wathe` | 材质、模型、语言文件、音效、粒子 |
 | `map_datapack_template` | 地图投票数据包模板 |
 | `README_SHOP_CURRENCY_API.md` | 商店多货币系统专项教程 |
+| `README_PLAYER_BODY_HUD_API.md` | 尸体死因/身份/阵营/凶手快照与动态准心 HUD API |
 | `README_ITEM_TOOLTIP_API.md` | 物品描述与动态冷却 tooltip 接入教程 |
 | `README_PSYCHO_MODE_API.md` | 疯魔 profile、暂停恢复、专属图标冷却与跨扩展统一清理教程 |
 
@@ -664,6 +665,17 @@ HudOverlayApi.register(MyMod.id("hud/my_role/scope"), HudOverlayLayer.AFTER_HUD,
 
 阵营 provider 返回不带中括号的正文和 24 位 RGB，Wathe 使用本地化格式 `[%s]` 包装整行，因此括号和正文始终同色。扩展可以用更高 priority 覆盖特殊职业的称呼；全部 provider 返回 `null` 时，非存活观察者会按 `Role#getFaction()` 显示平民、义警、杀手或中立阵营，并直接读取 `Faction.displayColor()`。`GameFunctions.isPlayerAliveAndSurvival(...)` 玩家以及具有特殊存活授权的 spectator/creative 不会获得这类观察者信息。
 
+### 玩家尸体验尸信息 API
+
+玩家尸体的真实死者、死亡时名字、死因、职业、凶手和可回溯死亡经过时间由
+`PlayerBodyInfoApi` / `PlayerBodyInfoSnapshot` 统一保存。真实死亡由 Wathe 自动初始化；造尸、播放尸体等人工尸体在
+spawn 前调用 `initializeSynthetic(...)`。客户端五行信息和附加职业提示通过 `PlayerBodyHudApi` 连续排版，
+扩展只注册逐行 `SHOW / HIDE / OBFUSCATE`、文本 provider 或 additional lines，不再复制射线和固定 y 坐标。
+
+存活玩家默认看不到尸体玩家名，防止外观伪装被名字直接识破；非存活玩家可看完整信息。凶手状态以
+`isPlayerAliveAndSurvival(...)` 为基础，特殊机制可使用 `PlayerLifeStateApi.setForensicallyDead(...)` 标记
+“玩法上临时存活但验尸应算死亡”的状态。完整接口、伪尸体和时停回溯说明见 `README_PLAYER_BODY_HUD_API.md`。
+
 核心入口：
 
 - `CrosshairHudApi.registerProvider(id, priority, provider)`：短路接管默认准心。返回 `PASS` 继续交给低优先级 provider 或 Wathe 默认准心；返回 `HANDLED` 表示本帧已经处理完，可以是已绘制自定义准心，也可以是故意隐藏默认准心。
@@ -800,6 +812,7 @@ GameRecordManager.recordGlobalEvent(
 | `HudOverlayApi` | 通用屏幕 HUD 叠加 | 右下角职业状态、全屏遮罩、狙击镜、开局安全提示 |
 | `CrosshairHudApi` | 准心图标 / 准心下方小进度条 | 扩展武器锁定提示、蓄力条、隐藏默认准心 |
 | `RoleNameHudApi` | 准心名字 / 职业详情行 / 阵营归属行 / 实体名牌 / 准心额外 HUD | 扩展职业名显示规则、观察者阵营字样、非玩家播放体名牌、准心附近提示 |
+| `PlayerBodyInfoApi` / `PlayerBodyHudApi` | 尸体快照、五行验尸信息和动态附加行 | 验尸官、医师、秃鹫、伪尸体、时停回溯死亡时间 |
 | `PlayerAppearanceApi` | 玩家外观覆写 | 伪装、变形 |
 | `BodyAppearanceApi` | 尸体外观覆写 | 双重人格、伪尸体 |
 | `HeldItemInvisibilityApi` | 手持物隐藏 | 某些技能道具对其他活人不可见 |
@@ -821,7 +834,7 @@ GameRecordManager.recordGlobalEvent(
 
 ### 匕首攻击、手雷爆炸、冷却与掉落物拾取 API
 
-`KnifeAttackApi` 同时公开客户端目标规则和服务端刺击处理器。客户端 `KnifeTargetContext.Purpose.VISIBLE` 只用于准心/HUD，必须尊重 TARGET；`ATTACK` 用于真实发包，必须尊重 ATTACK。目标规则返回 `PASS / TARGET / MISS`。服务端收到包后会先权威检查攻击者玩法存活、主手匕首、物品冷却、三格距离和 `TargetVisibilityApi.canAttackEntity(...)`，再执行 `registerStabHandler(...)`；处理器返回 `PASS / HANDLED / CANCEL`。扩展不能把客户端射线当成真实伤害授权，也不要再 mixin `KnifeItem` 或 `KnifeStabPayload.Receiver`。
+`KnifeAttackApi` 同时公开客户端目标规则和服务端刺击处理器。客户端 `KnifeTargetContext.Purpose.VISIBLE` 只用于准心/HUD，必须尊重 TARGET；`ATTACK` 用于真实发包，必须尊重 ATTACK。目标规则返回 `PASS / TARGET / MISS`。服务端收到包后会权威检查主手匕首、三格距离和 `TargetVisibilityApi.canAttackEntity(...)`；玩法存活攻击者还必须通过物品冷却检查，普通非存活攻击者则保留旧版“可刺杀存活目标且无匕首 CD”的调试/旁观行为。随后才执行 `registerStabHandler(...)`，处理器返回 `PASS / HANDLED / CANCEL`。扩展不能把客户端射线当成真实伤害授权，也不要再 mixin `KnifeItem` 或 `KnifeStabPayload.Receiver`。
 
 Wathe 默认匕首在服务端完成距离、可攻击性与死亡流程后，使用 `KnifeCooldownApi.modifyCooldown(...)` 计算最终冷却。扩展通过 `KnifeCooldownApi.registerCooldownModifier(id, priority, modifier)` 注册；modifier 会按 priority 从高到低组成流水线，每个处理器都能读到前一步的 `currentCooldown`。结果自动限制为非负数；仅缩短冷却的规则建议返回 `Math.min(currentCooldown, targetTicks)`，避免把其它规则已经缩短的冷却重新拉长。`KnifeCooldownContext` 提供攻击者、目标、使用时的物品快照、对局组件、基础冷却和 Wathe 默认是否真正写冷却。扩展不应再 mixin `KnifeStabPayload.Receiver` 的尾部重写冷却。
 

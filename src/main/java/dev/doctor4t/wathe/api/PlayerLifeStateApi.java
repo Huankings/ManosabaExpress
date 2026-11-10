@@ -38,6 +38,22 @@ public final class PlayerLifeStateApi {
     }
 
     /**
+     * 判断玩家是否被特殊机制标记为“验尸状态上的死亡”。
+     *
+     * <p>这和玩法存活不是互斥概念：时停者时间狭缝为了允许回溯，会继续拥有 alive override，
+     * 但尸体凶手状态仍应显示“已死亡”；双重人格等特殊存活旁观不设置本标记。</p>
+     */
+    public static boolean isForensicallyDead(PlayerEntity player) {
+        return player != null && PlayerLifeStateComponent.KEY.get(player).isForensicallyDead();
+    }
+
+    public static void setForensicallyDead(PlayerEntity player, boolean dead) {
+        if (player != null) {
+            PlayerLifeStateComponent.KEY.get(player).setForensicallyDead(dead);
+        }
+    }
+
+    /**
      * 设置特殊存活授权。
      *
      * <p>一般扩展职业不需要直接调用这个方法；

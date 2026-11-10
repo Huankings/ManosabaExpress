@@ -64,6 +64,7 @@ public abstract class InGameHudMixin {
             TextRenderer renderer = MinecraftClient.getInstance().textRenderer;
             MoodRenderer.renderHud(player, renderer, context, tickCounter);
             RoleNameRenderer.renderHud(renderer, player, context, tickCounter);
+            PlayerBodyHudRenderer.renderHud(renderer, player, context, tickCounter);
             RoundTextRenderer.renderHud(renderer, player, context);
             if (MinecraftClient.getInstance().currentScreen == null)
                 StoreRenderer.renderHud(renderer, player, context, tickCounter.getTickDelta(true));

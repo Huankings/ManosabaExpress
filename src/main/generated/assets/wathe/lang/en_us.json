@@ -445,5 +445,13 @@
   "wathe.midnightconfig.disableScreenShake": "Disable Screen Shake",
   "wathe.midnightconfig.title": "The Last Voyage of the Harpy Express - Config",
   "wathe.midnightconfig.ultraPerfMode": "Ultra Performance Mode",
-  "wathe.midnightconfig.ultraPerfMode.tooltip": "Disables scenery for a worse visual experience but maximum performance. Lowers render distance to 2."
+  "wathe.midnightconfig.ultraPerfMode.tooltip": "Disables scenery for a worse visual experience but maximum performance. Lowers render distance to 2.",
+  "hud.wathe.body.death_info": "Died %s seconds ago; cause: %s",
+  "hud.wathe.body.identity": "Identity: ",
+  "hud.wathe.body.killer_format": "Killer: %s %s",
+  "hud.wathe.body.killer_unknown": "Killer: Unknown",
+  "hud.wathe.body.killer_self": "Self",
+  "hud.wathe.body.killer_alive": "Alive",
+  "hud.wathe.body.killer_dead": "Dead",
+  "hud.wathe.body.killer_offline": "Offline"
 }

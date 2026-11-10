@@ -43,13 +43,18 @@ public record KnifeStabPayload(int target) implements CustomPayload {
             var usedStack = player.getMainHandStack().copy();
 
             /*
-             * 客户端射线只负责准备实体 id，不能作为玩法权威。这里统一拒绝伪造或过期包：
-             * 攻击者必须仍按玩法存活、主手确实是默认匕首、匕首没有处于冷却，
-             * 目标必须存在、在三格内且允许 ATTACK。扩展非玩家目标也经过同一组基础校验。
+             * 客户端射线只负责准备实体 id，不能作为玩法权威。这里继续校验主手物品、
+             * 目标、距离与 ATTACK 权限，但不能要求攻击者仍按玩法存活：Wathe 原有调试/旁观语义
+             * 允许“非存活但仍能使用物品”的玩家用匕首击杀存活玩家，并且不受匕首 CD 限制。
+             *
+             * 冷却校验因此只约束玩法存活攻击者。PlayerLifeStateApi 特殊授权的
+             * spectator/creative 会继续被 isPlayerAliveAndSurvival 视为存活，仍走正常冷却规则；
+             * 普通 creative 等非存活状态则恢复旧版的无冷却刺击行为。
              */
-            if (!GameFunctions.isPlayerAliveAndSurvival(player)
-                    || !usedStack.isOf(WatheItems.KNIFE)
-                    || player.getItemCooldownManager().isCoolingDown(WatheItems.KNIFE)) {
+            boolean attackerAliveInGame = GameFunctions.isPlayerAliveAndSurvival(player);
+            if (!usedStack.isOf(WatheItems.KNIFE)
+                    || (attackerAliveInGame
+                    && player.getItemCooldownManager().isCoolingDown(WatheItems.KNIFE))) {
                 return;
             }
             Entity targetEntity = player.getServerWorld().getEntityById(payload.target());

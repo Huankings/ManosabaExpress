@@ -26,6 +26,7 @@ public class PlayerLifeStateComponent implements AutoSyncedComponent {
             ComponentRegistry.getOrCreate(Wathe.id("life_state"), PlayerLifeStateComponent.class);
 
     private static final String ALIVE_IN_NON_SURVIVAL_MODE_KEY = "AliveInNonSurvivalMode";
+    private static final String FORENSICALLY_DEAD_KEY = "ForensicallyDead";
 
     private final PlayerEntity player;
 
@@ -36,6 +37,14 @@ public class PlayerLifeStateComponent implements AutoSyncedComponent {
      * creative 或 spectator，避免标记残留到 adventure / survival 后又被下一次普通切模式误用。</p>
      */
     private boolean aliveInNonSurvivalMode = false;
+
+    /**
+     * true 表示该玩家虽然因特殊机制继续按玩法存活，但在验尸“凶手当前状态”里必须算死亡。
+     *
+     * <p>时停者时间狭缝使用该标记；双重人格等真正的特殊存活旁观不会设置它，
+     * 因而仍会显示为“存活中”。该字段只影响信息展示，不参与胜负或操作权限。</p>
+     */
+    private boolean forensicallyDead = false;
 
     public PlayerLifeStateComponent(PlayerEntity player) {
         this.player = player;
@@ -64,13 +73,27 @@ public class PlayerLifeStateComponent implements AutoSyncedComponent {
         this.setAliveInNonSurvivalMode(false);
     }
 
+    public boolean isForensicallyDead() {
+        return this.forensicallyDead;
+    }
+
+    public void setForensicallyDead(boolean forensicallyDead) {
+        if (this.forensicallyDead == forensicallyDead) {
+            return;
+        }
+        this.forensicallyDead = forensicallyDead;
+        this.sync();
+    }
+
     @Override
     public void writeToNbt(@NotNull NbtCompound tag, RegistryWrapper.WrapperLookup registryLookup) {
         tag.putBoolean(ALIVE_IN_NON_SURVIVAL_MODE_KEY, this.aliveInNonSurvivalMode);
+        tag.putBoolean(FORENSICALLY_DEAD_KEY, this.forensicallyDead);
     }
 
     @Override
     public void readFromNbt(@NotNull NbtCompound tag, RegistryWrapper.WrapperLookup registryLookup) {
         this.aliveInNonSurvivalMode = tag.getBoolean(ALIVE_IN_NON_SURVIVAL_MODE_KEY);
+        this.forensicallyDead = tag.getBoolean(FORENSICALLY_DEAD_KEY);
     }
 }

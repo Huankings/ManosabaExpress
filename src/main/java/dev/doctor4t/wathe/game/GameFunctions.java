@@ -7,6 +7,7 @@ import dev.doctor4t.wathe.api.MapEffect;
 import dev.doctor4t.wathe.api.PlayerLifeStateApi;
 import dev.doctor4t.wathe.api.WatheGameModes;
 import dev.doctor4t.wathe.api.appearance.BodyAppearanceApi;
+import dev.doctor4t.wathe.api.body.PlayerBodyInfoApi;
 import dev.doctor4t.wathe.api.death.BodySpawnContext;
 import dev.doctor4t.wathe.api.death.DeathApi;
 import dev.doctor4t.wathe.api.death.DeathContext;
@@ -916,7 +917,12 @@ public class GameFunctions {
             if (spawnBody) {
                 PlayerBodyEntity body = WatheEntities.PLAYER_BODY.create(victim.getWorld());
                 if (body != null) {
-                    body.setPlayerUuid(victim.getUuid());
+                    /*
+                     * 尸体的真实死者、名字、死因、死亡时职业和凶手快照统一由 Wathe 写入。
+                     * Harpy 会通过 PlayerBodyInfoApi 的初始化回调补充词条；扩展不再各自维护
+                     * BodyDeathReasonComponent，也不需要 mixin 本方法的 body 局部变量。
+                     */
+                    PlayerBodyInfoApi.initializeFromDeath(body, deathContext);
                     UUID appearanceUuid = BodyAppearanceApi.resolveAppearanceUuid(victim, killer, deathReason);
                     if (appearanceUuid != null) {
                         /*

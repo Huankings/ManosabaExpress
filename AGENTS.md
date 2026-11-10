@@ -94,6 +94,7 @@
 - 客户端键盘、鼠标、KeyBinding、输入 tick 和最终攻击/使用动作：`ClientInputApi`；完整说明见 `README_CLIENT_INPUT_API.md`
 - 准心图标 / 准心下方小进度条：`CrosshairHudApi`
 - 准心名字 / 实体名牌 / 准心额外 HUD：`RoleNameHudApi`
+- 玩家尸体信息快照 / 五行验尸 HUD：`PlayerBodyInfoApi`、`PlayerBodyInfoSnapshot`、`PlayerBodyHudApi`；完整说明见 `README_PLAYER_BODY_HUD_API.md`
 - 心情 HUD：`MoodHudApi`
 - 时间 HUD：`TimeHudApi`
 - 疯魔模式：`PsychoModeApi`、`PsychoModeProfile`、`PsychoShieldContext`、`PsychoShieldResult`、客户端 `PsychoModeClientApi`
@@ -372,6 +373,13 @@ Harpymodloader.setRoleMaximum(MY_ROLE, 1);
 
 `registerRoleDetailsLine(...)` 与 `registerAffiliationLine(...)` 由 Wathe 统一排成“职业详情、阵营归属、玩家名字、杀手同伙”，不要再通过 `registerExtraHud(...)` 手算这几行的固定坐标。阵营 provider 返回不带中括号的正文与 RGB，Wathe 会用 `[%s]` 统一包装并让括号同色；默认四阵营颜色读取 `Faction.displayColor()`。默认阵营行只对 `GameFunctions.isPlayerSpectatingOrCreative(...)` 的非存活观察者显示，特殊存活 spectator/creative 不得泄漏阵营。
 
+尸体死因、死亡时职业、凶手和死亡经过时间统一由 Wathe `PlayerBodyInfoApi` 写入 `PlayerBodyEntity`；
+扩展不得再建立自己的 `BodyDeathReasonComponent`。人工伪尸体必须在 spawn 前调用
+`PlayerBodyInfoApi.initializeSynthetic(...)`。尸体五行 HUD 使用 `PlayerBodyHudApi` 的逐行规则和 provider；
+职业操作提示使用 `registerAdditionalLines(...)`，禁止重新通过 `RoleNameHudApi.registerExtraHud(...)` 固定 y 坐标绘制。
+存活玩家默认不得看到尸体玩家名。时停狭缝这类“玩法仍存活、验尸应算死亡”的机制使用
+`PlayerLifeStateApi.setForensicallyDead(...)`，不要把所有特殊存活 spectator 一律判死。
+
 `TargetVisibilityApi` 面向“某个观察者是否能看见 / 选中 / 交互 / 攻击某个玩家或玩家尸体”。它会接入 Wathe 的玩家和尸体渲染、`LivingEntity#canHit` 客户端选中、RoleNameHud 尸体射线、默认刀枪准心目标、尸袋、匕首 / 枪击服务端命中和本能描边。扩展隐藏尸体或隐藏玩家时优先注册 API 规则，不要再 mixin `PlayerBodyEntityRenderer`、`LivingEntity#canHit`、`RoleNameRenderer` 或 `CrosshairRenderer`；服务端职业能力和物品仍必须在自己的 handler 里调用 `canInteractWithBody(...)`、`canInteractWithPlayer(...)`、`canAttackPlayer(...)` / `canAttackEntity(...)` 重新校验。
 
 `WeaponTargetingApi` 面向客户端武器发包前的射线目标选择。准心、HUD 和名字提示走 `getVisibleAlivePlayerTarget(...)` / `resolveVisibleGunTarget(...)`，真实攻击发包走 `getAttackableAlivePlayerTarget(...)` / `resolveAttackableGunTarget(...)`。扩展武器不要再自己维护一套 `ProjectileUtil` + `TargetVisibilityApi` 组合逻辑，避免把 TARGET 准心隐藏误写成 ATTACK 伤害免疫。
@@ -557,7 +565,7 @@ Wathe 的地图雾和扩展职业临时雾效统一走：
 ## 匕首攻击、手雷爆炸与掉落物拾取 API
 
 - 匕首客户端目标走 `KnifeAttackApi.registerTargetRule(...)`，按 `KnifeTargetContext.Purpose.VISIBLE / ATTACK` 区分准心与真实发包；不要再 mixin `KnifeItem#getKnifeTarget`。
-- 匕首服务端命中走 `KnifeAttackApi.registerStabHandler(...)`。Wathe 会先权威校验玩法存活、主手匕首、冷却、三格距离和 ATTACK 权限；扩展返回 `HANDLED` 或 `CANCEL` 后默认玩家刺杀不再执行。
+- 匕首服务端命中走 `KnifeAttackApi.registerStabHandler(...)`。Wathe 会权威校验主手匕首、三格距离和 ATTACK 权限；只有玩法存活攻击者需要通过匕首冷却检查，普通非存活攻击者必须保留“可刺杀存活目标且无匕首 CD”的旧行为。扩展返回 `HANDLED` 或 `CANCEL` 后默认玩家刺杀不再执行。
 - Wathe 默认匕首刺杀后的冷却修正走 `KnifeCooldownApi.registerCooldownModifier(...)`，扩展不要再 mixin `KnifeStabPayload.Receiver`。
 - `KnifeCooldownContext` 提供攻击者、目标、服务端使用物品快照、对局组件、基础冷却和默认是否会写入冷却。modifier 在 `GameFunctions.killPlayer(...)` 返回后调用，因此可以消费 DeathApi 确认死亡阶段写入的一次性标记。
 - 匕首 modifier 是流水线：priority 越大越先执行，后续规则读取已修正的 `currentCooldown`，最终自动限制为非负数。只缩短冷却时使用 `Math.min(currentCooldown, targetTicks)`，不要覆盖其它规则更短的结果。

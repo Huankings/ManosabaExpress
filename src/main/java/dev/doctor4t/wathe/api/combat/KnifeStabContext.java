@@ -18,8 +18,9 @@ import org.jetbrains.annotations.Nullable;
 /**
  * 服务端收到一次合法匕首刺击包后的公开上下文。
  *
- * <p>Wathe 在创建本上下文前已经权威校验攻击者仍按玩法存活、主手确实是默认匕首、
- * 匕首没有处于冷却、目标实体存在、距离不超过三格且目标允许 ATTACK。
+ * <p>Wathe 在创建本上下文前已经权威校验主手确实是默认匕首、目标实体存在、
+ * 距离不超过三格且目标允许 ATTACK。玩法存活攻击者还会校验匕首冷却；普通非存活攻击者
+ * 则保留 Wathe 旧版“可以刺杀存活目标且不受匕首 CD 限制”的调试/旁观语义。
  * 扩展处理非玩家实体时仍应检查自己的实体运行状态，例如播放体是否仍有效。</p>
  */
 public final class KnifeStabContext {
@@ -82,7 +83,14 @@ public final class KnifeStabContext {
     }
 
     public boolean defaultCooldownApplies() {
-        return !this.attacker.isCreative() && this.game.getGameMode() != WatheGameModes.LOOSE_ENDS;
+        /*
+         * 非存活攻击者在 Wathe 旧行为中可以连续使用匕首，不能因为 API 公开化而开始写入 CD。
+         * 特殊存活授权的 spectator/creative 会由 isPlayerAliveAndSurvival 返回 true；其中 creative
+         * 仍沿用原有创造模式免冷却，spectator 授权状态则按正常玩法规则写入冷却。
+         */
+        return GameFunctions.isPlayerAliveAndSurvival(this.attacker)
+                && !this.attacker.isCreative()
+                && this.game.getGameMode() != WatheGameModes.LOOSE_ENDS;
     }
 
     /**

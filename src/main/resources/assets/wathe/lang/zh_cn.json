@@ -490,4 +490,12 @@
   ,"command.wathe.blackout.potion_effects.query.disabled": "停电药水效果当前已关闭"
   ,"command.wathe.blackout.potion_effects.set.enabled": "停电药水效果已开启"
   ,"command.wathe.blackout.potion_effects.set.disabled": "停电药水效果已关闭"
+  ,"hud.wathe.body.death_info": "死于%s秒前，死因是%s"
+  ,"hud.wathe.body.identity": "其身份为"
+  ,"hud.wathe.body.killer_format": "凶手为%s%s"
+  ,"hud.wathe.body.killer_unknown": "凶手为未知"
+  ,"hud.wathe.body.killer_self": "自己"
+  ,"hud.wathe.body.killer_alive": "存活中"
+  ,"hud.wathe.body.killer_dead": "已死亡"
+  ,"hud.wathe.body.killer_offline": "已离线"
 }
