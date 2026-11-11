@@ -1,6 +1,7 @@
 package dev.doctor4t.wathe.item;
 
 import dev.doctor4t.wathe.block.SmallDoorBlock;
+import dev.doctor4t.wathe.api.door.DoorApi;
 import dev.doctor4t.wathe.block_entity.SmallDoorBlockEntity;
 import dev.doctor4t.wathe.game.GameConstants;
 import dev.doctor4t.wathe.index.WatheSounds;
@@ -26,6 +27,9 @@ public class LockpickItem extends Item implements AdventureUsable {
     @Override
     public ActionResult useOnBlock(ItemUsageContext context) {
         PlayerEntity player = context.getPlayer();
+        if (player == null) {
+            return super.useOnBlock(context);
+        }
         World world = context.getWorld();
         BlockPos pos = context.getBlockPos();
         BlockState state = world.getBlockState(pos);
@@ -34,26 +38,32 @@ public class LockpickItem extends Item implements AdventureUsable {
             BlockPos lowerPos = state.get(SmallDoorBlock.HALF) == DoubleBlockHalf.LOWER ? pos : pos.down();
             if (world.getBlockEntity(lowerPos) instanceof SmallDoorBlockEntity entity) {
                 if (player.isSneaking()) {
-                    entity.jam();
-                    SmallDoorBlockEntity neighborDoorEntity = SmallDoorBlock.getNeighborDoorEntity(state, world, lowerPos);
-                    if (neighborDoorEntity != null) {
-                        neighborDoorEntity.jam();
+                    if (DoorApi.isBlasted(entity)) {
+                        // 永久撬开的门优先级更高，开锁器不能把它重新写成“损坏但关闭”。
+                        return ActionResult.PASS;
+                    }
+                    if (world.isClient) {
+                        return ActionResult.SUCCESS;
                     }
 
+                    DoorApi.OperationResult result = DoorApi.jamClosed(entity, GameConstants.JAMMED_DOOR_TIME);
+                    if (!result.applied()) {
+                        return ActionResult.PASS;
+                    }
                     if (!player.isCreative()) {
                         player.getItemCooldownManager().set(this, GameConstants.ITEM_COOLDOWNS.get(this));
                     }
 
-                    if (!world.isClient)
-                        world.playSound(null, lowerPos.getX() + .5f, lowerPos.getY() + 1, lowerPos.getZ() + .5f, WatheSounds.ITEM_LOCKPICK_DOOR, SoundCategory.BLOCKS, 1f, 1f);
+                    world.playSound(null, lowerPos.getX() + .5f, lowerPos.getY() + 1, lowerPos.getZ() + .5f, WatheSounds.ITEM_LOCKPICK_DOOR, SoundCategory.BLOCKS, 1f, 1f);
 
                     if (player instanceof net.minecraft.server.network.ServerPlayerEntity serverPlayer) {
                         NbtCompound extra = new NbtCompound();
                         extra.putString("mode", "jam");
+                        extra.putInt("affected_doors", result.affectedDoors());
                         GameRecordManager.putBlockPos(extra, "pos", lowerPos);
                         GameRecordManager.recordItemUse(serverPlayer, Registries.ITEM.getId(this), null, extra);
                     }
-                    return ActionResult.SUCCESS;
+                    return ActionResult.CONSUME;
                 }
             }
 

@@ -1,6 +1,7 @@
 package dev.doctor4t.wathe.block;
 
 import dev.doctor4t.wathe.api.event.AllowPlayerOpenLockedDoor;
+import dev.doctor4t.wathe.api.door.DoorApi;
 import dev.doctor4t.wathe.block_entity.SmallDoorBlockEntity;
 import dev.doctor4t.wathe.cca.TrainWorldComponent;
 import dev.doctor4t.wathe.index.WatheItems;
@@ -27,7 +28,7 @@ public class TrainDoorBlock extends SmallDoorBlock {
     protected ActionResult onUse(BlockState state, World world, BlockPos pos, PlayerEntity player, BlockHitResult hit) {
         BlockPos lowerPos = state.get(HALF) == DoubleBlockHalf.LOWER ? pos : pos.down();
         if (world.getBlockEntity(lowerPos) instanceof SmallDoorBlockEntity entity) {
-            if (entity.isBlasted()) {
+            if (DoorApi.isBlasted(entity)) {
                 return ActionResult.PASS;
             }
 

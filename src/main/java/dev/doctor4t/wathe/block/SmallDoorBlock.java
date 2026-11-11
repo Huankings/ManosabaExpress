@@ -1,6 +1,7 @@
 package dev.doctor4t.wathe.block;
 
 import dev.doctor4t.wathe.api.event.AllowPlayerOpenLockedDoor;
+import dev.doctor4t.wathe.api.door.DoorApi;
 import dev.doctor4t.wathe.block_entity.DoorBlockEntity;
 import dev.doctor4t.wathe.block_entity.SmallDoorBlockEntity;
 import dev.doctor4t.wathe.index.WatheItems;
@@ -140,7 +141,7 @@ public class SmallDoorBlock extends DoorPartBlock {
     protected ActionResult onUse(BlockState state, World world, BlockPos pos, PlayerEntity player, BlockHitResult hit) {
         BlockPos lowerPos = state.get(HALF) == DoubleBlockHalf.LOWER ? pos : pos.down();
         if (world.getBlockEntity(lowerPos) instanceof SmallDoorBlockEntity entity) {
-            if (entity.isBlasted()) {
+            if (DoorApi.isBlasted(entity)) {
                 return ActionResult.PASS;
             }
 
@@ -149,7 +150,7 @@ public class SmallDoorBlock extends DoorPartBlock {
             } else {
                 boolean requiresKey = !entity.getKeyName().isEmpty();
                 boolean hasLockpick = player.getMainHandStack().isOf(WatheItems.LOCKPICK);
-                boolean jammed = entity.isJammed();
+                boolean jammed = DoorApi.isJammed(entity);
 
                 if (entity.isOpen()) {
                     return open(state, world, entity, lowerPos);
@@ -202,11 +203,8 @@ public class SmallDoorBlock extends DoorPartBlock {
     }
 
     public static void toggleDoor(BlockState state, World world, SmallDoorBlockEntity entity, BlockPos lowerPos) {
-        entity.toggle(false);
-        SmallDoorBlockEntity neighborDoorEntity = getNeighborDoorEntity(state, world, lowerPos);
-        if (neighborDoorEntity != null) {
-            neighborDoorEntity.toggle(true);
-        }
+        // 双门联动、同 tick 多次交互和旧版一开一关状态统一由门组事务处理。
+        DoorApi.toggle(entity, false);
     }
 
     public static SmallDoorBlockEntity getNeighborDoorEntity(BlockState state, World world, BlockPos lowerPos) {

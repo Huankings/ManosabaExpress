@@ -73,6 +73,7 @@ Wathe 是一个基于 **Minecraft 1.21.1 + Fabric** 的列车狼人杀 / 社交�
 | `README_SHOP_CURRENCY_API.md` | 商店多货币系统专项教程 |
 | `README_PLAYER_BODY_HUD_API.md` | 尸体死因/身份/阵营/凶手快照与动态准心 HUD API |
 | `README_ITEM_TOOLTIP_API.md` | 物品描述与动态冷却 tooltip 接入教程 |
+| `README_DOOR_API.md` | 单门/双门的门组事务、撬开、锁门和修复 API |
 | `README_PSYCHO_MODE_API.md` | 疯魔 profile、暂停恢复、专属图标冷却与跨扩展统一清理教程 |
 
 ## 启动初始化流程
@@ -806,6 +807,7 @@ GameRecordManager.recordGlobalEvent(
 | `WeaponTargetingApi` | 武器射线目标、VISIBLE/ATTACK 同目标确认、服务端碰撞箱距离复核 | 尸体伪装隐藏准心但仍可被刀枪命中、扩展武器统一发包前选人、避免极限距离假锁定 |
 | `DeathApi` | 击杀/死亡分阶段钩子、默认击杀收益规则、尸体生成回调 | 赏金奖励、时间狭缝、双重人格致死转化、验尸官尸体数据 |
 | `BlackoutApi` | 停电触发/恢复、恢复时间修改、停电药水分配 | 工程师恢复电力、杀手侧中立夜视、独立中立失明、地图或职业改停电时长 |
+| `DoorApi` | 单门/双门的原子开关、撬开、锁门和修复 | 撬棍、开锁器、工具箱、控门技能、撞门技能 |
 | `InstinctApi` | 本能资格和描边 | 新职业透视、状态高亮、本能压制 |
 | `PlayerLifeStateApi` | 特殊玩法存活状态 | 旁观 / 创造但仍参与胜负和 HUD |
 | `TargetVisibilityApi` | 玩家 / 尸体可见、可选中、可交互、可攻击规则 | 隐藏刺客尸体、隐藏玩家准心名、禁止对应道具交互或攻击 |

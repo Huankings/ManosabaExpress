@@ -78,6 +78,7 @@
 - 普通掉落物拾取：`ItemPickupApi`、`ItemPickupContext`、`ItemPickupResult`
 - 击杀 / 死亡阶段：`DeathApi`、`DeathContext`、`BodySpawnContext`
 - 停电机制：`BlackoutApi`、`BlackoutDuration`、`BlackoutEffectContext`、`BlackoutEffectResult`
+- 门组事务：`DoorApi`、`DoorApi.RepairMode`、`DoorApi.OperationResult`；完整说明见 `README_DOOR_API.md`
 - 本能：`InstinctApi`
 - 玩家存活：`PlayerLifeStateApi`
 - 玩家体力：`PlayerStaminaApi`、`PlayerStaminaComponent`
@@ -105,6 +106,17 @@
 - 床 / 托盘 / 毒药 / 回放：`BedEffectRegistry`、`BedParticleRegistry`、`TrayEffectRegistry`、`TrayParticleRegistry`、`CanSeePoison`、`ReplayRegistry`
 
 ## 停电机制 API
+
+## 门组机制 API（最新）
+
+- Wathe 小门的上半格没有方块实体，双门则由两个下半格方块实体组成；扩展先用 `DoorApi.findDoor(world, clickedPos)` 解析，再对整个门组操作。
+- 普通开关、永久撬开、临时锁门和修复分别使用 `DoorApi.toggle`、`pryOpen`、`jamClosed`、`repair`。不要再组合 `setBlasted`、`setJammed`、`setCloseCountdown` 和两次 `toggle`。
+- 门组不变量是两侧 `OPEN` 一致，永久损坏与锁定按整组处理。`pryOpen` 最终必须整组打开且永久损坏；`jamClosed` 最终必须整组关闭且统一刷新锁定时间。
+- 永久撬开优先于临时锁门。潜行开锁器不得把已撬开的门写成“损坏但关闭”；修复时才清除损坏/锁定标记。
+- `DoorApi.maintainGroupInvariants` 由服务端门 tick 修复旧存档的关闭损坏门和单侧损坏门；不能删除这条自愈链路，否则旧地图会继续保留永久锁死状态。
+- `RepairMode.CLOSE` 用于 NoellesRoles 工具箱与巫妖；`OPEN_THEN_AUTOCLOSE` 用于 kinssaba 扳手。扩展必须明确选择修复后的表现。
+- 门状态、冷却、声音和回放以服务端为准；客户端只能确认交互和显示同步结果。旧 `DoorBlockEntity#blast/jam/toggle` 保留兼容并委托 API，新代码直接使用 `DoorApi`。
+- 修改门机制后必须回归同 tick 关门+撬门、开门+锁门、双门两侧、自动关门、修复、按钮、列车门、时停回溯、区块重载和地图重置。
 
 ## 托盘公开化 API（最新）
 

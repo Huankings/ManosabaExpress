@@ -1,7 +1,7 @@
 package dev.doctor4t.wathe.block_entity;
 
 import dev.doctor4t.wathe.block.DoorPartBlock;
-import dev.doctor4t.wathe.block.SmallDoorBlock;
+import dev.doctor4t.wathe.api.door.DoorApi;
 import dev.doctor4t.wathe.game.GameConstants;
 import dev.doctor4t.wathe.index.WatheSounds;
 import net.minecraft.block.BlockState;
@@ -18,7 +18,6 @@ import net.minecraft.world.World;
 public abstract class DoorBlockEntity extends SyncingBlockEntity {
 
     public AnimationState state = new AnimationState();
-    protected long lastUpdate = 0L;
     protected boolean open;
     protected int age = 0;
 
@@ -40,10 +39,15 @@ public abstract class DoorBlockEntity extends SyncingBlockEntity {
     }
 
     public static <T extends DoorBlockEntity> void serverTick(World world, BlockPos pos, BlockState state, T entity) {
-        if (state.get(DoorPartBlock.OPEN) && !entity.isBlasted()) {
+        /*
+         * 这里读取方块实体的实时状态，而不是 ticker 传入的旧 BlockState。
+         * 双门第一侧自动关门时会同时关闭第二侧；第二侧随后 tick 时必须看到已经关闭，不能再反向打开。
+         */
+        DoorApi.maintainGroupInvariants(entity);
+        if (entity.isOpen() && !DoorApi.isBlasted(entity)) {
             entity.setCloseCountdown(entity.getCloseCountdown() - 1);
             if (entity.getCloseCountdown() <= 0) {
-                SmallDoorBlock.toggleDoor(state, world, (SmallDoorBlockEntity) entity, pos);
+                DoorApi.setOpen(entity, false, false, false);
             }
         } else {
             entity.setCloseCountdown(0);
@@ -55,26 +59,29 @@ public abstract class DoorBlockEntity extends SyncingBlockEntity {
     }
 
     public void toggle(boolean silent) {
-        if (this.world == null || this.world.getTime() == this.lastUpdate || this.isBlasted()) {
-            return;
-        }
-        this.toggleOpen();
-        if (!silent) {
-            this.playToggleSound();
-        }
-        this.toggleBlocks();
+        DoorApi.toggle(this, silent);
     }
 
-    protected void toggleOpen() {
-        if (this.world != null) {
-            this.lastUpdate = this.world.getTime();
-            this.open = !this.open;
-            this.world.addSyncedBlockEvent(this.pos, this.getCachedState().getBlock(), 1, this.open ? 1 : 0);
-            this.closeCountdown = this.open ? GameConstants.DOOR_AUTOCLOSE_TIME : 0;
+    /**
+     * DoorApi 的单扇落地方法。只写明确目标状态，不查找邻门，也不播放声音。
+     * 扩展玩法应调用 DoorApi 的门组方法，不应直接组合这个底层入口。
+     */
+    public boolean applyOpenState(boolean open, int closeCountdown) {
+        if (this.world == null || this.world.isClient) {
+            return false;
         }
+        boolean changed = this.open != open || this.getCachedState().get(DoorPartBlock.OPEN) != open;
+        this.open = open;
+        this.closeCountdown = open ? Math.max(0, closeCountdown) : 0;
+        if (changed) {
+            this.world.addSyncedBlockEvent(this.pos, this.getCachedState().getBlock(), 1, open ? 1 : 0);
+            this.toggleBlocks();
+        }
+        this.markDirty();
+        return changed;
     }
 
-    protected void playToggleSound() {
+    public void playToggleSound() {
         if (this.world == null) {
             return;
         }
@@ -153,21 +160,25 @@ public abstract class DoorBlockEntity extends SyncingBlockEntity {
         this.jammedTime = time;
     }
 
+    /** 仅供 DoorApi、NBT 恢复和旧扩展兼容层使用；新玩法应调用 DoorApi。 */
+    public void setJammedDirect(int time) {
+        this.jammedTime = Math.max(0, time);
+    }
+
     public void jam() {
-        this.setJammed(GameConstants.JAMMED_DOOR_TIME);
-        if (this.open) {
-            this.toggle(false);
-        }
+        DoorApi.jamClosed(this, GameConstants.JAMMED_DOOR_TIME);
     }
 
     public void blast() {
-        if (!this.open) {
-            this.toggle(false);
-        }
-        this.setBlasted(true);
+        DoorApi.pryOpen(this);
     }
 
     public boolean isJammed() {
+        return DoorApi.isJammed(this);
+    }
+
+    /** DoorApi 聚合门组状态时使用，避免 isJammed() 再次递归查询门组。 */
+    public boolean isJammedDirect() {
         return this.jammedTime > 0;
     }
 
@@ -176,10 +187,20 @@ public abstract class DoorBlockEntity extends SyncingBlockEntity {
     }
 
     public boolean isBlasted() {
-        return blasted;
+        return DoorApi.isBlasted(this);
     }
 
     public void setBlasted(boolean blasted) {
+        this.blasted = blasted;
+    }
+
+    /** DoorApi 聚合门组状态时使用，避免 isBlasted() 再次递归查询门组。 */
+    public boolean isBlastedDirect() {
+        return this.blasted;
+    }
+
+    /** 仅供 DoorApi、NBT 恢复和旧扩展兼容层使用；新玩法应调用 DoorApi。 */
+    public void setBlastedDirect(boolean blasted) {
         this.blasted = blasted;
     }
 }
