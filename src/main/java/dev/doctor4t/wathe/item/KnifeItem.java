@@ -6,6 +6,7 @@ import dev.doctor4t.wathe.api.combat.KnifeAttackApi;
 import dev.doctor4t.wathe.api.combat.KnifeTargetContext;
 import dev.doctor4t.wathe.api.combat.WeaponTargetingApi;
 import dev.doctor4t.wathe.api.visibility.TargetVisibilityApi;
+import dev.doctor4t.wathe.game.GameConstants;
 import dev.doctor4t.wathe.index.WatheCosmetics;
 import dev.doctor4t.wathe.index.WatheSounds;
 import dev.doctor4t.wathe.util.KnifeStabPayload;
@@ -100,11 +101,11 @@ public class KnifeItem extends Item implements ItemWithSkin {
          * 匕首准心和蓄力提示继续使用 TARGET 语义，然后交给公开目标规则补充播放体、
          * 职业召唤物等扩展实体。这里的结果只影响视觉与发包目标，不代表服务端一定接受命中。
          */
-        HitResult defaultTarget = WeaponTargetingApi.getVisibleAlivePlayerTarget(user, 3F);
+        HitResult defaultTarget = WeaponTargetingApi.getVisibleAlivePlayerTarget(user, GameConstants.KNIFE_TARGET_RANGE);
         HitResult resolvedTarget = KnifeAttackApi.resolveTarget(new KnifeTargetContext(
                 user,
                 stack,
-                3.0F,
+                GameConstants.KNIFE_TARGET_RANGE,
                 KnifeTargetContext.Purpose.VISIBLE,
                 defaultTarget
         ));
@@ -125,11 +126,11 @@ public class KnifeItem extends Item implements ItemWithSkin {
          * 这样只隐藏 TARGET 的尸体伪装不会获得伤害免疫，而扩展实体仍可通过 KnifeAttackApi
          * 为 ATTACK 阶段提供自己的命中结果。最终再统一检查 TargetVisibilityApi。
          */
-        HitResult defaultTarget = WeaponTargetingApi.getAttackableAlivePlayerTarget(user, 3F);
+        HitResult defaultTarget = WeaponTargetingApi.getAttackableAlivePlayerTarget(user, GameConstants.KNIFE_TARGET_RANGE);
         HitResult resolvedTarget = KnifeAttackApi.resolveTarget(new KnifeTargetContext(
                 user,
                 stack,
-                3.0F,
+                GameConstants.KNIFE_TARGET_RANGE,
                 KnifeTargetContext.Purpose.ATTACK,
                 defaultTarget
         ));

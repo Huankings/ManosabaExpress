@@ -590,7 +590,8 @@ ShopApi.registerRoleShop(MY_ROLE, player -> List.of(
 - `TargetVisibilityApi.registerPlayerRule(...)` 可决定玩家实体是否隐藏、不可选中、不可交互或不可攻击；
 - Wathe 本体已经把默认尸体渲染、玩家渲染、客户端 `canHit`、RoleNameHud 尸体射线、刀枪默认目标、尸袋、匕首 / 枪击服务端命中和本能描边接入该 API；
 - 客户端隐藏不是权威防护，扩展职业自己的服务端 use / packet / attack handler 仍应调用 `canInteractWithBody(...)`、`canInteractWithPlayer(...)`、`canAttackPlayer(...)` 或 `canAttackEntity(...)`。
-- `WeaponTargetingApi` 提供客户端武器发包前的公共射线工具：准心 / HUD 使用 visible 入口，真实攻击发包使用 attackable 入口，枪械还可使用 `resolveVisibleGunTarget(...)` / `resolveAttackableGunTarget(...)` 接入 `GunShotApi` 目标覆写链。
+- `WeaponTargetingApi` 提供客户端武器发包前的公共射线工具：准心 / HUD 使用 visible 入口，真实攻击发包使用 attackable 入口，枪械还可使用 `resolveVisibleGunTarget(...)` / `resolveAttackableGunTarget(...)` 接入 `GunShotApi` 目标覆写链；
+- 准心需要表达“现在确实可以命中”时，用 `isSameEntityTarget(visibleTarget, attackTarget)` 确认 VISIBLE 与 ATTACK 指向同一实体；服务端收到实体 id 后用 `isWithinTargetingRange(source, target, range)` 按眼睛到目标可瞄准碰撞箱的距离复核，不能再用实体中心 `distanceTo(...)` 与客户端射线比较。
 
 `/instinct key toggle|hold|check` 可切换本能键模式：
 
@@ -802,7 +803,7 @@ GameRecordManager.recordGlobalEvent(
 | `KnifeCooldownApi` | Wathe 默认匕首刺杀后的冷却流水线修正 | 职业免冷却、词条缩短冷却、按目标状态调整冷却 |
 | `GrenadeApi` | 扩展手雷投掷模式注册、服务端爆炸处理 | 假手雷、无声手雷、爆炸影响扩展实体 |
 | `ItemPickupApi` | 普通掉落物的服务端 `PASS / ALLOW / DENY` 拾取判定 | 禁止职业捡物、重伤缴械、覆盖 Wathe 默认枪械拾取限制 |
-| `WeaponTargetingApi` | 客户端武器射线目标工具，区分准心目标和真实攻击目标 | 尸体伪装隐藏准心但仍可被刀枪命中、扩展武器统一发包前选人 |
+| `WeaponTargetingApi` | 武器射线目标、VISIBLE/ATTACK 同目标确认、服务端碰撞箱距离复核 | 尸体伪装隐藏准心但仍可被刀枪命中、扩展武器统一发包前选人、避免极限距离假锁定 |
 | `DeathApi` | 击杀/死亡分阶段钩子、默认击杀收益规则、尸体生成回调 | 赏金奖励、时间狭缝、双重人格致死转化、验尸官尸体数据 |
 | `BlackoutApi` | 停电触发/恢复、恢复时间修改、停电药水分配 | 工程师恢复电力、杀手侧中立夜视、独立中立失明、地图或职业改停电时长 |
 | `InstinctApi` | 本能资格和描边 | 新职业透视、状态高亮、本能压制 |
@@ -834,7 +835,7 @@ GameRecordManager.recordGlobalEvent(
 
 ### 匕首攻击、手雷爆炸、冷却与掉落物拾取 API
 
-`KnifeAttackApi` 同时公开客户端目标规则和服务端刺击处理器。客户端 `KnifeTargetContext.Purpose.VISIBLE` 只用于准心/HUD，必须尊重 TARGET；`ATTACK` 用于真实发包，必须尊重 ATTACK。目标规则返回 `PASS / TARGET / MISS`。服务端收到包后会权威检查主手匕首、三格距离和 `TargetVisibilityApi.canAttackEntity(...)`；玩法存活攻击者还必须通过物品冷却检查，普通非存活攻击者则保留旧版“可刺杀存活目标且无匕首 CD”的调试/旁观行为。随后才执行 `registerStabHandler(...)`，处理器返回 `PASS / HANDLED / CANCEL`。扩展不能把客户端射线当成真实伤害授权，也不要再 mixin `KnifeItem` 或 `KnifeStabPayload.Receiver`。
+`KnifeAttackApi` 同时公开客户端目标规则和服务端刺击处理器。客户端 `KnifeTargetContext.Purpose.VISIBLE` 只用于准心/HUD，必须尊重 TARGET；`ATTACK` 用于真实发包，必须尊重 ATTACK。目标规则返回 `PASS / TARGET / MISS`。服务端收到包后会权威检查主手匕首、三格距离和 `TargetVisibilityApi.canAttackEntity(...)`；三格距离通过 `WeaponTargetingApi.isWithinTargetingRange(...)` 按攻击者眼睛到目标可瞄准碰撞箱最近点计算，与客户端射线口径一致。玩法存活攻击者还必须通过物品冷却检查，普通非存活攻击者则保留旧版“可刺杀存活目标且无匕首 CD”的调试/旁观行为。随后才执行 `registerStabHandler(...)`，处理器返回 `PASS / HANDLED / CANCEL`。扩展不能把客户端射线当成真实伤害授权，也不要再 mixin `KnifeItem` 或 `KnifeStabPayload.Receiver`。默认蓄力匕首命中后只播放刺中声音，不再额外广播普通挥手动画。
 
 Wathe 默认匕首在服务端完成距离、可攻击性与死亡流程后，使用 `KnifeCooldownApi.modifyCooldown(...)` 计算最终冷却。扩展通过 `KnifeCooldownApi.registerCooldownModifier(id, priority, modifier)` 注册；modifier 会按 priority 从高到低组成流水线，每个处理器都能读到前一步的 `currentCooldown`。结果自动限制为非负数；仅缩短冷却的规则建议返回 `Math.min(currentCooldown, targetTicks)`，避免把其它规则已经缩短的冷却重新拉长。`KnifeCooldownContext` 提供攻击者、目标、使用时的物品快照、对局组件、基础冷却和 Wathe 默认是否真正写冷却。扩展不应再 mixin `KnifeStabPayload.Receiver` 的尾部重写冷却。
 

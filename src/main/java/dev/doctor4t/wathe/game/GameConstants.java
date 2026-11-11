@@ -118,6 +118,26 @@ public interface GameConstants {
     // Items
     Map<Item, Integer> ITEM_COOLDOWNS = new HashMap<>();
     /**
+     * Wathe 默认匕首的客户端射线和服务端命中距离。
+     *
+     * <p>距离统一解释为“攻击者眼睛到目标可瞄准碰撞箱最近点”的距离，而不是两个实体
+     * 脚底位置之间的距离。客户端与服务端必须共同使用这个值，避免准心已经锁定目标，
+     * 服务端却因为 {@code Entity#distanceTo} 的不同几何口径拒绝极限距离命中。</p>
+     */
+    double KNIFE_TARGET_RANGE = 3.0D;
+    /** 左轮客户端准心与真实开火射线距离。 */
+    double REVOLVER_TARGET_RANGE = 20.0D;
+    /** 德林杰客户端准心与真实开火射线距离。 */
+    double DERRINGER_TARGET_RANGE = 7.0D;
+    /**
+     * Wathe 默认枪击包沿用的宽松服务端兼容距离。
+     *
+     * <p>这个值不是客户端准心射程；客户端仍只能发送自身枪械射线实际选中的实体 id。
+     * 保留旧值是为了不在本次准心修复中改变历史枪击兼容行为，但服务端距离的几何口径
+     * 会统一改为眼睛到目标碰撞箱。</p>
+     */
+    double DEFAULT_GUN_SERVER_VALIDATION_RANGE = 65.0D;
+    /**
      * 左轮的“义警阵营”冷却。
      *
      * <p>这里开始不再把左轮视为“全职业统一 10 秒冷却”的物品，

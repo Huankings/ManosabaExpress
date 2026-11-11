@@ -110,8 +110,11 @@ public final class GunShotContext {
     }
 
     private boolean isWithinRange(@NotNull PlayerEntity target, double range, boolean inclusive) {
-        float distance = target.distanceTo(this.shooter);
-        return inclusive ? distance <= range : distance < range;
+        /*
+         * 枪械客户端选择的是射线与目标碰撞箱的交点，因此服务端也必须按同一碰撞箱口径验收。
+         * 这里仍只负责距离；目标存活与 ATTACK 权限由调用方前面的条件继续权威校验。
+         */
+        return WeaponTargetingApi.isWithinTargetingRange(this.shooter, target, range, inclusive);
     }
 
     /**

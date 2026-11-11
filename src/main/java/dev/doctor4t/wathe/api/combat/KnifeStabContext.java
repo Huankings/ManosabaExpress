@@ -11,7 +11,6 @@ import net.minecraft.entity.Entity;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.item.ItemStack;
 import net.minecraft.server.network.ServerPlayerEntity;
-import net.minecraft.util.Hand;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -76,10 +75,14 @@ public final class KnifeStabContext {
         GameFunctions.killPlayer(player, true, this.attacker, GameConstants.DeathReasons.KNIFE);
     }
 
-    /** 播放默认刺中声音并同步主手挥动。 */
+    /**
+     * 播放默认刺中声音。
+     *
+     * <p>匕首本身已经使用 SPEAR 蓄力姿势；松手完成刺杀后不再广播额外 swingHand，
+     * 否则第一、第三人称都会在收刀后多播放一次普通挥手动画。</p>
+     */
     public void playDefaultFeedback() {
         this.target.playSound(WatheSounds.ITEM_KNIFE_STAB, 1.0F, 1.0F);
-        this.attacker.swingHand(Hand.MAIN_HAND, true);
     }
 
     public boolean defaultCooldownApplies() {

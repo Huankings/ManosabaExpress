@@ -1,6 +1,7 @@
 package dev.doctor4t.wathe.client.gui;
 
 import dev.doctor4t.wathe.api.client.gui.CrosshairHudApi;
+import dev.doctor4t.wathe.api.combat.WeaponTargetingApi;
 import dev.doctor4t.wathe.api.psycho.PsychoModeApi;
 import dev.doctor4t.wathe.api.visibility.TargetVisibilityApi;
 import dev.doctor4t.wathe.index.WatheItems;
@@ -15,6 +16,7 @@ import net.minecraft.entity.player.ItemCooldownManager;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.item.ItemStack;
 import net.minecraft.util.hit.EntityHitResult;
+import net.minecraft.util.hit.HitResult;
 import org.jetbrains.annotations.NotNull;
 
 public class CrosshairRenderer {
@@ -45,13 +47,20 @@ public class CrosshairRenderer {
         boolean target = false;
         ClientPlayerEntity player = context.player();
         ItemStack mainHandStack = context.mainHandStack();
-        if (mainHandStack.isOf(WatheItems.REVOLVER) && !player.getItemCooldownManager().isCoolingDown(mainHandStack.getItem()) && RevolverItem.getGunTarget(player) instanceof EntityHitResult) {
-            target = true;
-        } else if (mainHandStack.isOf(WatheItems.DERRINGER) && !player.getItemCooldownManager().isCoolingDown(mainHandStack.getItem()) && DerringerItem.getGunTarget(player) instanceof EntityHitResult) {
-            target = true;
+        if (mainHandStack.isOf(WatheItems.REVOLVER) && !player.getItemCooldownManager().isCoolingDown(mainHandStack.getItem())) {
+            HitResult visibleTarget = RevolverItem.getGunTarget(player);
+            target = visibleTarget instanceof EntityHitResult entityHitResult
+                    && TargetVisibilityApi.canAttackEntity(player, entityHitResult.getEntity());
+        } else if (mainHandStack.isOf(WatheItems.DERRINGER) && !player.getItemCooldownManager().isCoolingDown(mainHandStack.getItem())) {
+            HitResult visibleTarget = DerringerItem.getGunTarget(player);
+            target = visibleTarget instanceof EntityHitResult entityHitResult
+                    && TargetVisibilityApi.canAttackEntity(player, entityHitResult.getEntity());
         } else if (mainHandStack.isOf(WatheItems.KNIFE)) {
             ItemCooldownManager manager = player.getItemCooldownManager();
-            if (!manager.isCoolingDown(WatheItems.KNIFE) && KnifeItem.getKnifeTarget(player) instanceof EntityHitResult) {
+            HitResult visibleTarget = KnifeItem.getKnifeTarget(player);
+            HitResult attackTarget = KnifeItem.getKnifeAttackTarget(player);
+            if (!manager.isCoolingDown(WatheItems.KNIFE)
+                    && WeaponTargetingApi.isSameEntityTarget(visibleTarget, attackTarget)) {
                 target = true;
                 CrosshairHudApi.renderKnifeProgressCrosshair(context, true, true, 1.0F);
             } else {

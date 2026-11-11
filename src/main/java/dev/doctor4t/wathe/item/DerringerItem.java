@@ -8,6 +8,7 @@ import dev.doctor4t.wathe.client.particle.HandParticle;
 import dev.doctor4t.wathe.client.render.WatheRenderLayers;
 import dev.doctor4t.wathe.api.client.tooltip.ItemTooltipApi;
 import dev.doctor4t.wathe.index.WatheDataComponentTypes;
+import dev.doctor4t.wathe.game.GameConstants;
 import dev.doctor4t.wathe.util.GunShootPayload;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.minecraft.entity.Entity;
@@ -83,7 +84,7 @@ public class DerringerItem extends RevolverItem {
          * 德林加准心仍然只看 TARGET 语义。
          * 真实发包路径单独走 getGunAttackTarget，避免尸体伪装因为隐藏准心而顺带免疫伤害。
          */
-        return WeaponTargetingApi.resolveVisibleGunTarget(user, stack, 7F);
+        return WeaponTargetingApi.resolveVisibleGunTarget(user, stack, GameConstants.DERRINGER_TARGET_RANGE);
     }
 
     public static @Nullable HitResult getGunAttackTarget(PlayerEntity user) {
@@ -104,6 +105,6 @@ public class DerringerItem extends RevolverItem {
          * 德林加射程短，伪装尸体常常贴着地面或墙边；如果这里把 MISS/方块命中直接返回，
          * 客户端仍会向服务端发送 -1，看起来就像 ATTACK 语义完全没有生效。
          */
-        return WeaponTargetingApi.resolveAttackableGunTarget(user, stack, 7F);
+        return WeaponTargetingApi.resolveAttackableGunTarget(user, stack, GameConstants.DERRINGER_TARGET_RANGE);
     }
 }

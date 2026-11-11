@@ -71,7 +71,7 @@ public record GunShootPayload(int target) implements CustomPayload {
                 if (!player.isCreative()) mainHandStack.set(WatheDataComponentTypes.USED, true);
             }
 
-            if (gunContext.playerTarget(65.0F, false) instanceof PlayerEntity target) {
+            if (gunContext.playerTarget(GameConstants.DEFAULT_GUN_SERVER_VALIDATION_RANGE, false) instanceof PlayerEntity target) {
                 GameWorldComponent game = GameWorldComponent.KEY.get(player.getWorld());
                 Item revolver = WatheItems.REVOLVER;
 

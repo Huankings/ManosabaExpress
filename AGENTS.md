@@ -382,7 +382,7 @@ Harpymodloader.setRoleMaximum(MY_ROLE, 1);
 
 `TargetVisibilityApi` 面向“某个观察者是否能看见 / 选中 / 交互 / 攻击某个玩家或玩家尸体”。它会接入 Wathe 的玩家和尸体渲染、`LivingEntity#canHit` 客户端选中、RoleNameHud 尸体射线、默认刀枪准心目标、尸袋、匕首 / 枪击服务端命中和本能描边。扩展隐藏尸体或隐藏玩家时优先注册 API 规则，不要再 mixin `PlayerBodyEntityRenderer`、`LivingEntity#canHit`、`RoleNameRenderer` 或 `CrosshairRenderer`；服务端职业能力和物品仍必须在自己的 handler 里调用 `canInteractWithBody(...)`、`canInteractWithPlayer(...)`、`canAttackPlayer(...)` / `canAttackEntity(...)` 重新校验。
 
-`WeaponTargetingApi` 面向客户端武器发包前的射线目标选择。准心、HUD 和名字提示走 `getVisibleAlivePlayerTarget(...)` / `resolveVisibleGunTarget(...)`，真实攻击发包走 `getAttackableAlivePlayerTarget(...)` / `resolveAttackableGunTarget(...)`。扩展武器不要再自己维护一套 `ProjectileUtil` + `TargetVisibilityApi` 组合逻辑，避免把 TARGET 准心隐藏误写成 ATTACK 伤害免疫。
+`WeaponTargetingApi` 面向客户端武器发包前的射线目标选择和服务端距离复核。准心、HUD 和名字提示走 `getVisibleAlivePlayerTarget(...)` / `resolveVisibleGunTarget(...)`，真实攻击发包走 `getAttackableAlivePlayerTarget(...)` / `resolveAttackableGunTarget(...)`；“可命中”准心用 `isSameEntityTarget(...)` 确认 VISIBLE 与 ATTACK 指向同一实体。服务端收到客户端实体 id 后用 `isWithinTargetingRange(source, target, range)` 按攻击者眼睛到目标扩张后碰撞箱的最近点校验距离，禁止再用 `Entity#distanceTo(...)` 与客户端射线距离比较，否则会在碰撞箱边缘产生假锁定。该 helper 只负责距离，主手、冷却、存活、墙体和 ATTACK 权限仍由包接收器权威校验。扩展武器不要再自己维护一套 `ProjectileUtil` + `TargetVisibilityApi` 组合逻辑。
 
 ## 玩家碰撞机制 API
 
@@ -565,7 +565,8 @@ Wathe 的地图雾和扩展职业临时雾效统一走：
 ## 匕首攻击、手雷爆炸与掉落物拾取 API
 
 - 匕首客户端目标走 `KnifeAttackApi.registerTargetRule(...)`，按 `KnifeTargetContext.Purpose.VISIBLE / ATTACK` 区分准心与真实发包；不要再 mixin `KnifeItem#getKnifeTarget`。
-- 匕首服务端命中走 `KnifeAttackApi.registerStabHandler(...)`。Wathe 会权威校验主手匕首、三格距离和 ATTACK 权限；只有玩法存活攻击者需要通过匕首冷却检查，普通非存活攻击者必须保留“可刺杀存活目标且无匕首 CD”的旧行为。扩展返回 `HANDLED` 或 `CANCEL` 后默认玩家刺杀不再执行。
+- 匕首服务端命中走 `KnifeAttackApi.registerStabHandler(...)`。Wathe 会权威校验主手匕首、按碰撞箱口径计算的三格距离和 ATTACK 权限；只有玩法存活攻击者需要通过匕首冷却检查，普通非存活攻击者必须保留“可刺杀存活目标且无匕首 CD”的旧行为。扩展返回 `HANDLED` 或 `CANCEL` 后默认玩家刺杀不再执行。
+- `UseAction.SPEAR` 这类蓄力匕首在成功命中后不要再调用 `swingHand(...)`；举刀/收刀姿势已经表达攻击动作，额外挥手只会造成重复动画。刺中声音、回放、死亡和冷却仍按各自流程执行。
 - Wathe 默认匕首刺杀后的冷却修正走 `KnifeCooldownApi.registerCooldownModifier(...)`，扩展不要再 mixin `KnifeStabPayload.Receiver`。
 - `KnifeCooldownContext` 提供攻击者、目标、服务端使用物品快照、对局组件、基础冷却和默认是否会写入冷却。modifier 在 `GameFunctions.killPlayer(...)` 返回后调用，因此可以消费 DeathApi 确认死亡阶段写入的一次性标记。
 - 匕首 modifier 是流水线：priority 越大越先执行，后续规则读取已修正的 `currentCooldown`，最终自动限制为非负数。只缩短冷却时使用 `Math.min(currentCooldown, targetTicks)`，不要覆盖其它规则更短的结果。

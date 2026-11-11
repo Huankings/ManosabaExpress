@@ -4,8 +4,10 @@ import dev.doctor4t.wathe.Wathe;
 import dev.doctor4t.wathe.api.combat.KnifeAttackApi;
 import dev.doctor4t.wathe.api.combat.KnifeStabContext;
 import dev.doctor4t.wathe.api.combat.KnifeStabResult;
+import dev.doctor4t.wathe.api.combat.WeaponTargetingApi;
 import dev.doctor4t.wathe.api.visibility.TargetVisibilityApi;
 import dev.doctor4t.wathe.cca.GameWorldComponent;
+import dev.doctor4t.wathe.game.GameConstants;
 import dev.doctor4t.wathe.game.GameFunctions;
 import dev.doctor4t.wathe.index.WatheItems;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
@@ -59,7 +61,15 @@ public record KnifeStabPayload(int target) implements CustomPayload {
             }
             Entity targetEntity = player.getServerWorld().getEntityById(payload.target());
             if (targetEntity == null
-                    || targetEntity.distanceTo(player) > 3.0F
+                    /*
+                     * 客户端三格射线命中的是目标碰撞箱表面，不能再用实体位置点 distanceTo
+                     * 做第二套更严格的距离判断，否则玩家会在准心刚锁定时被服务端拒绝。
+                     */
+                    || !WeaponTargetingApi.isWithinTargetingRange(
+                            player,
+                            targetEntity,
+                            GameConstants.KNIFE_TARGET_RANGE
+                    )
                     || !TargetVisibilityApi.canAttackEntity(player, targetEntity)) {
                 return;
             }

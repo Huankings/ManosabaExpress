@@ -9,6 +9,7 @@ import net.minecraft.item.ItemStack;
 import net.minecraft.util.hit.EntityHitResult;
 import net.minecraft.util.hit.HitResult;
 import net.minecraft.util.math.Box;
+import net.minecraft.util.math.MathHelper;
 import net.minecraft.util.math.Vec3d;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
@@ -21,6 +22,8 @@ import org.jetbrains.annotations.Nullable;
  * 这样扩展职业如果让玩家隐藏准心身份，例如伪装成尸体，也不会顺手获得不合理的无敌窗口。</p>
  */
 public final class WeaponTargetingApi {
+    private static final double DISTANCE_EPSILON = 1.0E-4D;
+
     private WeaponTargetingApi() {
     }
 
@@ -44,6 +47,62 @@ public final class WeaponTargetingApi {
      */
     public static @Nullable EntityHitResult getAttackableAlivePlayerTarget(@NotNull PlayerEntity user, double range) {
         return getAlivePlayerTarget(user, range, true);
+    }
+
+    /**
+     * 判断两个目标解析结果是否命中了同一个实体。
+     *
+     * <p>准心 provider 可以分别解析 VISIBLE 与 ATTACK 目标，再用本方法确认两条语义
+     * 最终指向同一实体。这样“客户端看得见但当前规则禁止攻击”的目标不会继续点亮
+     * 可命中准心；本方法本身不代替服务端权威校验。</p>
+     */
+    public static boolean isSameEntityTarget(@Nullable HitResult first, @Nullable HitResult second) {
+        return first instanceof EntityHitResult firstEntity
+                && second instanceof EntityHitResult secondEntity
+                && firstEntity.getEntity().getId() == secondEntity.getEntity().getId();
+    }
+
+    /**
+     * 按客户端射线相同的几何口径校验实体距离，边界值视为命中。
+     *
+     * @see #isWithinTargetingRange(Entity, Entity, double, boolean)
+     */
+    public static boolean isWithinTargetingRange(@NotNull Entity source,
+                                                 @NotNull Entity target,
+                                                 double range) {
+        return isWithinTargetingRange(source, target, range, true);
+    }
+
+    /**
+     * 按“攻击者眼睛到目标可瞄准碰撞箱最近点”校验距离。
+     *
+     * <p>{@link ProjectileUtil#getCollision(Entity, java.util.function.Predicate, double)} 会让射线
+     * 命中目标碰撞箱表面；如果服务端随后改用 {@link Entity#distanceTo(Entity)} 比较两个实体
+     * 的位置点，目标中心位于极限距离外时就会出现准心已变化、攻击却被拒绝的假反馈。
+     * 这里把目标碰撞箱按 targeting margin 扩张，再取眼睛到盒子的最近点，使客户端准心、
+     * C2S 发包与服务端验收共享同一种距离定义。</p>
+     *
+     * <p>本方法只校验距离，不校验视线、墙体、主手物品、冷却、存活状态或 ATTACK 权限；
+     * 包接收器和扩展 handler 仍必须分别完成这些权威检查。</p>
+     */
+    public static boolean isWithinTargetingRange(@NotNull Entity source,
+                                                 @NotNull Entity target,
+                                                 double range,
+                                                 boolean inclusive) {
+        if (range < 0.0D) {
+            return false;
+        }
+
+        Vec3d eyePos = source.getEyePos();
+        Box targetBox = target.getBoundingBox().expand(target.getTargetingMargin());
+        double closestX = MathHelper.clamp(eyePos.x, targetBox.minX, targetBox.maxX);
+        double closestY = MathHelper.clamp(eyePos.y, targetBox.minY, targetBox.maxY);
+        double closestZ = MathHelper.clamp(eyePos.z, targetBox.minZ, targetBox.maxZ);
+        double distanceSquared = eyePos.squaredDistanceTo(closestX, closestY, closestZ);
+        double rangeSquared = range * range;
+        return inclusive
+                ? distanceSquared <= rangeSquared + DISTANCE_EPSILON
+                : distanceSquared < rangeSquared;
     }
 
     /**
@@ -155,7 +214,7 @@ public final class WeaponTargetingApi {
             }
 
             double distanceSquared = eyePos.squaredDistanceTo(hitPos);
-            if (distanceSquared <= nearestDistanceSquared + 1.0E-4D) {
+            if (distanceSquared <= nearestDistanceSquared + DISTANCE_EPSILON) {
                 nearestDistanceSquared = distanceSquared;
                 bestEntity = entity;
                 bestHitPos = hitPos;

@@ -6,6 +6,7 @@ import dev.doctor4t.wathe.api.visibility.TargetVisibilityApi;
 import dev.doctor4t.wathe.client.WatheClient;
 import dev.doctor4t.wathe.client.particle.HandParticle;
 import dev.doctor4t.wathe.client.render.WatheRenderLayers;
+import dev.doctor4t.wathe.game.GameConstants;
 import dev.doctor4t.wathe.util.GunShootPayload;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.minecraft.entity.Entity;
@@ -65,7 +66,7 @@ public class RevolverItem extends Item {
          * 只要某个扩展通过 TargetVisibilityApi 拒绝 TARGET，左轮准心就不能变成命中态。
          * 真正开火发包请走 getGunAttackTarget，不要再把准心隐藏误当成攻击免疫。
          */
-        return WeaponTargetingApi.resolveVisibleGunTarget(user, stack, 20F);
+        return WeaponTargetingApi.resolveVisibleGunTarget(user, stack, GameConstants.REVOLVER_TARGET_RANGE);
     }
 
     public static @Nullable HitResult getGunAttackTarget(PlayerEntity user) {
@@ -90,6 +91,6 @@ public class RevolverItem extends Item {
          * ATTACK 射线内部仍会比较方块阻挡距离，所以这里不会让左轮穿墙命中。
          * 这样亡语杀手尸体伪装不会点亮准心，但仍能被真实枪击命中。
          */
-        return WeaponTargetingApi.resolveAttackableGunTarget(user, stack, 20F);
+        return WeaponTargetingApi.resolveAttackableGunTarget(user, stack, GameConstants.REVOLVER_TARGET_RANGE);
     }
 }
