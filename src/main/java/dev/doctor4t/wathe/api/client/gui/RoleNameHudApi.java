@@ -52,6 +52,14 @@ public final class RoleNameHudApi {
     private static final List<Entry<CohortStateHandler>> COHORT_STATE_HANDLERS = new ArrayList<>();
     private static final List<Entry<CohortTargetStateHandler>> COHORT_TARGET_STATE_HANDLERS = new ArrayList<>();
     private static final List<Entry<CohortHintHandler>> COHORT_HINT_HANDLERS = new ArrayList<>();
+    /*
+     * 统一的准心附加行注册表。
+     *
+     * <p>旧的 ExtraHudRenderer 仍然保留给兼容场景，但它只能自行绘制固定坐标，
+     * 无法知道同伙行或其它扩展行已经占用了多少空间。新的附加行 provider 只返回
+     * 文字、颜色、缩放和相对位置，最终坐标由 RoleNameRenderer 统一计算。</p>
+     */
+    private static final List<Entry<AdditionalLineHandler>> ADDITIONAL_LINE_HANDLERS = new ArrayList<>();
     private static final List<Entry<ExtraHudRenderer>> EXTRA_HUD_RENDERERS = new ArrayList<>();
     private static long nextOrder = 0L;
 
@@ -134,6 +142,21 @@ public final class RoleNameHudApi {
 
     public static void registerExtraHud(@NotNull Identifier id, int priority, @NotNull ExtraHudRenderer renderer) {
         register(EXTRA_HUD_RENDERERS, id, priority, renderer);
+    }
+
+    /**
+     * 注册准心名字区域的动态附加行。
+     *
+     * <p>provider 不应该自己操作矩阵坐标。Wathe 会先绘制职业、阵营、名字和杀手同伙，
+     * 再按注册优先级绘制 {@link AdditionalLine #BELOW_COHORT} 行；
+     * {@link AdditionalLine #ABOVE_NAME} / {@link AdditionalLine #ABOVE_ROLE_DETAILS} 行则会
+     * 分别排在玩家名字或全部基础信息上方。这样多个扩展同时提供
+     * 信息时，后一行会自动避让前一行，不会因为某个模组增加了提示而互相覆盖。</p>
+     */
+    public static void registerAdditionalLine(@NotNull Identifier id,
+                                               int priority,
+                                               @NotNull AdditionalLineHandler handler) {
+        register(ADDITIONAL_LINE_HANDLERS, id, priority, handler);
     }
 
     private static <T> void register(List<Entry<T>> entries, Identifier id, int priority, T handler) {
@@ -313,6 +336,18 @@ public final class RoleNameHudApi {
         }
     }
 
+    /** 解析同一帧所有需要统一排版的准心附加行。 */
+    public static @NotNull List<AdditionalLine> resolveAdditionalLines(@NotNull Context context) {
+        List<AdditionalLine> lines = new ArrayList<>();
+        for (Entry<AdditionalLineHandler> entry : snapshot(ADDITIONAL_LINE_HANDLERS)) {
+            AdditionalLine line = entry.handler().resolve(context);
+            if (line != null) {
+                lines.add(line);
+            }
+        }
+        return lines;
+    }
+
     /**
      * 给扩展 HUD provider 使用的统一尸体射线工具。
      *
@@ -424,6 +459,59 @@ public final class RoleNameHudApi {
     @FunctionalInterface
     public interface ExtraHudRenderer {
         void render(@NotNull Context context);
+    }
+
+    @FunctionalInterface
+    public interface AdditionalLineHandler {
+        @Nullable AdditionalLine resolve(@NotNull Context context);
+    }
+
+    /**
+     * 一条由 Wathe 统一放入准心名字布局的附加信息。
+     * color 保存 24 位 RGB，透明度由当前 nametagAlpha 统一补入。
+     */
+    public record AdditionalLine(@NotNull Text text,
+                                  int color,
+                                  float scale,
+                                  @NotNull Placement placement) {
+        public AdditionalLine {
+            Objects.requireNonNull(text, "text");
+            Objects.requireNonNull(placement, "placement");
+            color &= 0x00FFFFFF;
+            if (!Float.isFinite(scale) || scale <= 0.0F) {
+                scale = 1.0F;
+            }
+        }
+
+        public static AdditionalLine below(@NotNull Text text, int color) {
+            return new AdditionalLine(text, color, 1.0F, Placement.BELOW_COHORT);
+        }
+
+        public static AdditionalLine below(@NotNull Text text, int color, float scale) {
+            return new AdditionalLine(text, color, scale, Placement.BELOW_COHORT);
+        }
+
+        public static AdditionalLine aboveName(@NotNull Text text, int color) {
+            return new AdditionalLine(text, color, 1.0F, Placement.ABOVE_NAME);
+        }
+
+        public static AdditionalLine aboveName(@NotNull Text text, int color, float scale) {
+            return new AdditionalLine(text, color, scale, Placement.ABOVE_NAME);
+        }
+
+        public static AdditionalLine aboveRoleDetails(@NotNull Text text, int color) {
+            return new AdditionalLine(text, color, 1.0F, Placement.ABOVE_ROLE_DETAILS);
+        }
+
+        public static AdditionalLine aboveRoleDetails(@NotNull Text text, int color, float scale) {
+            return new AdditionalLine(text, color, scale, Placement.ABOVE_ROLE_DETAILS);
+        }
+    }
+
+    public enum Placement {
+        ABOVE_ROLE_DETAILS,
+        ABOVE_NAME,
+        BELOW_COHORT
     }
 
     public enum VisibilityResult {

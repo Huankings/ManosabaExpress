@@ -1250,3 +1250,14 @@ Wathe 原生蝎子床粒子已经迁移到默认 provider，并保留原有的�
 
 世界级数据若必须早于新局职业分配清理，使用 `GameEvents.ON_BEGIN_INITIALIZE`；玩家级 Harpy
 扩展状态继续使用 `ResetPlayerEvent`，避免重复公开同义 reset 接口。
+
+### RoleNameHud 动态附加行（1.3.4）
+
+`RoleNameHudApi.registerAdditionalLine(id, priority, provider)` 用于注册准心名字区域的动态
+附加信息。provider 返回 `RoleNameHudApi.AdditionalLine`，只描述文字、RGB 颜色、相对缩放和
+`Placement.ABOVE_ROLE_DETAILS` / `Placement.ABOVE_NAME` / `Placement.BELOW_COHORT`，不应直接操作矩阵或猜测 Y 坐标。
+
+Wathe 会统一绘制职业详情、阵营、名字、杀手同伙，再绘制 `BELOW_COHORT` 行；`ABOVE_NAME`
+行会从玩家名字向上排列。多家扩展同时注册时会按 priority 稳定排序并自动增加行距，因此
+不会出现同伙提示与职业附加提示重叠。旧 `registerExtraHud` 仍保留兼容，但新增准心信息应优先
+使用动态附加行接口。涉及 Wathe API 的扩展必须先构建 Wathe，再替换依赖 jar 后构建下游工程。

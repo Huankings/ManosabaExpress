@@ -22,6 +22,8 @@ import net.minecraft.util.math.MathHelper;
 import net.minecraft.world.LightType;
 import org.jetbrains.annotations.NotNull;
 
+import java.util.List;
+
 public class RoleNameRenderer {
     private static TrainRole targetRole = TrainRole.BYSTANDER;
     private static float nametagAlpha = 0f;
@@ -114,6 +116,18 @@ public class RoleNameRenderer {
                 displayedTargetPlayer = null;
             }
         }
+        RoleNameHudApi.Context hudContext = new RoleNameHudApi.Context(
+                renderer,
+                player,
+                context,
+                tickCounter,
+                range,
+                targetPlayer,
+                targetEntity,
+                nametag,
+                nametagAlpha,
+                noteAlpha
+        );
         if (nametagAlpha > 0.05f) {
             context.getMatrices().push();
             context.getMatrices().translate(context.getScaledWindowWidth() / 2f, context.getScaledWindowHeight() / 2f + 6, 0);
@@ -153,6 +167,7 @@ public class RoleNameRenderer {
             int nameWidth = renderer.getWidth(nametag);
             context.drawTextWithShadow(renderer, nametag, -nameWidth / 2, nameY,
                     MathHelper.packRgb(1f, 1f, 1f) | ((int) (nametagAlpha * 255) << 24));
+            boolean hasCohortLine = false;
             if (component.isRunning()) {
                 TrainRole playerRole = TrainRole.BYSTANDER;
                 /*
@@ -170,7 +185,48 @@ public class RoleNameRenderer {
                     int cohortY = nameY + renderer.fontHeight + 4;
                     context.drawTextWithShadow(renderer, roleText, -roleWidth / 2, cohortY,
                             MathHelper.packRgb(1f, 0f, 0f) | ((int) (nametagAlpha * 255) << 24));
+                    hasCohortLine = true;
                 }
+            }
+
+            /*
+             * 所有新的职业/词条准心信息统一走动态行布局。
+             * ABOVE_NAME 会从玩家名字向上排列；BELOW_COHORT 会从杀手同伙行（如果存在）
+             * 之后继续向下排列。每个 provider 都不再接触固定 Y 坐标，因此新增一行不会
+             * 覆盖已有信息，也不会因为同伙提示是否出现而发生重叠。
+             */
+            List<RoleNameHudApi.AdditionalLine> additionalLines = RoleNameHudApi.resolveAdditionalLines(hudContext);
+            List<RoleNameHudApi.AdditionalLine> aboveNameLines = additionalLines.stream()
+                    .filter(line -> line.placement() == RoleNameHudApi.Placement.ABOVE_NAME)
+                    .toList();
+            List<RoleNameHudApi.AdditionalLine> aboveRoleDetailsLines = additionalLines.stream()
+                    .filter(line -> line.placement() == RoleNameHudApi.Placement.ABOVE_ROLE_DETAILS)
+                    .toList();
+            List<RoleNameHudApi.AdditionalLine> belowCohortLines = additionalLines.stream()
+                    .filter(line -> line.placement() == RoleNameHudApi.Placement.BELOW_COHORT)
+                    .toList();
+
+            int aboveNameY = nameY;
+            for (int i = aboveNameLines.size() - 1; i >= 0; i--) {
+                RoleNameHudApi.AdditionalLine line = aboveNameLines.get(i);
+                aboveNameY -= additionalLineHeight(renderer, line);
+                drawAdditionalLine(renderer, context, line, aboveNameY, nametagAlpha);
+            }
+
+            int aboveRoleDetailsY = 0;
+            for (int i = aboveRoleDetailsLines.size() - 1; i >= 0; i--) {
+                RoleNameHudApi.AdditionalLine line = aboveRoleDetailsLines.get(i);
+                aboveRoleDetailsY -= additionalLineHeight(renderer, line);
+                drawAdditionalLine(renderer, context, line, aboveRoleDetailsY, nametagAlpha);
+            }
+
+            int belowCohortY = nameY + renderer.fontHeight + 4;
+            if (hasCohortLine) {
+                belowCohortY += renderer.fontHeight + 4;
+            }
+            for (RoleNameHudApi.AdditionalLine line : belowCohortLines) {
+                drawAdditionalLine(renderer, context, line, belowCohortY, nametagAlpha);
+                belowCohortY += additionalLineHeight(renderer, line);
             }
             context.getMatrices().pop();
         }
@@ -200,18 +256,7 @@ public class RoleNameRenderer {
          * 这样它们可以复用 Wathe 已经算好的目标玩家、淡入淡出透明度和射线距离，
          * 不需要再 mixin 到 getDisplayName()/getCollision() 这些脆弱调用点。
          */
-        RoleNameHudApi.renderExtraHud(new RoleNameHudApi.Context(
-                renderer,
-                player,
-                context,
-                tickCounter,
-                range,
-                targetPlayer,
-                targetEntity,
-                nametag,
-                nametagAlpha,
-                noteAlpha
-        ));
+        RoleNameHudApi.renderExtraHud(hudContext);
     }
 
     public static PlayerEntity getTargetPlayer() {
@@ -240,6 +285,24 @@ public class RoleNameRenderer {
         context.getMatrices().translate(0, y, 0);
         context.getMatrices().scale(scale, scale, 1f);
         drawCenteredText(renderer, context, text, 0, rgb, alpha);
+        context.getMatrices().pop();
+    }
+
+    private static int additionalLineHeight(TextRenderer renderer, RoleNameHudApi.AdditionalLine line) {
+        return Math.max(1, Math.round(renderer.fontHeight * line.scale())) + 2;
+    }
+
+    private static void drawAdditionalLine(TextRenderer renderer,
+                                           DrawContext context,
+                                           RoleNameHudApi.AdditionalLine line,
+                                           int y,
+                                           float alpha) {
+        context.getMatrices().push();
+        context.getMatrices().translate(0, y, 0);
+        context.getMatrices().scale(line.scale(), line.scale(), 1.0F);
+        int width = renderer.getWidth(line.text());
+        context.drawTextWithShadow(renderer, line.text(), -width / 2, 0,
+                (line.color() & 0x00FFFFFF) | ((int) (alpha * 255.0F) << 24));
         context.getMatrices().pop();
     }
 

@@ -772,3 +772,13 @@ StarryExpress 当前只构建指南书和装饰内容；其源码路径虽然位
 - 最终动作规则只是客户端体验层，服务端攻击、物品和 packet handler 必须继续做权威校验。
 - 世界组件必须在新局分配前清理时使用 `GameEvents.ON_BEGIN_INITIALIZE`；Harpy 玩家组件重置使用 `ResetPlayerEvent`。不要再新增 `GameFunctions#resetPlayer/initializeGame/finalizeGame` reset mixin。
 - 扩展按“一个客户端输入 bootstrap + 多个职业/词条 `*InputRules`”和“一个 reset bootstrap + 多个职业 `*ResetHandler`”拆分，聚合类只负责调用注册方法。
+
+## 准心名字动态附加行 API
+
+- `RoleNameHudApi.registerAdditionalLine(...)` 是职业/词条准心附加信息的首选入口。
+- provider 只返回 `RoleNameHudApi.AdditionalLine`，不要自行 push 矩阵或写固定 Y 坐标。
+- `Placement.BELOW_COHORT` 会排在名字和“杀手同伙”之后；`Placement.ABOVE_NAME` 会排在名字之前。
+- `Placement.ABOVE_ROLE_DETAILS` 会排在职业详情、阵营和名字等全部基础信息之前，适合全局状态提示。
+- Wathe `RoleNameRenderer` 负责收集所有 provider、补透明度、计算行距；扩展只提供文字、颜色和缩放。
+- `registerExtraHud` 仅用于尚未迁移的兼容 HUD。新增或重构 HUD 时必须迁移到动态附加行，避免与 Harpy 同伙行重叠。
+- 修改该 API 后必须先构建 Wathe，将非 sources jar 替换到 HarpyModLoader、NoellesRoles、kinssaba 等依赖工程，再按依赖顺序构建。
