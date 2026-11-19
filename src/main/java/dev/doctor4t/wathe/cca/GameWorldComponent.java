@@ -4,6 +4,7 @@ import dev.doctor4t.wathe.Wathe;
 import dev.doctor4t.wathe.api.*;
 import dev.doctor4t.wathe.game.GameConstants;
 import dev.doctor4t.wathe.game.GameFunctions;
+import dev.doctor4t.wathe.game.KillerStartingEconomy;
 import dev.doctor4t.wathe.game.MapResetTask;
 import dev.doctor4t.wathe.record.GameRecordManager;
 import net.minecraft.entity.player.PlayerEntity;
@@ -554,8 +555,12 @@ public int getFixedKillerCount() { return this.fixedKillerCount; }
 
     private float backfireChance = 0f;
 
-    private int killerDividend = 5;
+    private int killerDividend = GameConstants.DEFAULT_KILLER_DIVIDEND;
     private int vigilanteDividend = 5;
+    private int killerStartMoneyPerRemainderPlayer = GameConstants.DEFAULT_KILLER_START_MONEY_PER_REMAINDER_PLAYER;
+
+    /** 只供服务端调试下一场适用模式；null 表示按实际人数取余，不写入 NBT 或同步到客户端。 */
+    private @Nullable Integer killerStartingRemainderOverride;
 
     public GameWorldComponent(World world) {
         this.world = world;
@@ -912,8 +917,40 @@ public int getFixedKillerCount() { return this.fixedKillerCount; }
     }
 
     public void setKillerDividend(int killerDividend) {
-        this.killerDividend = killerDividend;
+        this.updateKillerDividend(killerDividend);
         this.sync();
+    }
+
+    /** 存档加载与指令共用分母校验；直接更新字段，避免读入客户端同步包时再次调用 sync。 */
+    private void updateKillerDividend(int dividend) {
+        this.killerDividend = dividend > 0 ? dividend : GameConstants.DEFAULT_KILLER_DIVIDEND;
+        if (this.killerStartingRemainderOverride != null && this.killerStartingRemainderOverride >= this.killerDividend) {
+            this.killerStartingRemainderOverride = null;
+        }
+    }
+
+    /** 单价属于世界设置；只在服务端计算开局补贴，不需要为这条指令单独广播完整世界组件。 */
+    public void setKillerStartMoneyPerRemainderPlayer(int coins) {
+        this.killerStartMoneyPerRemainderPlayer = Math.max(0, coins);
+    }
+
+    public @Nullable Integer getKillerStartingRemainderOverride() {
+        return this.killerStartingRemainderOverride;
+    }
+
+    /** 只允许自然余数的合法范围，避免覆盖值等价于跨入下一个杀手人数档。 */
+    public boolean setKillerStartingRemainderOverride(@Nullable Integer remainder) {
+        if (remainder != null && (remainder < 0 || remainder >= this.killerDividend)) {
+            return false;
+        }
+        this.killerStartingRemainderOverride = remainder;
+        return true;
+    }
+
+    /** 查询和开局都取一份计算快照；查询本身不会消费下一局的余数覆盖。 */
+    public KillerStartingEconomy previewKillerStartingEconomy(int playerCount) {
+        return new KillerStartingEconomy(playerCount, this.killerDividend,
+                this.killerStartMoneyPerRemainderPlayer, this.killerStartingRemainderOverride);
     }
 
     public int getVigilanteDividend() {
@@ -1011,8 +1048,12 @@ this.fixedKillerCount = nbtCompound.contains("FixedKillerCount") ? nbtCompound.g
 
         this.backfireChance = nbtCompound.getFloat("BackfireChance");
 
-        this.killerDividend = nbtCompound.getInt("KillerDividend");
+        /* 已保存的正数分母（包括旧默认值 5）继续生效；缺失或非正数才回退到新默认值。 */
+        this.updateKillerDividend(nbtCompound.getInt("KillerDividend"));
         this.vigilanteDividend = nbtCompound.getInt("VigilanteDividend");
+        this.killerStartMoneyPerRemainderPlayer = nbtCompound.contains("KillerStartMoneyPerRemainderPlayer", NbtElement.INT_TYPE)
+                ? Math.max(0, nbtCompound.getInt("KillerStartMoneyPerRemainderPlayer"))
+                : GameConstants.DEFAULT_KILLER_START_MONEY_PER_REMAINDER_PLAYER;
 
         if (nbtCompound.contains("GradualResetEnabled")) {
             this.gradualResetEnabled = nbtCompound.getBoolean("GradualResetEnabled");
@@ -1104,6 +1145,7 @@ this.fixedKillerCount = nbtCompound.contains("FixedKillerCount") ? nbtCompound.g
 
         nbtCompound.putInt("KillerDividend", killerDividend);
         nbtCompound.putInt("VigilanteDividend", vigilanteDividend);
+        nbtCompound.putInt("KillerStartMoneyPerRemainderPlayer", killerStartMoneyPerRemainderPlayer);
         nbtCompound.putBoolean("GradualResetEnabled", gradualResetEnabled);
         nbtCompound.putBoolean("DifferentialResetEnabled", differentialResetEnabled);
 

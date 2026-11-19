@@ -990,8 +990,12 @@ Wathe 默认规则仍受 `/wathe:playerCollision` 和 `/wathe:startnoCollision` 
 | `/wathe:gameSettings set weights <true|false>` | 开关权重系统；只切换是否读取历史，不会清空账本 |
 | `/wathe:gameSettings set autoStart <...>` | 设置自动开局 |
 | `/wathe:gameSettings set backfire <chance>` | 设置开枪反噬概率 |
-| `/wathe:gameSettings set roleDividend killer <value>` | 设置杀手比例分母 |
+| `/wathe:gameSettings set roleDividend killer <value>` | 设置杀手比例分母；新世界默认 6，旧世界保留已保存的分母 |
 | `/wathe:gameSettings set roleDividend vigilante <value>` | 设置义警比例分母 |
+| `/wathe:gameSettings killerEconomy check` | 按当前准备区人数预览杀手开局补贴 |
+| `/wathe:gameSettings killerEconomy preview <players>` | 按指定人数预览，不发金币、不消费调试余数 |
+| `/wathe:gameSettings killerEconomy coinsPerRemainder <coins\|reset>` | 设置每余 1 人的金币补贴（按世界保存，0 关闭，`reset` 恢复默认 10） |
+| `/wathe:gameSettings killerEconomy remainder <players\|auto>` | 覆盖下一场 Murder / Harpy 的余数（0 至分母减 1），或恢复自动取余 |
 | `/wathe:gameSettings set bounds <true|false>` | 开关旁观者限制在游戏区 |
 | `/wathe:mapVariables help` | 查看地图变量帮助 |
 | `/wathe:mapVariables set gameModeAndMapEffect <mode> <effect>` | 设置地图默认模式和效果 |
@@ -1114,6 +1118,10 @@ HarpyModLoader 也注册了一组无命名空间的调试指令，主要给 modd
 | `/roleWeights preview role <role>` | 预览某个具体职业的实时替换权重和百分比 |
 
 权重查询和预览同样直接 `sendMessage` 给执行者，服务器关闭 command feedback 时管理员也能看到完整报告。`/forceRole` 会通过开局最终职业计入下一局权重；`/forceModifier` 只强制词条，不直接改变职业权重；`/setRole` 是局内调试工具，不会把调试转职写进开局分配历史。
+
+### 杀手开局经济补贴
+
+原版 Murder 与 Harpy 模式在最终职业和初始余额设置完成后，用 `实际参赛人数 % 杀手比例分母` 算余数。每余一人给每名最终杀手阵营玩家追加默认 10 金币，不改变杀手名额，不覆盖职业自己的初始余额。分母为 6 时，7 人局普通杀手从 120 加到 130、扒手从 50 加到 60；12 人局有两个自然杀手位且不额外发金币。调试余数只用于下一场适用模式，不写入存档。
 
 ## 数据生成、资源和语言
 

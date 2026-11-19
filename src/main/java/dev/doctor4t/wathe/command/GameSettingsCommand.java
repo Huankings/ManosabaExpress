@@ -23,6 +23,7 @@ public class GameSettingsCommand {
                         .then(CommandManager.literal("help")
                                 .executes(context -> sendHelp(context.getSource()))
                         )
+                        .then(KillerEconomyCommand.build())
                         .then(CommandManager.literal("weights")
                                 .then(CommandManager.literal("check")
                                         .executes(context -> {
@@ -104,9 +105,14 @@ public class GameSettingsCommand {
     }
 
     private static int setKillerDividend(ServerCommandSource source, int dividend) {
-        return Wathe.executeSupporterCommand(source,
-                () -> GameWorldComponent.KEY.get(source.getWorld()).setKillerDividend(dividend)
-        );
+        return Wathe.executeSupporterCommand(source, () -> {
+            GameWorldComponent game = GameWorldComponent.KEY.get(source.getWorld());
+            Integer previousOverride = game.getKillerStartingRemainderOverride();
+            game.setKillerDividend(dividend);
+            if (previousOverride != null && game.getKillerStartingRemainderOverride() == null) {
+                source.sendMessage(Text.literal("此前的调试余数超出新分母允许的范围，已恢复自动取余。"));
+            }
+        });
     }
 
     private static int setVigilanteDividend(ServerCommandSource source, int dividend) {

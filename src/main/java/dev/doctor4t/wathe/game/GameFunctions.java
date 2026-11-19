@@ -2,9 +2,11 @@ package dev.doctor4t.wathe.game;
 
 import com.google.common.collect.Lists;
 import dev.doctor4t.wathe.Wathe;
+import dev.doctor4t.wathe.api.Faction;
 import dev.doctor4t.wathe.api.GameMode;
 import dev.doctor4t.wathe.api.MapEffect;
 import dev.doctor4t.wathe.api.PlayerLifeStateApi;
+import dev.doctor4t.wathe.api.Role;
 import dev.doctor4t.wathe.api.WatheGameModes;
 import dev.doctor4t.wathe.api.appearance.BodyAppearanceApi;
 import dev.doctor4t.wathe.api.body.PlayerBodyInfoApi;
@@ -338,6 +340,7 @@ public class GameFunctions {
         gameComponent.sync();
 
         GameEvents.ON_FINISH_INITIALIZE.invoker().onFinishInitialize(serverWorld, gameComponent);
+        applyKillerStartingEconomy(gameComponent, readyPlayerList);
         /*
          * 职业权重必须在所有开局初始化监听之后记录。
          * HarpyModLoader 会先让玩家拿到原版阵营位，再把它替换为扩展职业；
@@ -347,6 +350,32 @@ public class GameFunctions {
          */
         ScoreboardRoleSelectorComponent.KEY.get(serverWorld.getScoreboard()).recordRoundAssignments(serverWorld, readyPlayerList, gameComponent);
         GameRecordManager.completeInitialization(serverWorld, gameComponent);
+    }
+
+    /**
+     * 只在支持比例分配的模式开局时执行一次。完整准备名单与分配自然名额时的人数口径一致，
+     * 不能换成 Harpy 过滤强制职业后的抽签候选池，也不按实际出了几个杀手来重算余数。
+     */
+    private static void applyKillerStartingEconomy(GameWorldComponent game, List<ServerPlayerEntity> players) {
+        Identifier modeId = game.getGameMode().identifier;
+        if (!WatheGameModes.MURDER_ID.equals(modeId) && !GameConstants.HARPY_MODDED_GAME_MODE_ID.equals(modeId)) {
+            return;
+        }
+
+        KillerStartingEconomy economy = game.previewKillerStartingEconomy(players.size());
+        game.setKillerStartingRemainderOverride(null);
+        if (economy.bonusCoins() == 0) {
+            return;
+        }
+
+        /* 扩展已完成职业替换和初始余额设置。只给最终杀手阵营追加补贴，保留扒手等职业自定的余额。 */
+        for (ServerPlayerEntity player : players) {
+            Role role = game.getRole(player);
+            if (role != null && role.getFaction() == Faction.KILLER) {
+                PlayerShopComponent shop = PlayerShopComponent.KEY.get(player);
+                shop.setBalance(economy.applyToBalance(shop.getCurrencyAmount(EconomyApi.MONEY)));
+            }
+        }
     }
 
     private static void baseInitialize(ServerWorld serverWorld, GameWorldComponent gameComponent, List<ServerPlayerEntity> players) {
@@ -560,6 +589,11 @@ public class GameFunctions {
         MapVariablesWorldComponent areas = MapVariablesWorldComponent.KEY.get(serverWorld);
         List<ServerPlayerEntity> players = serverWorld.getPlayers(serverPlayerEntity -> isPlayerInReadyArea(serverPlayerEntity, areas));
         return players;
+    }
+
+    /** 预览命令复用开局准备区的参与者判定，不使用服务器总在线人数。 */
+    public static int countReadyPlayers(ServerWorld serverWorld) {
+        return getReadyPlayerList(serverWorld).size();
     }
 
     private static boolean isPlayerInReadyArea(PlayerEntity player, MapVariablesWorldComponent areas) {

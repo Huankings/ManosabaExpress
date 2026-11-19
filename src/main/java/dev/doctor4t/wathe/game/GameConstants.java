@@ -51,7 +51,7 @@ public interface GameConstants {
      * Murder / Discovery 等模式会通过 GameMode.defaultStartTime 读取这里。
      * 想微调默认时长，直接改 getInTicks(分钟, 秒) 的两个参数即可。</p>
      */
-    int DEFAULT_GAME_START_TIME = getInTicks(8, 30);
+    int DEFAULT_GAME_START_TIME = getInTicks(6, 30);
 
     /**
      * Murder 模式自身允许调试开局的硬性最低人数。
@@ -74,6 +74,9 @@ public interface GameConstants {
      * Murder 模式默认允许开局的准备区人数。
      */
     int DEFAULT_MURDER_START_PLAYER_COUNT = 6;
+
+    /** 每满 6 名参赛玩家产生一个自然杀手位；正数的旧世界设置不会被新默认值覆盖。 */
+    int DEFAULT_KILLER_DIVIDEND = 6;
     /**
      * HarpyModLoader 的 modded murder 模式默认允许开局的准备区人数。
      *
@@ -421,6 +424,8 @@ public interface GameConstants {
         entries.add(new ShopEntry(new ItemStack(WatheItems.NOTE, 4), 10, ShopEntry.Type.TOOL));
     });
     int MONEY_START = 120;
+    /** 开局参赛人数除以杀手比例分母后，每余 1 人给每名杀手补发的金币。0 表示不补发。 */
+    int DEFAULT_KILLER_START_MONEY_PER_REMAINDER_PLAYER = 10;
     Function<Long, Integer> PASSIVE_MONEY_TICKER = time -> {
         if (time % getInTicks(0, 10) == 0) {
             return 5;
