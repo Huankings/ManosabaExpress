@@ -52,6 +52,13 @@ public final class DeathContext {
         return this.victim;
     }
 
+    private boolean proxyDeath;
+
+    /** 代理实体已经结束本次生命，但不计作新的真实职业淘汰。 */
+    public void markProxyDeath() { this.proxyDeath = true; }
+
+    public boolean isProxyDeath() { return this.proxyDeath; }
+
     public boolean requestedSpawnBody() {
         return this.requestedSpawnBody;
     }
@@ -127,7 +134,7 @@ public final class DeathContext {
      * 避免护盾、免死、致死转化或重复死亡也触发“击杀成功”。</p>
      */
     public boolean confirmedDeath() {
-        return this.victimAliveAtStart && this.completedDefaultFlow && !victimAliveNow();
+        return !this.proxyDeath && this.victimAliveAtStart && this.completedDefaultFlow && !victimAliveNow();
     }
 
     public void markCancelledBeforeAttempt() {

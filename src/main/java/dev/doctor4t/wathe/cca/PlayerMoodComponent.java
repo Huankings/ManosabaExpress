@@ -826,14 +826,15 @@ public class PlayerMoodComponent implements AutoSyncedComponent, ServerTickingCo
 
         if (this.player instanceof ServerPlayerEntity serverPlayer) {
             ServerPlayNetworking.send(serverPlayer, new TaskCompletePayload());
-            GameRecordManager.recordTaskComplete(serverPlayer, taskId);
+            ServerPlayerEntity beneficiary = dev.doctor4t.wathe.api.PlayerParticipationApi.taskBeneficiary(serverPlayer);
+            GameRecordManager.recordTaskComplete(beneficiary, taskId);
             /*
              * 这是 Wathe 对外公开的“真实任务完成”事件点。
              * 旧扩展常用 setMood 注入或监听 TaskCompletePayload 来推断任务完成，
              * 但这两种方式都不是稳定语义：setMood 会被非任务来源触发，网络包监听又依赖内部同步细节。
              * 因此这里在任务已经移除、提示与回放都记录完之后统一分发 API 事件。
              */
-            TaskCompletionApi.handleTaskCompleted(serverPlayer, GameWorldComponent.KEY.get(serverPlayer.getWorld()), taskId, MoodTaskApi.getLegacyTask(taskId), rewardMood);
+            TaskCompletionApi.handleTaskCompleted(beneficiary, GameWorldComponent.KEY.get(serverPlayer.getWorld()), taskId, MoodTaskApi.getLegacyTask(taskId), rewardMood);
         }
 
         GameWorldComponent gameWorld = GameWorldComponent.KEY.get(this.player.getWorld());
@@ -1061,6 +1062,8 @@ public class PlayerMoodComponent implements AutoSyncedComponent, ServerTickingCo
             return;
         }
 
+        // 镜像观察者显示身体的心情，但不重复掉心情、派发任务或完成任务。
+        if (!dev.doctor4t.wathe.api.PlayerParticipationApi.ticksMood(this.player)) return;
         this.tickExternalMoodDrainProtection(true);
 
         Role role = gameWorldComponent.getRole(this.player);

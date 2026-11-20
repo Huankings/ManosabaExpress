@@ -118,6 +118,9 @@ public final class ShopApi {
     public static @NotNull ResolvedShop resolveShop(@NotNull PlayerEntity player) {
         GameWorldComponent gameWorld = GameWorldComponent.KEY.get(player.getWorld());
         Role role = gameWorld.getRole(player);
+        if (!dev.doctor4t.wathe.api.PlayerParticipationApi.canUseShop(player)) {
+            return new ResolvedShop(DEFAULT_PROVIDER, List.of(), gameWorld, role, false);
+        }
         RoleShopProvider roleProvider = getProviderForRole(role);
         boolean roleSpecificShop = roleProvider != null;
 

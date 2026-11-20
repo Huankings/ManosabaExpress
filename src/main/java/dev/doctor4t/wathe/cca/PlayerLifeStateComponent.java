@@ -45,6 +45,8 @@ public class PlayerLifeStateComponent implements AutoSyncedComponent {
      * 因而仍会显示为“存活中”。该字段只影响信息展示，不参与胜负或操作权限。</p>
      */
     private boolean forensicallyDead = false;
+    // 正式死亡与管理员临时旁观不同，供需要真实死者的职业读取。
+    private boolean roundDead;
 
     public PlayerLifeStateComponent(PlayerEntity player) {
         this.player = player;
@@ -85,15 +87,28 @@ public class PlayerLifeStateComponent implements AutoSyncedComponent {
         this.sync();
     }
 
+    public boolean isRoundDead() {
+        return this.roundDead;
+    }
+
+    public void setRoundDead(boolean dead) {
+        if (this.roundDead != dead) {
+            this.roundDead = dead;
+            this.sync();
+        }
+    }
+
     @Override
     public void writeToNbt(@NotNull NbtCompound tag, RegistryWrapper.WrapperLookup registryLookup) {
         tag.putBoolean(ALIVE_IN_NON_SURVIVAL_MODE_KEY, this.aliveInNonSurvivalMode);
         tag.putBoolean(FORENSICALLY_DEAD_KEY, this.forensicallyDead);
+        tag.putBoolean("RoundDead", this.roundDead);
     }
 
     @Override
     public void readFromNbt(@NotNull NbtCompound tag, RegistryWrapper.WrapperLookup registryLookup) {
         this.aliveInNonSurvivalMode = tag.getBoolean(ALIVE_IN_NON_SURVIVAL_MODE_KEY);
         this.forensicallyDead = tag.getBoolean(FORENSICALLY_DEAD_KEY);
+        this.roundDead = tag.getBoolean("RoundDead");
     }
 }

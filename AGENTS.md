@@ -41,6 +41,8 @@
 - `src/main/java/dev/doctor4t/wathe/cca/GameWorldComponent.java`：对局状态、角色表、跳跃 / 碰撞 / 地图状态。
 - `src/main/java/dev/doctor4t/wathe/cca/PlayerShopComponent.java`：金币、多货币余额、购买结算。
 - `src/main/java/dev/doctor4t/wathe/cca/PlayerMoodComponent.java`：心情和任务完成入口。
+- `src/main/java/dev/doctor4t/wathe/cca/PlayerLifeStateComponent.java`：Wathe 特殊存活授权、验尸死亡状态和本局正式死亡标记。
+- `src/main/java/dev/doctor4t/wathe/api/PlayerParticipationApi.java`：临时代理参与者的有效职业、胜负资格、商店权限、心情 tick、相机目标和任务收益归属规则。
 - `src/main/java/dev/doctor4t/wathe/cca/PlayerStaminaComponent.java`：玩家体力、额外体力上限修正、本局初始化标记。
 - `src/main/java/dev/doctor4t/wathe/api/stamina/PlayerStaminaApi.java`：玩家体力公开 API。
 - `src/main/java/dev/doctor4t/wathe/api/movement/PlayerMovementApi.java`：玩家移动速度公开 API。
@@ -65,6 +67,7 @@
 优先检查 `src/main/java/dev/doctor4t/wathe/api` 下已有公开接口：
 
 - 职业与阵营：`Role`、`Faction`、`WatheRoles`、`WatheGameModes`
+- 临时参与身份：`PlayerParticipationApi`，组合有效职业、胜负参与、商店/被动收入、心情 tick、相机目标与任务收益归属
 - 商店：`ShopApi`、`ShopPrice`、`ShopPayment`、`RoleShopProvider`、`ShopPurchaseContext`
 - 经济：`EconomyApi`、`CurrencyDefinition`、`CurrencyAmount`
 - 心情任务：`MoodTaskApi`、`MoodTaskDefinition`，包括任务注册、主动发放、发放前拦截、删除和完成拦截
@@ -77,6 +80,7 @@
 - 手雷投掷模式 / 爆炸：`GrenadeApi`、`GrenadeExplosionContext`、`GrenadeExplosionResult`
 - 普通掉落物拾取：`ItemPickupApi`、`ItemPickupContext`、`ItemPickupResult`
 - 击杀 / 死亡阶段：`DeathApi`、`DeathContext`、`BodySpawnContext`
+- 结算 / 停局边界：`GameEvents.BEFORE_ROUND_END_SNAPSHOT`、`GameEvents.BEFORE_GAME_STOP`
 - 停电机制：`BlackoutApi`、`BlackoutDuration`、`BlackoutEffectContext`、`BlackoutEffectResult`
 - 门组事务：`DoorApi`、`DoorApi.RepairMode`、`DoorApi.OperationResult`；完整说明见 `README_DOOR_API.md`
 - 本能：`InstinctApi`
@@ -555,6 +559,24 @@ Wathe 的地图雾和扩展职业临时雾效统一走：
 - 变形怪这类“点击后头像和翻页按钮都要消失”的场景，应让头像和翻页按钮共享同一个可见性条件或同一个 group，避免只隐藏一部分按钮。
 
 ## 胜利、死亡和回放
+
+### 临时参与者与代理死亡
+
+需要让一个玩家暂时操作另一名玩家的身体、但仍保留两人的真实职业身份时，使用 `PlayerParticipationApi.register(Rule)` 声明玩法维度，不要改写真实角色表。`effectiveRole(world, uuid, assigned)` 按注册顺序传递有效职业；`countsForVictory`、`canUseShop`、`ticksMood` 和 `canChangeCamera` 必须由所有规则同意；`taskBeneficiary` 使用首个返回不同玩家的规则作为任务收益归属。
+
+时停扩展的玩家/世界组件、`TimekeeperSnapshotParticipant` 和 `TimekeeperRewindListener` 共用同一组外部 ID 唯一性校验；同一扩展同时注册快照参与者和生命周期监听器时，必须使用两个不同的 `Identifier`。重复 ID 会在模组初始化期直接抛出异常，而不是延迟到第一次回溯。
+
+- `GameWorldComponent.getRole(...)` 返回有效职业；结算、身份历史和真实职业判断使用 `getAssignedRole(UUID)`。不要把临时有效职业写回真实角色表。
+- `countsForVictory` 接入 `GameFunctions.isPlayerEliminated(...)` 与 `VictoryApi` 的存活名单，用于判断该玩家是否再额外占一个胜负席位；它不改变 `isPlayerAliveAndSurvival(...)` 或游戏模式。
+- `canUseShop` 在 `ShopApi.resolveShop(...)` 过滤商品，并用于 Murder 默认被动收入入口。它不会自动拦截任意扩展自己直接发放的金币。
+- `ticksMood` 在 `PlayerMoodComponent.serverTick()` 前过滤整套心情/任务 tick。镜像任务应由一侧驱动，另一侧只复制状态；任务分配与完成仍通过 `MoodTaskApi` 规则明确控制。
+- `taskBeneficiary` 统一 Wathe 任务完成事件、收益与完成回放的受益玩家，避免镜像双方重复完成同一任务。
+- `canChangeCamera` 在 `ServerPlayerEntity#setCameraEntity` 和旁观传送包入口检查视角。旁观传送没有已解析目标上下文，锁视角规则应对 `target == null` 返回拒绝。
+- `PlayerLifeStateComponent.isRoundDead()` 独立于 `isForensicallyDead()` 和 alive override。它记录本局 Wathe 确认过的正式死亡，用于区分死者与管理员临时旁观；新局/玩家重置时清除。不能用它替代 `GameFunctions.isPlayerSpectatingOrCreative` 或特殊存活授权。
+
+代理身体死亡可在 `DeathContext` 上调用 `markProxyDeath()`。`confirmedDeath()` 对代理死亡返回 `false`。Wathe 仍记录本次死亡并执行死亡频道等流程，但会跳过默认击杀奖励、尸体生成、代理物品掉落和平民死亡加时。后续 `DeathApi` handler 仍会执行；自定义连杀、赏金、招募等真实淘汰副作用必须显式检查 `isProxyDeath()` / `confirmedDeath()`。
+
+`GameEvents.BEFORE_ROUND_END_SNAPSHOT` 在结算读取玩家职业、模式和死亡状态之前触发；`BEFORE_GAME_STOP` 在切换停局状态和大厅重置之前触发。成对库存或控制关系应在前一个事件前解除以保证结算快照，在后一个事件也应确保管理员直接停局等路径可以清理。两者用途不同，不可互相替代。
 
 特殊胜利优先接入 `VictoryApi`：
 

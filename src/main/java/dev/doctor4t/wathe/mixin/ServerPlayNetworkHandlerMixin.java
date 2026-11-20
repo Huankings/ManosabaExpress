@@ -25,6 +25,15 @@ public class ServerPlayNetworkHandlerMixin {
     @Shadow
     public ServerPlayerEntity player;
 
+    @WrapMethod(method = "onSpectatorTeleport")
+    private void wathe$restrictSpectatorTeleport(net.minecraft.network.packet.c2s.play.SpectatorTeleportC2SPacket packet,
+                                                Operation<Void> original) {
+        // 原版处理会再次在服务器线程重入此方法。只在服务器线程读取职业会话。
+        if (this.player.getServer().isOnThread()
+                && !dev.doctor4t.wathe.api.PlayerParticipationApi.canChangeCamera(this.player, null)) return;
+        original.call(packet);
+    }
+
     @WrapMethod(method = "onUpdateSelectedSlot")
     private void wathe$invalid(UpdateSelectedSlotC2SPacket packet, @NotNull Operation<Void> original) {
         PlayerPsychoComponent component = PlayerPsychoComponent.KEY.get(this.player);

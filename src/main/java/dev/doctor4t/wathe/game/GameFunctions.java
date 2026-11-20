@@ -301,6 +301,7 @@ public class GameFunctions {
     public static void stopGame(ServerWorld world) {
         GameWorldComponent component = GameWorldComponent.KEY.get(world);
         component.cancelGradualReset();
+        GameEvents.BEFORE_GAME_STOP.invoker().beforeStop(world);
         component.setGameStatus(GameWorldComponent.GameStatus.STOPPING);
     }
 
@@ -419,6 +420,7 @@ public class GameFunctions {
 
         // clear items, clear previous game data
         for (ServerPlayerEntity serverPlayerEntity : players) {
+            dev.doctor4t.wathe.cca.PlayerLifeStateComponent.KEY.get(serverPlayerEntity).setRoundDead(false);
             serverPlayerEntity.getInventory().clear();
             PlayerMoodComponent.KEY.get(serverPlayerEntity).reset();
             PlayerStaminaComponent.KEY.get(serverPlayerEntity).reset();
@@ -657,6 +659,7 @@ public class GameFunctions {
     }
 
     public static void resetPlayer(ServerPlayerEntity player) {
+        dev.doctor4t.wathe.cca.PlayerLifeStateComponent.KEY.get(player).setRoundDead(false);
         ServerPlayNetworking.send(player, new AnnounceEndingPayload());
         player.dismountVehicle();
         player.getInventory().clear();
@@ -783,7 +786,8 @@ public class GameFunctions {
     }
 
     public static boolean isPlayerEliminated(PlayerEntity player) {
-        return player == null || !player.isAlive() || !isPlayerAliveAndSurvival(player);
+        return player == null || !player.isAlive() || !isPlayerAliveAndSurvival(player)
+                || !dev.doctor4t.wathe.api.PlayerParticipationApi.countsForVictory(player);
     }
 
     @SuppressWarnings("unused")
@@ -874,6 +878,7 @@ public class GameFunctions {
                  */
                 PlayerLifeStateApi.clearAliveOverride(serverPlayerEntity);
                 serverPlayerEntity.changeGameMode(net.minecraft.world.GameMode.SPECTATOR);
+                dev.doctor4t.wathe.cca.PlayerLifeStateComponent.KEY.get(serverPlayerEntity).setRoundDead(true);
                 deathContext.markDead();
                 DeathApi.invokeAfterMarkedDead(deathContext);
 
@@ -915,7 +920,7 @@ public class GameFunctions {
                 return;
             }
 
-            if (killer != null) {
+            if (killer != null && !deathContext.isProxyDeath()) {
                 boolean defaultKillerReward = GameWorldComponent.KEY.get(killer.getWorld()).canUseKillerFeatures(killer);
                 /*
                  * 默认击杀收益不再写死为“杀手能力角色一定获得”。
@@ -948,7 +953,7 @@ public class GameFunctions {
             DeathApi.invokeBeforeMoodReset(deathContext);
             PlayerMoodComponent.KEY.get(victim).reset();
 
-            if (spawnBody) {
+            if (spawnBody && !deathContext.isProxyDeath()) {
                 PlayerBodyEntity body = WatheEntities.PLAYER_BODY.create(victim.getWorld());
                 if (body != null) {
                     /*
@@ -979,7 +984,7 @@ public class GameFunctions {
                 }
             }
 
-            for (List<ItemStack> list : victim.getInventory().combinedInventory) {
+            if (!deathContext.isProxyDeath()) for (List<ItemStack> list : victim.getInventory().combinedInventory) {
                 for (int i = 0; i < list.size(); i++) {
                     ItemStack stack = list.get(i);
                     if (shouldDropOnDeath(stack, victim)) {
@@ -990,7 +995,7 @@ public class GameFunctions {
             }
 
             GameWorldComponent gameWorldComponent = GameWorldComponent.KEY.get(victim.getWorld());
-            if (gameWorldComponent.isInnocent(victim)) {
+            if (!deathContext.isProxyDeath() && gameWorldComponent.isInnocent(victim)) {
                 GameTimeComponent.KEY.get(victim.getWorld()).addTime(GameConstants.TIME_ON_CIVILIAN_KILL);
             }
 

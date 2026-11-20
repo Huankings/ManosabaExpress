@@ -652,6 +652,11 @@ public int getFixedKillerCount() { return this.fixedKillerCount; }
     }
 
     public @Nullable Role getRole(UUID uuid) {
+        return dev.doctor4t.wathe.api.PlayerParticipationApi.effectiveRole(this.world, uuid, getAssignedRole(uuid));
+    }
+
+    /** 原始身份供结算与记录使用，不受局内权限覆盖影响。 */
+    public @Nullable Role getAssignedRole(UUID uuid) {
         return roles.get(uuid);
     }
 
@@ -668,7 +673,7 @@ public int getFixedKillerCount() { return this.fixedKillerCount; }
     public List<UUID> getAllWithRole(Role role) {
         List<UUID> ret = new ArrayList<>();
         roles.forEach((uuid, playerRole) -> {
-            if (playerRole == role) {
+            if (getRole(uuid) == role) {
                 ret.add(uuid);
             }
         });
@@ -681,7 +686,7 @@ public int getFixedKillerCount() { return this.fixedKillerCount; }
     }
 
     public boolean isRole(@NotNull UUID uuid, Role role) {
-        return this.roles.get(uuid) == role;
+        return getRole(uuid) == role;
     }
 
     public boolean canUseKillerFeatures(@NotNull PlayerEntity player) {

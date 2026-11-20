@@ -70,7 +70,8 @@ public final class VictoryApi {
             @NotNull GameWorldComponent gameWorld,
             GameFunctions.@NotNull WinStatus vanillaWinStatus
     ) {
-        List<ServerPlayerEntity> alivePlayers = world.getPlayers(GameFunctions::isPlayerAliveAndSurvival);
+        List<ServerPlayerEntity> alivePlayers = world.getPlayers(player -> GameFunctions.isPlayerAliveAndSurvival(player)
+                && dev.doctor4t.wathe.api.PlayerParticipationApi.countsForVictory(player));
         VictoryContext context = new VictoryContext(world, gameWorld, List.copyOf(alivePlayers), vanillaWinStatus);
 
         for (PrioritizedRule entry : ruleSnapshot()) {

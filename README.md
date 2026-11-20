@@ -503,6 +503,23 @@ WinStatus 和 CustomVictory。高 priority 优先、同优先级后注册优先�
 该接口不改变局内阵营、商店、杀手能力、同伙提示、体力上限、职业权重或游戏结束条件；
 完整的“阵营转换”应由扩展按需求分别接入相关玩法 API。服务端注册器无需依赖 Minecraft 客户端类。
 
+### 临时参与者与代理死亡
+
+`dev.doctor4t.wathe.api.PlayerParticipationApi` 供临时控制另一玩家身体、但必须保留双方真实身份的机制使用。扩展用 `PlayerParticipationApi.register(Rule)` 注册组合式规则：有效职业依次传递；胜负、商店、心情 tick 和相机权限采取全规则同意；任务归属使用首个返回另一玩家的 `taskBeneficiary` 结果。
+
+时停快照外部注册的玩家组件、世界组件、`TimekeeperSnapshotParticipant` 和 `TimekeeperRewindListener` 共用唯一 ID 命名空间。一个系统同时注册 participant 与 listener 时必须分别使用不同的 `Identifier`；重复 ID 会在启动期直接报错。
+
+- `GameWorldComponent.getRole(...)` 返回解析后的有效职业；结算职业、职业历史等身份用途用 `getAssignedRole(UUID)` 读取原始职业，不能把临时身份覆写回角色表。
+- `countsForVictory` 接入 `GameFunctions.isPlayerEliminated(...)` 和 `VictoryApi` 的 alive list。它管理的是额外胜负席位，不会改变 `isPlayerAliveAndSurvival(...)`、实体模式或特殊存活授权。
+- `canUseShop` 过滤 `ShopApi.resolveShop(...)`，并阻止 Murder 默认被动收入发给没有独立商店权限的临时操作者。扩展自己直接发放的经济奖励仍须自行检查。
+- `ticksMood` 在 `PlayerMoodComponent.serverTick()` 前控制完整的心情与任务调度；镜像双方应只由一侧驱动任务，另一侧复制状态。外部/指定任务发放和完成另用 `MoodTaskApi` 规则过滤。
+- `taskBeneficiary` 将 Wathe 任务完成回调、收益和完成回放归给真正受益玩家，避免镜像状态变成重复完成。
+- `canChangeCamera` 在 `ServerPlayerEntity#setCameraEntity` 与旁观传送包入口过滤相机。旁观传送入口无法提前解析目标，必须把 `target == null` 视为拒绝。
+
+代理实体正式死亡时可在本次 `DeathContext` 调用 `markProxyDeath()`。它让 `confirmedDeath()` 返回 false，并让 Wathe 保留死亡记录/死亡频道收尾，但跳过默认击杀奖励、尸体生成、代理库存掉落及平民死亡加时。所有已注册的 `DeathApi` handler 仍会运行；扩展 handler 必须在真实击杀进度、赏金或招募等副作用前检查 `context.isProxyDeath()` / `context.confirmedDeath()`。
+
+`PlayerLifeStateComponent.isRoundDead()` 是本局正式死亡标记，与验尸显示用的 `isForensicallyDead()`、creative/spectator 特殊存活授权相互独立。Wathe 确认死亡时设置，新局初始化/玩家重置时清除；`TimekeeperSnapshots` 捕获并恢复此标记，避免死亡玩家的历史职业状态与模式快照不一致。`GameEvents.BEFORE_ROUND_END_SNAPSHOT` 在结算读取职业、模式、存活状态前触发；`GameEvents.BEFORE_GAME_STOP` 在切换停局状态和大厅清理前触发。控制关系必须在结算快照边界前收束，并在停局事件中覆盖管理员直接结束等路径。
+
 ### 任务点透视
 
 `TaskPointScanner` 会扫描当前地图实际游戏区域，找出床、火源、水、座位、音符盒、讲台、炉子、托盘、带钥匙门等任务点。扫描范围不是全世界，而是根据 `resetTemplateArea + resetPasteOffset` 推导当前列车区域，并且必须落在 `playArea` 内。
@@ -794,6 +811,7 @@ GameRecordManager.recordGlobalEvent(
 | `WatheMapEffects` | 注册地图效果 | 自定义昼夜、列车视觉、开局物品 |
 | `GameEvents` | 对局开始 / 初始化完成事件 | 开局赋额外职业、刷新扩展状态 |
 | `VictoryApi` | 胜利仲裁 | 独立胜利、保活、共胜 |
+| `PlayerParticipationApi` | 临时代理参与者权限与收益归属 | 代理身体、单一胜负席位、商店/心情/相机/任务规则 |
 | `EconomyApi` | 金币 HUD、被动收入、多货币 | 富豪、任务大师、自定义货币 |
 | `ShopApi` | 职业商店和商店修改器 | 给某职业专属商品，或改默认杀手商品 |
 | `MoodTaskApi` | 注册、发放、拦截发放、移除和完成心情任务 | 职业专属任务、技能给目标追加指定任务、补满任务槽、阻止自动/指定发放或特殊状态完成任务 |
@@ -1172,6 +1190,7 @@ Datagen 入口是 `WatheDatagen`，相关类包括：
 22. 默认匕首冷却已改为 `KnifeCooldownApi` 流水线，扩展可按攻击者、目标和对局状态组合修正，不再需要注入匕首网络包接收器。
 23. 普通掉落物拾取已改为 `ItemPickupApi` 优先级判定链，扩展可明确拒绝或覆盖 Wathe 默认枪械限制，原版拾取副作用和 Wathe 回放仍统一保留。
 24. 匕首目标/服务端命中已改为 `KnifeAttackApi`，手雷模式/爆炸已改为 `GrenadeApi`；扩展可处理非玩家目标、假爆炸和无声爆炸，不再注入 `KnifeItem`、`KnifeStabPayload.Receiver`、`GrenadeThrowModePayload.Receiver` 或 `GrenadeEntity#onCollision`。
+25. 临时控制/代理身体的参与权限可通过 `PlayerParticipationApi` 分开解析有效职业、胜负席位、商店、心情、相机与任务归属；代理死亡用 `DeathContext.markProxyDeath()` 抑制默认真实淘汰副作用；结算快照和任意停局分别有 `GameEvents.BEFORE_ROUND_END_SNAPSHOT` / `BEFORE_GAME_STOP` 收尾边界。
 
 ## 新扩展职业的推荐接入顺序
 

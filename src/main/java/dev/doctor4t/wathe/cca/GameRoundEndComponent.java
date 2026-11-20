@@ -110,12 +110,13 @@ public class GameRoundEndComponent implements AutoSyncedComponent {
             return;
         }
 
+        dev.doctor4t.wathe.api.event.GameEvents.BEFORE_ROUND_END_SNAPSHOT.invoker().beforeSnapshot(dataWorld);
         GameWorldComponent game = GameWorldComponent.KEY.get(dataWorld);
         this.looseEndsRound = game.getGameMode() == WatheGameModes.LOOSE_ENDS;
         this.discoveryRound = game.getGameMode() == WatheGameModes.DISCOVERY;
         this.looseEndWinner = game.getLooseEndWinner();
         for (ServerPlayerEntity player : players) {
-            Role roleData = game.getRole(player);
+            Role roleData = game.getAssignedRole(player.getUuid());
             /*
              * 这里专门跳过“对局中途才加入，但本局并没有参与身份分配”的玩家。
              *

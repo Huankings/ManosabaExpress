@@ -86,7 +86,10 @@ public class MurderGameMode extends GameMode {
              * 不再需要 mixin 到 canUseKillerFeatures(...) 这个内部判断点。
              */
             int basePassiveIncome = GameConstants.PASSIVE_MONEY_TICKER.apply(serverWorld.getTime());
-            int balanceToAdd = EconomyApi.calculatePassiveIncome(serverWorld, gameWorldComponent, player, basePassiveIncome);
+            // 附身的实际操作者不获得独立经济账户收益；灵媒本人仍按自己职业正常结算。
+            int balanceToAdd = dev.doctor4t.wathe.api.PlayerParticipationApi.canUseShop(player)
+                    ? EconomyApi.calculatePassiveIncome(serverWorld, gameWorldComponent, player, basePassiveIncome)
+                    : 0;
             if (balanceToAdd > 0) {
                 PlayerShopComponent playerShop = PlayerShopComponent.KEY.get(player);
                 playerShop.addToBalance(balanceToAdd);

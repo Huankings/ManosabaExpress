@@ -26,6 +26,26 @@ public final class GameEvents {
         }
     });
 
+    /** 最终胜负已经确定，但尚未读取玩家模式、职业和死亡标记。 */
+    public static final Event<BeforeRoundEndSnapshot> BEFORE_ROUND_END_SNAPSHOT =
+            createArrayBacked(BeforeRoundEndSnapshot.class, listeners -> world -> {
+                for (BeforeRoundEndSnapshot listener : listeners) listener.beforeSnapshot(world);
+            });
+
+    public interface BeforeRoundEndSnapshot {
+
+        void beforeSnapshot(ServerWorld world);
+    }
+
+    /** 手动或自动停局的收尾入口，早于清空玩家库存和重设模式。 */
+    public static final Event<BeforeGameStop> BEFORE_GAME_STOP = createArrayBacked(BeforeGameStop.class, listeners -> world -> {
+        for (BeforeGameStop listener : listeners) listener.beforeStop(world);
+    });
+
+    public interface BeforeGameStop {
+        void beforeStop(ServerWorld world);
+    }
+
     public static final Event<OnGameStart> ON_GAME_START = createArrayBacked(OnGameStart.class, listeners -> (gameMode) -> {
         for (OnGameStart listener : listeners) {
             listener.onGameStart(gameMode);
