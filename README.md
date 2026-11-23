@@ -17,7 +17,7 @@ Wathe 是一个基于 **Minecraft 1.21.1 + Fabric** 的列车狼人杀 / 社交�
 | Minecraft | `1.21.1` |
 | Fabric Loader | `0.16.10` |
 | Java | `21+` |
-| Mod 版本 | `1.3.3-1.21.1` |
+| Mod 版本 | `1.3.4-1.21.1` |
 | Gradle 插件 | Fabric Loom |
 | 主要依赖 | Fabric API、Cardinal Components API、MidnightLib、Ratatouille、DataSync、Simple Voice Chat API |
 

@@ -37,9 +37,9 @@ import java.util.Set;
  * CCA sync 发送；本 API 每秒只检查观察权限变化，在新增权限时补发、失去权限时清除客户端
  * 缓存，权限未变化时不发包。扩展也可调用 {@link #syncTrackedToRecipient} 立即刷新。</p>
  *
- * <p>当前支持 Wathe 的 poison/mood/stamina/shop/note/grenade_throw_mode/instinct 七个私有组件。
- * 它们均使用 CCA 默认 NBT 同步格式，空 NBT 会将客户端组件恢复默认值。其它组件若使用自定义
- * 二进制包，不能直接注册到这里，否则撤销权限时的清空包不兼容。停电药水归属组件仍仅在服务端。</p>
+ * <p>默认入口只支持 Wathe 的 poison/mood/stamina/shop/note/grenade_throw_mode/instinct 七个私有组件。
+ * 扩展自有玩家组件需要通过 {@link #registerNbtObserverRule} 显式接入，并保证空 NBT 可清空客户端状态。
+ * 自定义二进制格式不能接入，否则与撤销权限时的清空包不兼容。停电药水归属组件仍仅在服务端。</p>
  */
 public final class PlayerComponentSyncApi {
     public static final int DEFAULT_PRIORITY = 0;
@@ -84,7 +84,7 @@ public final class PlayerComponentSyncApi {
     }
 
     /**
-     * 注册某个玩家组件的额外观察者规则。
+     * 注册 Wathe 内置私有玩家组件的额外观察者规则。
      *
      * <p>同一个 registrationId 重复注册会替换旧规则，方便扩展初始化和兼容层安全重入。
      * handler 返回 true 只代表“允许该 recipient 接收 owner 的这个组件”，不改变服务端玩法。
@@ -97,12 +97,30 @@ public final class PlayerComponentSyncApi {
             int priority,
             @NotNull ObserverRule handler
     ) {
-        Objects.requireNonNull(registrationId, "registrationId");
         Objects.requireNonNull(key, "key");
-        Objects.requireNonNull(handler, "handler");
         if (!SUPPORTED_COMPONENTS.contains(key.getId().toString())) {
             throw new IllegalArgumentException("Unsupported private player component: " + key.getId());
         }
+        registerNbtObserverRule(registrationId, key, priority, handler);
+    }
+
+    /**
+     * 为调用方自有的、已绑定到玩家的 CCA 组件注册额外观察者。
+     *
+     * <p>接入方必须让组件的 {@code shouldSyncWith} 调用本 API，并使用 CCA 的 NBT 同步格式。
+     * 接收空 NBT 必须清空客户端副本；接收者失去权限时 Wathe 会主动发送该空包。
+     * 可在 {@code writeSyncPacket} 内只发送观察所需字段，不要因此公开存档里的私有内容。
+     * 此入口不改变内置入口的白名单，也不为组件默认开放任何额外接收者。</p>
+     */
+    public static synchronized void registerNbtObserverRule(
+            @NotNull Identifier registrationId,
+            @NotNull ComponentKey<? extends AutoSyncedComponent> key,
+            int priority,
+            @NotNull ObserverRule handler
+    ) {
+        Objects.requireNonNull(registrationId, "registrationId");
+        Objects.requireNonNull(key, "key");
+        Objects.requireNonNull(handler, "handler");
         RULES.removeIf(entry -> entry.registrationId().equals(registrationId));
         RULES.add(new RuleEntry(registrationId, key.getId(), priority, nextOrder++, handler));
         RULES.sort(RULE_COMPARATOR);

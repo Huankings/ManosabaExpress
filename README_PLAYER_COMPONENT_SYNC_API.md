@@ -58,8 +58,10 @@ Wathe 的 `game/instinct/InstinctMoodSyncHandler` 注册原生本能所需的心
 
 除该内置心情规则及 NoellesRoles 注册的毒药规则，其他组件仍然只有本人同步；体力和心情的 5 tick 校准节奏保持不变。心情仍按原有完整 NBT 协议发送，任务结构变化及主动设置立即同步，连续下降低频校准；本轮没有新增逐 tick 广播，也没有改变颜色阈值的严格小于边界。
 
-上述组件使用默认 CCA NBT 同步，空 NBT 可还原客户端默认值。API 会拒绝未支持的组件，避免向自定义二进制 codec 误发空 NBT。
-将来若改动支持组件的同步格式或默认读取行为，需要同时调整撤销授权时的清空协议。
+上述组件使用默认 CCA NBT 同步，空 NBT 可还原客户端默认值。`registerObserverRule` 仍拒绝不在内置白名单里的组件。
+扩展自有的玩家组件要接入此流程，使用 `registerNbtObserverRule` 显式注册；组件的 `shouldSyncWith`
+需委托 `PlayerComponentSyncApi.shouldSyncWith`，并保证收到空 NBT 时恢复客户端默认值。可通过
+`writeSyncPacket` 只发送观察者需要的字段，自定义二进制同步协议不能使用此入口。
 `PlayerBlackoutEffectComponent` 仍保留此前注释掉的发送代码与禁止同步设置，不在本 API 范围内。
 
 更新时先编译 Wathe、复制新 jar 到扩展 `libs`，再编译扩展。服务端和客户端使用配套的新 Wathe/NoellesRoles jar。
