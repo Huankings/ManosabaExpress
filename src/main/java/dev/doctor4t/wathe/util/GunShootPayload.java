@@ -5,6 +5,7 @@ import dev.doctor4t.wathe.api.combat.GunShotApi;
 import dev.doctor4t.wathe.api.combat.GunShotContext;
 import dev.doctor4t.wathe.api.combat.GunShotResult;
 import dev.doctor4t.wathe.api.combat.RevolverPenaltyContext;
+import dev.doctor4t.wathe.api.mood.PlayerMoodReductionApi.MoodReductionCause;
 import dev.doctor4t.wathe.cca.GameWorldComponent;
 import dev.doctor4t.wathe.cca.PlayerMoodComponent;
 import dev.doctor4t.wathe.game.GameConstants;
@@ -114,7 +115,9 @@ public record GunShootPayload(int target) implements CustomPayload {
                                 item.setThrower(player);
                             }
                             ServerPlayNetworking.send(player, new GunDropPayload());
-                            PlayerMoodComponent.KEY.get(player).setMood(0);
+                            // 枪械误伤规则已确认要惩罚，心情扣减保护不再介入这次改值。
+                            PlayerMoodComponent.KEY.get(player).setMoodWithCause(
+                                    GameConstants.GUN_FRIENDLY_FIRE_PENALTY_MOOD, MoodReductionCause.GUN_FRIENDLY_FIRE_PENALTY);
                         }, 4);
                     }
                 }

@@ -197,6 +197,8 @@ public interface GameConstants {
     // 心情任务相关常量
     float MOOD_GAIN = 0.4f;
     float MOOD_DRAIN = 1f / getInTicks(3, 20);
+    /** 枪械误伤惩罚成立且未走反火分支时，强制设定的真实心情值。 */
+    float GUN_FRIENDLY_FIRE_PENALTY_MOOD = 0f;
     int TIME_TO_FIRST_TASK = getInTicks(0, 30);
     int MIN_TASK_COOLDOWN = getInTicks(0, 30);
     int MAX_TASK_COOLDOWN = getInTicks(1, 0);

@@ -4,6 +4,8 @@ import dev.doctor4t.wathe.Wathe;
 import dev.doctor4t.wathe.api.PlayerLifeStateApi;
 import dev.doctor4t.wathe.api.Role;
 import dev.doctor4t.wathe.api.client.mood.PsychosisItemApi;
+import dev.doctor4t.wathe.api.mood.PlayerMoodReductionApi;
+import dev.doctor4t.wathe.api.mood.PlayerMoodReductionApi.MoodReductionCause;
 import dev.doctor4t.wathe.api.mood.PlayerMoodTypeApi;
 import dev.doctor4t.wathe.api.task.MoodTaskApi;
 import dev.doctor4t.wathe.api.task.MoodTaskDefinition;
@@ -287,12 +289,12 @@ public class PlayerMoodComponent implements AutoSyncedComponent, ServerTickingCo
      * 内部静默设置心情值。
      * 只更新状态并标脏，不会立刻同步，适合 serverTick 内部频繁调用。
      */
-    private boolean setMoodSilently(float mood) {
+    private boolean setMoodSilently(float mood, MoodReductionCause cause) {
         Role role = getCurrentRole();
         float oldMood = this.mood;
 
         if (hasRealMood(role)) {
-            this.mood = MathHelper.clamp(mood, 0f, 1f);
+            this.mood = this.resolveRealMood(mood, cause);
         } else {
             this.mood = 1f;
         }
@@ -304,12 +306,25 @@ public class PlayerMoodComponent implements AutoSyncedComponent, ServerTickingCo
         return false;
     }
 
+    /** 服务端真实改值和客户端自然衰减预测共用规则，仍由各自的流程决定何时标脏和同步。 */
+    private float resolveRealMood(float requestedMood, MoodReductionCause cause) {
+        return PlayerMoodReductionApi.resolveMood(this.player, this.mood, MathHelper.clamp(requestedMood, 0f, 1f), cause);
+    }
+
     /**
-     * 对外暴露的设置心情方法。
-     * 用于命令、调试或其他外部逻辑直接改值时，改完后会立即同步。
+     * 对外暴露的普通设置心情方法。普通扣减受规则控制，实际改值后会立即同步。
+     * 保留原签名和任务奖励调用点，以兼容既有扩展。
      */
     public void setMood(float mood) {
-        boolean changed = this.setMoodSilently(mood);
+        this.setMoodWithCause(mood, MoodReductionCause.DIRECT);
+    }
+
+    /**
+     * 按指定来源立即设置心情，供服务端误伤惩罚和管理员指令使用。
+     * 显式来源只影响扣减保护，真实、虚假或无心情的数值约束仍由组件处理。
+     */
+    public void setMoodWithCause(float mood, @NotNull MoodReductionCause cause) {
+        boolean changed = this.setMoodSilently(mood, cause);
         if (changed || this.dirty) {
             this.sync();
             this.clearSyncDirtyFlags();
@@ -947,11 +962,10 @@ public class PlayerMoodComponent implements AutoSyncedComponent, ServerTickingCo
 
         this.tickExternalMoodDrainProtection(false);
 
-        // 客户端做一次本地预测，让心情 HUD 的下降更平滑。
-        // 掉速保持原版：只要身上有任务，就按单任务速度扣一次。
+        // 客户端用与服务端相同的掉速和保护规则做本地预测，让心情 HUD 平滑变化。
         boolean hasRealMood = this.hasRealMood(role);
         if (hasRealMood && !this.activeTasks.isEmpty() && !this.hasMoodDrainProtection()) {
-            this.mood = MathHelper.clamp(this.mood - this.getCurrentMoodDrainPerTick(), 0f, 1f);
+            this.mood = this.resolveRealMood(this.mood - this.getCurrentMoodDrainPerTick(), MoodReductionCause.TASK_DRAIN);
         }
 
         boolean defaultHallucinationEnabled = this.isLowerThanMid();
@@ -1080,7 +1094,7 @@ public class PlayerMoodComponent implements AutoSyncedComponent, ServerTickingCo
 
         // 真实心情角色只要身上还有任务，就按当前开关决定单任务或多任务倍率掉心情。
         if (hasRealMood && !this.activeTasks.isEmpty() && !this.hasMoodDrainProtection()) {
-            this.setMoodSilently(this.mood - this.getCurrentMoodDrainPerTick());
+            this.setMoodSilently(this.mood - this.getCurrentMoodDrainPerTick(), MoodReductionCause.TASK_DRAIN);
         }
 
         if (hasRealMood && !randomTaskSpawnMode) {

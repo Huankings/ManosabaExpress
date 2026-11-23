@@ -4,6 +4,7 @@ import com.google.common.collect.ImmutableList;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.FloatArgumentType;
 import dev.doctor4t.wathe.Wathe;
+import dev.doctor4t.wathe.api.mood.PlayerMoodReductionApi.MoodReductionCause;
 import dev.doctor4t.wathe.cca.PlayerMoodComponent;
 import net.minecraft.command.argument.EntityArgumentType;
 import net.minecraft.server.command.CommandManager;
@@ -21,7 +22,7 @@ import java.util.Collection;
  * 1. {@code /wathe:setMood <0-1>} 设置自己；
  * 2. {@code /wathe:setMood <0-1> <players>} 设置指定玩家。
  *
- * <p>最终仍然走 {@link PlayerMoodComponent#setMood(float)}，
+ * <p>管理员写入以 {@link MoodReductionCause#ADMIN_COMMAND} 跳过扣减保护，
  * 因此只有“真实心情”职业会保留指定值；无心情或假心情职业仍会显示为 1。</p>
  */
 public class SetMoodCommand {
@@ -47,7 +48,8 @@ public class SetMoodCommand {
     private static int execute(ServerCommandSource source, Collection<ServerPlayerEntity> targets, float amount) {
         return Wathe.executeSupporterCommand(source, () -> {
             for (ServerPlayerEntity target : targets) {
-                PlayerMoodComponent.KEY.get(target).setMood(amount);
+                // 允许管理员在免降状态中直接调低真实心情，以测试低心情阈值。
+                PlayerMoodComponent.KEY.get(target).setMoodWithCause(amount, MoodReductionCause.ADMIN_COMMAND);
             }
             source.sendFeedback(
                     () -> Text.literal("已将 ").formatted(Formatting.GREEN)

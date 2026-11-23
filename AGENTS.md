@@ -88,6 +88,7 @@
 - 玩家体力：`PlayerStaminaApi`、`PlayerStaminaComponent`
 - 有限体力免消耗：`PlayerStaminaApi.registerConsumptionRule`、`consumeStamina`（强制扣除仍用 `drainStamina`）
 - 动态玩家心情类型：`dev.doctor4t.wathe.api.mood.PlayerMoodTypeApi`
+- 真实心情扣减规则：`dev.doctor4t.wathe.api.mood.PlayerMoodReductionApi`
 - 结算阵营迁移：`dev.doctor4t.wathe.api.round.RoundEndFactionApi`（同时影响普通阵营个人胜负）
 - 玩家移动速度：`PlayerMovementApi`
 - 玩家 / 尸体可见、可选中、可交互、可攻击：`TargetVisibilityApi`
@@ -459,6 +460,13 @@ Wathe 的地图雾和扩展职业临时雾效统一走：
 - 调试指令：`/wathe:setMood <0-1> [players]`、`/wathe:moodStaminaPenalty`、`/wathe:moodStaminaPenalty mid <true|false>`、`/wathe:moodStaminaPenalty depressive <true|false>`。
 - 扩展侧按职业或词条拆到 `roles/<role>/<RoleName>MovementHandler` 或 `modifiers/<modifier>/*MovementHandler`，聚合 bootstrap 只调用各 handler 的 `init()`。
 - 体力消耗规则也可按 `*StaminaHandler` 拆分，复用移动 bootstrap；NoellesRoles 的厨师由 `CookStaminaHandler` 注册，启动疯魔时仅回满一次，规则跟随已同步的疯魔 profile，无需额外 tick/上限备份状态。
+
+## 真实心情扣减 API
+
+- 保护自然衰减或普通技能扣值使用 `PlayerMoodReductionApi.registerRule(id, priority, rule)`。`PASS` 继续，`APPLY` 允许扣减，`SKIP` 保留当前值。优先级越大越先执行，同优先级后注册者先执行，相同 ID 替换。
+- 自然衰减规则在服务端和客户端预测中都执行。回调只读取同步状态和上下文里的当前值、目标值及来源。已有的 `setMoodDrainProtectionTicks` 继续用于固定时长的自然衰减保护。
+- `setMood(float)` 保持普通扣值语义。已经成立的枪械误伤惩罚使用 `setMoodWithCause(..., GUN_FRIENDLY_FIRE_PENALTY)`，管理员指令使用 `ADMIN_COMMAND`，两者直接通过扣减保护。调用方需先完成相应的误伤判定或管理员权限校验。
+- 任务回升、有效心情类型、回合重置及快照恢复继续由各自的流程处理。扩展按职业或词条注册保护规则，使用通用初始化让两端加载同一规则。
 
 ## 动态心情类型与结算阵营 API
 
