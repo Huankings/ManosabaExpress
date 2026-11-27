@@ -1299,3 +1299,20 @@ Wathe 会统一绘制职业详情、阵营、名字、杀手同伙，再绘制 `
 行会从玩家名字向上排列。多家扩展同时注册时会按 priority 稳定排序并自动增加行距，因此
 不会出现同伙提示与职业附加提示重叠。旧 `registerExtraHud` 仍保留兼容，但新增准心信息应优先
 使用动态附加行接口。涉及 Wathe API 的扩展必须先构建 Wathe，再替换依赖 jar 后构建下游工程。
+
+### 非存活观察者身份和尸体透视覆盖
+
+客户端公开入口为 `dev.doctor4t.wathe.api.client.appearance.ObserverRoleDisplayApi`。
+
+- `registerPlayerDisplay(id, priority, handler)` 注册观察者显示身份。上下文提供观察者、目标实体和默认职业，返回 `PlayerDisplay(role, detailsSourceUuid)`，分别决定职业名/色/阵营和身体词条资料来源。
+- `registerBodyColor(id, priority, handler)` 注册尸体透视显示色。上下文包含观察者、尸体和默认颜色，返回 24 位 RGB，负值表示隐藏描边。
+- 两类规则均按 priority 降序、同优先级后注册优先执行，同 id 替换，返回 null 继续后续规则。
+- 解析入口统一采用 `GameFunctions.isPlayerSpectatingOrCreative(viewer)`。具有特殊存活授权的旁观玩家继续使用存活视角。
+
+Harpy 玩家观察者本能和 Wathe 尸体观察者本能使用 `OBSERVER_INSTINCT_PRIORITY`，其内部再询问显示 API。扩展可以用常规 priority 登记临时身体身份。尸体入口检查本能开关，最终描边经过 `TargetVisibilityApi` 可见性判定。
+
+`RoleNameHudApi.TargetLineContext` 新增 `detailsSourceUuid()`，三参数构造入口继续可用。职业详情和阵营行使用统一解析后的职业，Harpy 使用资料来源 UUID 组织 `职业[词条][词条]`。provider 应仅读取同步数据。
+
+NoellesRoles 灵媒在接管阶段返回灵媒职业和灵媒 UUID。原尸体透视色由灵媒接受召唤前的真实分配职业冻结，写入该尸体的专用显示色组件，并随尸体 NBT 和回溯保存。验尸信息沿用 Wathe 的死亡时快照。
+
+更新该 API 后，按 Wathe、HarpyModLoader、NoellesRoles 的顺序构建和传递非 sources jar，再验证相关下游扩展。

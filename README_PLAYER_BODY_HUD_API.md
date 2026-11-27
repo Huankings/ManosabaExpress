@@ -67,3 +67,11 @@ PlayerBodyInfoApi.initializeSynthetic(body, new PlayerBodyInfoSnapshot(
 时停者恢复历史尸体 NBT 后只同步新基准，HUD 时间和尸体分解进度会一起回退。
 
 Harpy 的词条快照和扩展的尸体吞噬状态同样必须写入尸体 NBT，才能随时停者尸体快照恢复。
+
+## 观察者尸体透视颜色覆盖
+
+`ObserverRoleDisplayApi.registerBodyColor(id, priority, handler)` 为非存活观察者提供独立的透视色覆盖。返回 RGB 结束解析，返回 null 继续后续规则，负值表示隐藏描边。上下文包含尸体和原有默认色，原尸体的验尸资料可通过 `context.body()` 查询。
+
+NoellesRoles 灵媒选择在接受申请之前读取灵魂的真实分配职业颜色，将这个时点的 RGB 写入专用尸体组件。玩家死后通过 `/setRole` 改职业，再接受召唤时，透视颜色会保存新职业色。验尸 HUD 继续读取 `PlayerBodyInfoApi` 保存的死亡时职业，因而两者允许显示不同职业色。
+
+此显示组件随尸体 NBT 捕获，时停回溯的最终帧会补发恢复后的组件状态。人工伪尸体继续使用自身规则。

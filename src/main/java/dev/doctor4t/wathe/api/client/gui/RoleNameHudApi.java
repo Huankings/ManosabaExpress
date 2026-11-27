@@ -1,5 +1,6 @@
 package dev.doctor4t.wathe.api.client.gui;
 
+import dev.doctor4t.wathe.api.client.appearance.ObserverRoleDisplayApi;
 import dev.doctor4t.wathe.entity.PlayerBodyEntity;
 import dev.doctor4t.wathe.game.GameFunctions;
 import dev.doctor4t.wathe.api.Faction;
@@ -25,6 +26,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
+import java.util.UUID;
 
 /**
  * Wathe 准心名字 HUD 的公开客户端接入点。
@@ -235,7 +237,7 @@ public final class RoleNameHudApi {
     public static @Nullable RoleNameLine resolveRoleDetailsLine(@NotNull ClientPlayerEntity viewer,
                                                                 @NotNull PlayerEntity target,
                                                                 @Nullable Role targetRole) {
-        TargetLineContext context = new TargetLineContext(viewer, target, targetRole);
+        TargetLineContext context = observerLineContext(viewer, target, targetRole);
         for (Entry<TargetLineHandler> entry : snapshot(ROLE_DETAILS_LINE_HANDLERS)) {
             RoleNameLine result = entry.handler().resolve(context);
             if (result != null) {
@@ -255,17 +257,23 @@ public final class RoleNameHudApi {
     public static @Nullable RoleNameLine resolveAffiliationLine(@NotNull ClientPlayerEntity viewer,
                                                                 @NotNull PlayerEntity target,
                                                                 @Nullable Role targetRole) {
-        TargetLineContext context = new TargetLineContext(viewer, target, targetRole);
+        TargetLineContext context = observerLineContext(viewer, target, targetRole);
         for (Entry<TargetLineHandler> entry : snapshot(AFFILIATION_LINE_HANDLERS)) {
             RoleNameLine result = entry.handler().resolve(context);
             if (result != null) {
                 return result;
             }
         }
-        if (!GameFunctions.isPlayerSpectatingOrCreative(viewer) || targetRole == null) {
+        if (!GameFunctions.isPlayerSpectatingOrCreative(viewer) || context.targetRole() == null) {
             return null;
         }
-        return defaultAffiliationLine(targetRole.getFaction());
+        return defaultAffiliationLine(context.targetRole().getFaction());
+    }
+
+    /** 职业详情、词条资料来源和阵营行共用观察者显示身份，避免分开覆盖造成资料混搭。 */
+    private static TargetLineContext observerLineContext(ClientPlayerEntity viewer, PlayerEntity target, Role role) {
+        var display = ObserverRoleDisplayApi.resolvePlayerDisplay(viewer, target, role);
+        return new TargetLineContext(viewer, target, display.role(), display.detailsSourceUuid());
     }
 
     /**
@@ -393,7 +401,12 @@ public final class RoleNameHudApi {
      */
     public record TargetLineContext(@NotNull ClientPlayerEntity viewer,
                                     @NotNull PlayerEntity target,
-                                    @Nullable Role targetRole) {
+                                    @Nullable Role targetRole,
+                                    @NotNull UUID detailsSourceUuid) {
+        /** 保留已有扩展调用的三参数构造入口，默认从目标本人读取附属身份资料。 */
+        public TargetLineContext(ClientPlayerEntity viewer, PlayerEntity target, Role targetRole) {
+            this(viewer, target, targetRole, target.getUuid());
+        }
     }
 
     /**

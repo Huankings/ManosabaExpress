@@ -44,7 +44,6 @@ import dev.doctor4t.wathe.client.render.entity.NoteEntityRenderer;
 import dev.doctor4t.wathe.client.util.WatheItemTooltips;
 import dev.doctor4t.wathe.entity.FirecrackerEntity;
 import dev.doctor4t.wathe.entity.NoteEntity;
-import dev.doctor4t.wathe.entity.PlayerBodyEntity;
 import dev.doctor4t.wathe.game.GameConstants;
 import dev.doctor4t.wathe.game.GameFunctions;
 import dev.doctor4t.wathe.index.*;
@@ -609,6 +608,9 @@ public class WatheClient implements ClientModInitializer {
         }
         defaultInstinctHandlersRegistered = true;
 
+        // 尸体观察者规则在独立最高级入口处理，身份覆盖由公开 API 再按 priority 解析。
+        dev.doctor4t.wathe.client.instinct.ObserverBodyInstinctHandler.register();
+
         /*
          * Wathe 原生本能资格：杀手活着且本能键激活，或旁观/创造视角且本能键激活。
          *
@@ -645,13 +647,6 @@ public class WatheClient implements ClientModInitializer {
 
             GameWorldComponent component = GameWorldComponent.KEY.get(viewer.getWorld());
 
-            // 尸体职业色只开放给“自己已经不在局内存活状态”的观察视角使用。
-            if (target instanceof PlayerBodyEntity body) {
-                return GameFunctions.isPlayerSpectatingOrCreative(viewer)
-                        ? colorOrPass(getInstinctRoleHighlight(body.getPlayerUuid()))
-                        : InstinctApi.HighlightResult.pass();
-            }
-
             if (target instanceof ItemEntity || target instanceof NoteEntity || target instanceof FirecrackerEntity) {
                 return InstinctApi.HighlightResult.color(0xDB9D00);
             }
@@ -680,10 +675,6 @@ public class WatheClient implements ClientModInitializer {
             }
             return InstinctApi.HighlightResult.pass();
         });
-    }
-
-    private static InstinctApi.HighlightResult colorOrPass(int color) {
-        return color == -1 ? InstinctApi.HighlightResult.pass() : InstinctApi.HighlightResult.color(color);
     }
 
     /**

@@ -812,3 +812,12 @@ StarryExpress 当前只构建指南书和装饰内容；其源码路径虽然位
 - Wathe `RoleNameRenderer` 负责收集所有 provider、补透明度、计算行距；扩展只提供文字、颜色和缩放。
 - `registerExtraHud` 仅用于尚未迁移的兼容 HUD。新增或重构 HUD 时必须迁移到动态附加行，避免与 Harpy 同伙行重叠。
 - 修改该 API 后必须先构建 Wathe，将非 sources jar 替换到 HarpyModLoader、NoellesRoles、kinssaba 等依赖工程，再按依赖顺序构建。
+
+## 观察者身份显示公开 API
+
+- 入口为 `api/client/appearance/ObserverRoleDisplayApi`，玩家显示身份用 `registerPlayerDisplay`，尸体透视色用 `registerBodyColor`。
+- 规则包含稳定 id、priority 和只读上下文，null 表示 PASS，同优先级后注册优先，同 id 替换。所有身份覆盖经过 `isPlayerSpectatingOrCreative` 的普通非存活边界。
+- 观察者本能最高优先级在内部调用显示 API，扩展覆盖优先级在该独立注册表中比较。Wathe 尸体入口位于 `client/instinct/ObserverBodyInstinctHandler`，Harpy 玩家入口位于自身 observer 包。
+- `PlayerDisplay.role` 供职业名、职业色和阵营使用，`detailsSourceUuid` 供 Harpy 读取身体词条。`RoleNameHudApi.TargetLineContext` 提供该 UUID，并保留旧三参数构造入口。
+- 灵媒原尸体的覆盖色取自接受召唤前 `getAssignedRole` 的颜色，保存在具体尸体的 `noellesroles:medium_body_color` CCA。Wathe 的死亡职业和验尸快照继续按既有机制保存。
+- 修改身份显示 API 后，更新本项目 README、相关尸体 API 文档及 Harpy/Noelles 文档，按依赖顺序构建和复制非 sources jar。
